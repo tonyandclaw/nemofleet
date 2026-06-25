@@ -14,6 +14,7 @@
 # ── repo root (authoritative: derive from this file's own location) ───────────
 NEMOFLEET_ROOT="${NEMOFLEET_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DIR="$NEMOFLEET_ROOT"   # back-compat alias used throughout the scripts
+export NEMOFLEET_ROOT DIR   # so child services (e.g. the dashboard) inherit the root
 
 # ── load local overrides (untracked) ─────────────────────────────────────────
 [ -f "$NEMOFLEET_ROOT/.env" ] && . "$NEMOFLEET_ROOT/.env"
