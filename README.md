@@ -102,6 +102,7 @@ The `config/**/*.example.json` files document schema only — no real credential
 
 ## 文件 (docs)
 
+- `services/bridge/README.md` — **status dashboard control surface** (every GUI action → CLI → guard) + how to add more
 - `docs/design/architecture.md` — architecture (mermaid + ASCII)
 - `docs/design/combined-use-case.md` — combined use case + interface asymmetry
 - `docs/design/business-case.md` — business plan draft
