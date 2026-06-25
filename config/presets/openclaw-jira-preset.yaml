@@ -1,0 +1,18 @@
+preset:
+  name: openclaw-jira
+  description: "OpenClaw IT escalation → governed Jira/ITSM egress (修不了/需人審→開單,受 policy:jira 治理)"
+network_policies:
+  jira:
+    name: jira
+    endpoints:
+      # mock Jira(host gateway 後;真環境換成公司 Jira host)。HTTP via L7 proxy。
+      - host: host.openshell.internal
+        port: 3690
+        access: full
+        tls: skip
+        allowed_ips:
+          # OpenShell SSRF guard 對私有 host-gateway IP(172.18.0.1)需明示放行
+          - 172.16.0.0/12
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/python3* }

@@ -1,0 +1,27 @@
+# 模板:172.18.0.2 與 172.16.0.0/12 是占位,boot-stack ensure_xagent 會以
+# docker inspect 取得 my-assistant 當前 IP 渲染成 <IP> 與 <IP>/32 再 policy-add。
+preset:
+  name: openclaw-bridge
+  description: "Hermes -> OpenClaw inbound fix endpoint (scoped; the ONLY cross-agent channel)"
+network_policies:
+  openclaw_bridge:
+    name: openclaw_bridge
+    endpoints:
+      - host: 172.18.0.2          # 節點 A = my-assistant(zone A 無線線);boot-stack 渲染當前 IP
+        port: 9099
+        access: full
+        tls: skip
+        allowed_ips:
+          - 172.16.0.0/12         # boot-stack 渲染成 <my-assistant IP>/32(收斂)
+      - host: 172.18.0.4          # 節點 B = openclaw-2(zone B 基礎設施線);boot-stack 渲染當前 IP
+        port: 9099
+        access: full
+        tls: skip
+        allowed_ips:
+          - 172.17.0.0/12         # boot-stack 渲染成 <openclaw-2 IP>/32(不同占位避免 sed 撞)
+    binaries:
+      - { path: /usr/local/bin/hermes }
+      - { path: /opt/hermes/.venv/bin/python }
+      - { path: /usr/bin/python3* }
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/socat }

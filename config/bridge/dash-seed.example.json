@@ -1,0 +1,6 @@
+{
+  "email": "admin@example.com",
+  "password": "change-me-now",
+  "role": "admin",
+  "must_change": true
+}

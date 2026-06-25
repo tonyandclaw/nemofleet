@@ -1,0 +1,5 @@
+{
+  "max_sessions": 3,
+  "timeout_min": 30,
+  "ip_whitelist": []
+}

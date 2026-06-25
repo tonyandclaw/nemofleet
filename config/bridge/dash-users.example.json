@@ -1,0 +1,10 @@
+{
+  "_comment": "Schema example only — NOT real credentials. The dashboard's first admin is seeded from config/bridge/dash-seed.json (git-ignored; see config/bridge/README.md). Hashed users are written to services/bridge/dash-users.json (git-ignored).",
+  "admin@example.com": {
+    "salt": "<HEX_SALT>",
+    "pwhash": "<PBKDF2_SHA256_HEX>",
+    "role": "admin",
+    "created": "1970-01-01 00:00:00",
+    "must_change": true
+  }
+}

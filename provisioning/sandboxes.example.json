@@ -1,0 +1,113 @@
+{
+  "sandboxes": {
+    "my-assistant": {
+      "name": "my-assistant",
+      "createdAt": "2026-06-05T01:14:21.184Z",
+      "model": "Kimi-K2.5",
+      "nimContainer": null,
+      "provider": "compatible-endpoint",
+      "gpuEnabled": false,
+      "hostGpuDetected": false,
+      "sandboxGpuEnabled": false,
+      "sandboxGpuMode": "auto",
+      "sandboxGpuDevice": null,
+      "openshellDriver": "docker",
+      "openshellVersion": "0.0.39",
+      "policies": [
+        "npm",
+        "pypi",
+        "brew",
+        "brave"
+      ],
+      "policyTier": "balanced",
+      "agent": null,
+      "agentVersion": "2026.4.24",
+      "imageTag": "openshell/sandbox-from:1780621424",
+      "messagingChannels": [],
+      "dashboardPort": 18789,
+      "customPolicies": [
+        {
+          "name": "openclaw-jira",
+          "content": "preset:\n  name: openclaw-jira\n  description: \"OpenClaw IT escalation → governed Jira/ITSM egress (修不了/需人審→開單,受 policy:jira 治理)\"\nnetwork_policies:\n  jira:\n    name: jira\n    endpoints:\n      # mock Jira(host gateway 後;真環境換成公司 Jira host)。HTTP via L7 proxy。\n      - host: host.openshell.internal\n        port: 3690\n        access: full\n        tls: skip\n        allowed_ips:\n          # OpenShell SSRF guard 對私有 host-gateway IP(172.18.0.1)需明示放行\n          - 172.16.0.0/12\n    binaries:\n      - { path: /usr/bin/curl }\n      - { path: /usr/bin/python3* }\n",
+          "sourcePath": "${NEMOFLEET_ROOT}/config/presets/openclaw-jira-preset.yaml",
+          "appliedAt": "2026-06-11T17:09:58.438Z"
+        }
+      ]
+    },
+    "hermes-demo": {
+      "name": "hermes-demo",
+      "createdAt": "2026-06-06T14:40:36.024Z",
+      "model": "Kimi-K2.5",
+      "nimContainer": null,
+      "provider": "compatible-endpoint",
+      "gpuEnabled": false,
+      "hostGpuDetected": false,
+      "sandboxGpuEnabled": false,
+      "sandboxGpuMode": "auto",
+      "sandboxGpuDevice": null,
+      "openshellDriver": "docker",
+      "openshellVersion": "0.0.39",
+      "policies": [
+        "npm",
+        "pypi",
+        "brew",
+        "github",
+        "slack",
+        "telegram"
+      ],
+      "policyTier": null,
+      "agent": "hermes",
+      "agentVersion": "2026.4.23",
+      "imageTag": "openshell/sandbox-from:1780756676",
+      "messagingChannels": [
+        "telegram"
+      ],
+      "dashboardPort": 8642,
+      "providerCredentialHashes": {
+        "TELEGRAM_BOT_TOKEN": "<TELEGRAM_BOT_TOKEN_HASH>"
+      },
+      "customPolicies": [
+        {
+          "name": "greenmail-mail",
+          "content": "preset:\n  name: greenmail-mail\n  description: \"Local GreenMail mail server for email-channel demo (IMAPS 3993 + SMTP/STARTTLS shim 3587 via host gateway)\"\n\nnetwork_policies:\n  greenmail_mail:\n    name: greenmail_mail\n    endpoints:\n      # IMAPS(implicit TLS)— 原生 TLS 協定,非 HTTP,必須 L4 pass-through\n      - host: host.openshell.internal\n        port: 3993\n        access: full\n        tls: skip\n        allowed_ips:\n          # OpenShell SSRF guard 對私有 host-gateway IP 需明示放行\n          - 172.16.0.0/12\n      # SMTP submission(STARTTLS shim)— 同樣 L4 pass-through\n      - host: host.openshell.internal\n        port: 3587\n        access: full\n        tls: skip\n        allowed_ips:\n          - 172.16.0.0/12\n    binaries:\n      - { path: /usr/local/bin/hermes }\n      - { path: /opt/hermes/.venv/bin/python }\n      - { path: /usr/bin/python3* }\n      - { path: /usr/bin/socat }   # in-netns CONNECT 橋(imaplib/smtplib 不會講 HTTP proxy)\n",
+          "sourcePath": "${NEMOFLEET_ROOT}/config/presets/greenmail-preset.yaml",
+          "appliedAt": "2026-06-07T01:56:26.637Z"
+        },
+        {
+          "name": "openclaw-bridge",
+          "content": "# 模板:172.18.0.2 與 172.18.0.2/32 是占位,boot-stack ensure_xagent 會以\n# docker inspect 取得 my-assistant 當前 IP 渲染成 <IP> 與 <IP>/32 再 policy-add。\npreset:\n  name: openclaw-bridge\n  description: \"Hermes -> OpenClaw inbound fix endpoint (scoped; the ONLY cross-agent channel)\"\nnetwork_policies:\n  openclaw_bridge:\n    name: openclaw_bridge\n    endpoints:\n      - host: 172.18.0.2          # 節點 A = my-assistant(zone A 無線線);boot-stack 渲染當前 IP\n        port: 9099\n        access: full\n        tls: skip\n        allowed_ips:\n          - 172.18.0.2/32         # boot-stack 渲染成 <my-assistant IP>/32(收斂)\n      - host: 172.18.0.4          # 節點 B = openclaw-2(zone B 基礎設施線);boot-stack 渲染當前 IP\n        port: 9099\n        access: full\n        tls: skip\n        allowed_ips:\n          - 172.18.0.4/32         # boot-stack 渲染成 <openclaw-2 IP>/32(不同占位避免 sed 撞)\n    binaries:\n      - { path: /usr/local/bin/hermes }\n      - { path: /opt/hermes/.venv/bin/python }\n      - { path: /usr/bin/python3* }\n      - { path: /usr/bin/curl }\n      - { path: /usr/bin/socat }\n",
+          "sourcePath": "/tmp/openclaw-bridge-rendered.yaml",
+          "appliedAt": "2026-06-24T17:15:54.880Z"
+        }
+      ]
+    },
+    "openclaw-2": {
+      "name": "openclaw-2",
+      "createdAt": "2026-06-13T08:21:43.622Z",
+      "model": "Kimi-K2.5",
+      "nimContainer": null,
+      "provider": "compatible-endpoint",
+      "gpuEnabled": false,
+      "hostGpuDetected": false,
+      "sandboxGpuEnabled": false,
+      "sandboxGpuMode": "auto",
+      "sandboxGpuDevice": null,
+      "openshellDriver": "docker",
+      "openshellVersion": "0.0.39",
+      "policies": [
+        "npm",
+        "pypi",
+        "huggingface",
+        "brew",
+        "brave"
+      ],
+      "policyTier": "balanced",
+      "agent": null,
+      "agentVersion": "2026.4.24",
+      "imageTag": "openshell/sandbox-from:1780621424",
+      "messagingChannels": [],
+      "dashboardPort": 18790
+    }
+  },
+  "defaultSandbox": "hermes-demo"
+}

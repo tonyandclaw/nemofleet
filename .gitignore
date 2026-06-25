@@ -1,0 +1,45 @@
+# ─── secrets / credentials (NEVER commit) ────────────────────────────────────
+.env
+*.pem
+*.key
+*.crt
+*.csr
+*.srl
+*.p12
+*.cred
+**/.bridge-token
+**/.nvd-api-key
+services/bridge/dash-users.json
+services/bridge/dash-auth.json
+services/bridge/notified.json
+config/bridge/dash-seed.json
+
+# ─── python / virtualenvs ────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ─── runtime data (kept as dirs via .gitkeep, contents ignored) ──────────────
+data/bus/inbox/*
+data/bus/outbox/*
+data/logs/*
+!**/.gitkeep
+*.log
+services/bridge/jira-tickets/
+services/**/jira-store*
+stack-sbom.json
+cve-scan-history.jsonl
+
+# ─── generated artifacts ─────────────────────────────────────────────────────
+tools/design-system/components/
+
+# ─── media kept local-only (per project decision) ────────────────────────────
+docs/decks/*
+docs/assets/*
+*.pptx
+
+# ─── OS / editor noise ───────────────────────────────────────────────────────
+.DS_Store
+*.swp
+.claude/
