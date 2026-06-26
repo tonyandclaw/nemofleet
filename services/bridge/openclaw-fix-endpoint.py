@@ -655,18 +655,7 @@ CIPHER_TIERS = {   # 各政策要「標為弱」的 cipher 樣式
 }
 # 每設備加密態勢(運維可盤點的對外服務:Web UI / VPN / 管理 SSH)。確定性資料,反映真實常見弱點態樣。
 CRYPTO_INVENTORY = {
-  "lab-asus-ebg19p-01": {
-    "certs": [
-      {"service": "Web UI (HTTPS:8443)", "cn": "EBG19P.local", "issuer": "self-signed", "self_signed": True,
-       "sig_alg": "sha1WithRSAEncryption", "key_type": "RSA", "key_bits": 2048, "not_after": "2026-07-05"},
-      {"service": "VPN gateway (SSL-VPN:443)", "cn": "vpn.ebg19p", "issuer": "self-signed", "self_signed": True,
-       "sig_alg": "sha256WithRSAEncryption", "key_type": "RSA", "key_bits": 1024, "not_after": "2027-01-12"},
-    ],
-    "tls": [{"service": "Web UI (HTTPS:8443)", "versions": ["TLSv1.0", "TLSv1.2"],
-             "ciphers": ["ECDHE-RSA-AES128-GCM-SHA256", "AES128-SHA", "DES-CBC3-SHA"]}],
-    "ssh": [{"service": "mgmt SSH:22", "kex": ["diffie-hellman-group14-sha1", "curve25519-sha256"],
-             "ciphers": ["aes128-ctr", "3des-cbc"], "hostkey": ["ssh-rsa", "rsa-sha2-256"]}],
-  },
+  # ebg19p 不放 demo —— 由 live probe(ebg19p-crypto.json)驅動;無新鮮探測即不報(寧缺勿假)。
   "lab-asus-rt-ax89x-01": {
     "certs": [
       {"service": "Web UI (HTTPS:8443)", "cn": "router.asus.com", "issuer": "self-signed", "self_signed": True,
@@ -727,7 +716,10 @@ def run_cert_scan(trigger="api"):
     _cfg = load_settings()
     findings = []
     _LIVE_CRYPTO = {"lab-asus-ebg19p-01": "ebg19p-crypto.json", "lab-asus-rt-ax89x-01": "rt-ax89x-crypto.json"}
-    for asset, inv in CRYPTO_INVENTORY.items():
+    _assets = dict(CRYPTO_INVENTORY)            # live-only 資產(如 ebg19p)補空 demo,僅靠 live probe
+    for _a in _LIVE_CRYPTO:
+        _assets.setdefault(_a, {})
+    for asset, inv in _assets.items():
         if not _monitor_asset(asset):
             continue
         rsa_min, warn_days, sig_min, cpat, ec_min = _eff_cert(_cfg, asset)
@@ -823,7 +815,7 @@ def run_cert_scan(trigger="api"):
         tickets.append(t["id"]); seen.add(key)
     os.makedirs(WD, exist_ok=True)
     report = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "trigger": trigger, "zone": ZONE,
-              "device_count": len([a for a in CRYPTO_INVENTORY if _monitor_asset(a)]),
+              "device_count": len([a for a in _assets if _monitor_asset(a)]),
               "counts": counts, "severity": sev, "findings": findings, "jira_opened": tickets,
               "schedule_interval_sec": CERT_INTERVAL}
     with open(f"{WD}/cert-report.json", "w", encoding="utf-8") as f:
