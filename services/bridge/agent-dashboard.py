@@ -452,9 +452,12 @@ def _collect_impl():
     for label, sb in (("Hermes", "hermes-demo"), ("OpenClaw A", "my-assistant"), ("OpenClaw B", "openclaw-2")):
         items = []
         for ln in sh(f"nemoclaw {sb} snapshot list 2>/dev/null", 10).splitlines():
-            mm = re.search(r"(v\d+)\s+(\S+)\s+(\S+)", ln)
-            if mm and mm.group(2) not in ("name=", "Version"):
-                items.append({"ver": mm.group(1), "name": mm.group(2), "ts": mm.group(3)})
+            vm = re.search(r"\b(v\d+)\b", ln)
+            tm = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z", ln)  # 抓真時間戳;Name 欄位可為空,不能靠位置
+            if not vm or not tm:
+                continue
+            nm = ln[vm.end():tm.start()].strip()
+            items.append({"ver": vm.group(1), "name": nm or "—", "ts": tm.group(0)})
         items = items[:6][::-1]   # CLI 新→舊;取最新 6 筆轉時間序(舊→新,最新在最後)
         by_agent.append({"label": label, "sb": sb, "items": items})
         all_names += [it["name"] for it in items]
