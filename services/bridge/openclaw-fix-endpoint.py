@@ -342,6 +342,7 @@ SETTINGS_DEFAULTS = {
   "cert_expire_warn_days": 30,   # 憑證提前幾天提醒
   "cert_rsa_min": 2048,          # RSA 金鑰最低位元
   "cert_sig_min": "sha256",      # 可接受最低簽章演算法(低於 → 弱):sha1|sha256|sha384
+  "cert_ec_min": 256,            # ECDSA 曲線最低強度(256/384/521;低於 → 弱)
   "cert_cipher_policy": "standard",  # 弱加密套件政策:lax|standard|strict|custom
   "cert_cipher_custom": ["RC4", "3DES", "DES", "NULL", "EXPORT", "-MD5"],  # policy=custom 時要標的套件家族
   "cert_overrides": {},          # 每設備覆寫:{asset:{cert_rsa_min,cert_sig_min,cert_cipher_policy,cert_expire_warn_days}}
@@ -361,6 +362,7 @@ _SET_RANGE = {
   "cve_interval_sec": {0, 3600, 21600, 86400}, "cert_interval_sec": {0, 3600, 21600, 86400},
   "cert_expire_warn_days": {7, 14, 30, 60, 90}, "cert_rsa_min": {2048, 3072, 4096},
   "cert_sig_min": {"sha1", "sha256", "sha384"}, "cert_cipher_policy": {"lax", "standard", "strict", "custom"},
+  "cert_ec_min": {256, 384, 521},
   "quiet_start": set(range(24)), "quiet_end": set(range(24)),
   "dev_cpu_hi": {70, 75, 80, 85, 90, 95}, "dev_ram_hi": {70, 75, 80, 85, 90, 95}, "dev_temp_hi": {70, 75, 80, 85, 90},
 }
@@ -588,7 +590,7 @@ def _persist(st):
         json.dump(st, fp, ensure_ascii=False, indent=2)
     sh(f"chown 998:998 {SETTINGS_FILE}")
 def _coerce_cert(key, value):
-    if key in ("cert_rsa_min", "cert_expire_warn_days"):
+    if key in ("cert_rsa_min", "cert_expire_warn_days", "cert_ec_min"):
         try:
             v = int(value)
         except Exception:
@@ -599,7 +601,7 @@ def _coerce_cert(key, value):
         return value if value in _SET_RANGE[key] else None
     return None
 def set_cert_policy(scope, key, value):
-    CK = ("cert_rsa_min", "cert_sig_min", "cert_cipher_policy", "cert_expire_warn_days")
+    CK = ("cert_rsa_min", "cert_sig_min", "cert_cipher_policy", "cert_expire_warn_days", "cert_ec_min")
     DK = ("dev_cpu_hi", "dev_ram_hi", "dev_temp_hi")
     if key not in CK + DK:
         return {"ok": False, "msg": "未知設定"}
@@ -645,7 +647,7 @@ def _eff_cert(st, asset):
     gv = lambda k, dflt: ov.get(k, st.get(k, dflt))
     pol = gv("cert_cipher_policy", "standard")
     cpat = tuple(st.get("cert_cipher_custom") or []) if pol == "custom" else CIPHER_TIERS.get(pol, CIPHER_TIERS["standard"])
-    return int(gv("cert_rsa_min", CERT_MIN_RSA)), int(gv("cert_expire_warn_days", CERT_EXPIRE_WARN_DAYS)), gv("cert_sig_min", "sha256"), cpat
+    return int(gv("cert_rsa_min", CERT_MIN_RSA)), int(gv("cert_expire_warn_days", CERT_EXPIRE_WARN_DAYS)), gv("cert_sig_min", "sha256"), cpat, int(gv("cert_ec_min", 256))
 CIPHER_TIERS = {   # 各政策要「標為弱」的 cipher 樣式
     "lax": ("RC4", "NULL", "EXPORT", "anon"),
     "standard": ("RC4", "3DES", "DES-CBC", "DES-CBC3", "NULL", "EXPORT", "-MD5", "anon"),
@@ -728,7 +730,7 @@ def run_cert_scan(trigger="api"):
     for asset, inv in CRYPTO_INVENTORY.items():
         if not _monitor_asset(asset):
             continue
-        rsa_min, warn_days, sig_min, cpat = _eff_cert(_cfg, asset)
+        rsa_min, warn_days, sig_min, cpat, ec_min = _eff_cert(_cfg, asset)
         src = inv; _live = False
         _lf = _LIVE_CRYPTO.get(asset)
         if _lf:
@@ -763,6 +765,10 @@ def run_cert_scan(trigger="api"):
                 findings.append(dict(_cf(asset, svc, "weak_algorithm", "High",
                     f"RSA 金鑰僅 {st.get('key_bits')} bit(< {rsa_min})", "改用 RSA-2048+ 或 ECDSA P-256",
                     f"RSA key only {st.get('key_bits')} bit (< {rsa_min})", "Use RSA-2048+ or ECDSA P-256"), state=statep))
+            if (st.get("key_type") or "").upper() in ("EC", "ECDSA") and (st.get("key_bits") or 0) < ec_min:
+                findings.append(dict(_cf(asset, svc, "weak_algorithm", "High",
+                    f"ECDSA 曲線 P-{st.get('key_bits')} 低於門檻(P-{ec_min})", f"改用 P-{ec_min} 以上曲線重簽",
+                    f"ECDSA curve P-{st.get('key_bits')} below threshold (P-{ec_min})", f"Re-issue with P-{ec_min} or stronger"), state=statep))
             dl = st.get("days_left")
             if dl is not None and dl < 0:
                 findings.append(dict(_cf(asset, svc, "expired", "High",
