@@ -1421,7 +1421,7 @@ a.enclh{cursor:pointer;text-decoration:none;border-radius:8px;transition:opacity
 .skel{height:92px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(90deg,var(--card),var(--card2),var(--card));background-size:400px 100%;animation:shimmer 1.25s linear infinite}
 @keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
 /* settings */
-.setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0;border-top:1px solid var(--line)}.setrow>:first-child{min-width:0}.thsub{color:var(--tx3);font-size:11.5px;font-weight:600;letter-spacing:.02em;margin:2px 0 3px}.threshcard .setrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:center;column-gap:14px;row-gap:8px}.threshcard .setrow>:last-child{justify-self:end}.threshcard .seg{flex-wrap:wrap;justify-content:flex-end}
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0;border-top:1px solid var(--line)}.setrow>:first-child{min-width:0}.thsub{color:var(--tx3);font-size:11.5px;font-weight:600;letter-spacing:.02em;margin:2px 0 3px}.threshcard .setrow{display:block;padding:11px 0}.threshcard .setrow>:first-child{margin-bottom:8px}.threshcard .seg{flex-wrap:wrap;max-width:100%}
 .setrow:first-of-type{border-top:0}
 .sk{font-weight:600;font-size:14px}.sd2{color:var(--tx2);font-size:12px;margin-top:2px}
 /* density:compact */
