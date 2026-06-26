@@ -1359,7 +1359,7 @@ a.enclh{cursor:pointer;text-decoration:none;border-radius:8px;transition:opacity
 .dbarwrap{display:flex;align-items:center;gap:11px}
 .dbar{flex:1;max-width:230px;accent-color:var(--accent);cursor:pointer;height:5px}
 .dbe{font-size:11px;color:var(--tx3);white-space:nowrap}
-.dbv{font-size:13px;font-weight:700;color:var(--accent);min-width:14px;text-align:center;font-variant-numeric:tabular-nums}
+.dbv{font-size:13px;font-weight:700;color:var(--accent);min-width:14px;text-align:center;font-variant-numeric:tabular-nums}.dstep{padding:4px 12px;font-weight:700;font-size:15px;line-height:1}
 .sbpol{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .sbpol .pc{font-size:9.5px;font-weight:600;font-family:"SF Mono",ui-monospace,monospace;background:var(--accentbg);color:var(--accent);border-radius:6px;padding:1px 7px}
 .sbpol .pc.sb{background:var(--purplebg);color:var(--purple)}
@@ -1503,7 +1503,7 @@ const el=id=>document.getElementById(id);
 const TABS=[{id:'overview',ni:'◉'},{id:'arch',ni:'◈'},{id:'fleet',ni:'⬡'},{id:'cve',ni:'🛡'},{id:'gov',ni:'⚡'},{id:'timeline',ni:'◷'},{id:'ops',ni:'🎫'},{id:'stack',ni:'▦'},{id:'settings',ni:'⚙'}];
 let CFG={theme:localStorage.getItem('nclaw-theme')||'light',refresh:+(localStorage.getItem('nclaw-refresh')||5),
  node:localStorage.getItem('nclaw-node')||'all',density:(function(){var x=localStorage.getItem('nclaw-density');if(x==='compact')return 7;if(x==='comfortable')return 5;var n=parseInt(x,10);return(n>=1&&n<=10)?n:5})(),lang:localStorage.getItem('nclaw-lang')||'zh'};
-let timer=null,LAST=null,DRW='ebg',EVF='all',TLF='all',ARCHVIEW=(localStorage.getItem('nclaw-archview')==='explain'?'explain':'detail'),CERTSCOPE='',CIPHERINFO=false,LAEXP=new Set(),lastOk=Date.now(),OPEN_EV=new Set(),POLICY_DATA=null,SNAPSEL=new Set(),TABORDER=JSON.parse(localStorage.getItem('nclaw-taborder')||'null'),DRAGTAB=null;const C={};let CV={};
+let timer=null,LAST=null,DRW='ebg',EVF='all',TLF='all',ARCHVIEW=(localStorage.getItem('nclaw-archview')==='explain'?'explain':'detail'),CERTSCOPE='',CIPHERINFO=false,LAEXP=new Set(),DENSED=null,lastOk=Date.now(),OPEN_EV=new Set(),POLICY_DATA=null,SNAPSEL=new Set(),TABORDER=JSON.parse(localStorage.getItem('nclaw-taborder')||'null'),DRAGTAB=null;const C={};let CV={};
 const I18N={
 zh:{refresh:'↻ 重新整理',kiosk:'⛶ 全螢幕',logout:'登出',logout_c:'確定要登出嗎?',nav_reset:'還原預設順序',running:'執行中…',live_ok:'即時連線',live_lag:'資料延遲',live_down:'連線中斷 ',live_manual:'手動更新',updated:'更新 ',upd_fail:'更新失敗,重試…',loading:'載入即時狀態…',
 t_overview:'總覽',t_fleet:'設備監控',t_cve:'資安 / CVE',t_gov:'治理事件',t_ops:'工單 / 巡檢',t_stack:'系統堆疊',t_timeline:'活動時間軸',t_settings:'設定',
@@ -1776,7 +1776,7 @@ function vOps(d){const jk=d.jira||{};const jt=d.jira_tickets||[];
  return `<div class="grid">${jira}${guard}</div><div class="sec">${t('sec_snap_bridge')}</div><div class="grid g2">${snaps}${bridge}</div>`}
 function vSettings(d){
  const seg=(act,opts,cur)=>`<div class="seg">${opts.map(([v,l])=>`<button data-act="${act}" data-v="${v}" class="${(''+cur)===(''+v)?'on':''}">${l}</button>`).join('')}</div>`;
- const appearance=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--purple)">🎨</span><b>${t('set_appearance')}</b></div><div class="setrow"><div><div class="sk">${t('set_theme')}</div><div class="sd2">${t('set_theme_d')}</div></div>${seg('theme',[['light',t('th_light')],['dark',t('th_dark')]],CFG.theme)}</div><div class="setrow"><div><div class="sk">${t('set_lang')}</div><div class="sd2">${t('set_lang_d')}</div></div>${seg('lang',[['zh','繁體中文'],['en','English']],CFG.lang)}</div><div class="setrow"><div><div class="sk">${t('set_density')}</div><div class="sd2">${t('set_density_d')}</div></div>${`<div class="dbarwrap"><span class="dbe">${t('den_loose')}</span><input id="densbar" type="range" min="1" max="10" step="1" value="${CFG.density}" data-act="densbar" class="dbar"><span class="dbe">${t('den_tight')}</span><span class="dbv" id="densval">${CFG.density}</span><button class="btn" data-act="densapply">${t('apply')}</button></div>`}</div></div>`;
+ const appearance=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--purple)">🎨</span><b>${t('set_appearance')}</b></div><div class="setrow"><div><div class="sk">${t('set_theme')}</div><div class="sd2">${t('set_theme_d')}</div></div>${seg('theme',[['light',t('th_light')],['dark',t('th_dark')]],CFG.theme)}</div><div class="setrow"><div><div class="sk">${t('set_lang')}</div><div class="sd2">${t('set_lang_d')}</div></div>${seg('lang',[['zh','繁體中文'],['en','English']],CFG.lang)}</div><div class="setrow"><div><div class="sk">${t('set_density')}</div><div class="sd2">${t('set_density_d')}</div></div>${`<div class="dbarwrap"><span class="dbe">${t('den_loose')}</span><button class="btn dstep" data-act="densminus">−</button><span class="dbv" id="densval">${DENSED!=null?DENSED:CFG.density}</span><button class="btn dstep" data-act="densplus">＋</button><span class="dbe">${t('den_tight')}</span><button class="btn" data-act="densapply">${t('apply')}</button></div>`}</div></div>`;
  const data=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--accent)">↻</span><b>${t('set_data')}</b></div><div class="setrow"><div><div class="sk">${t('set_refresh')}</div><div class="sd2">${t('set_refresh_d')}</div></div>${seg('refresh',[['0',t('rf_off')],['5','5s'],['15','15s'],['30','30s']],CFG.refresh)}</div><div class="setrow"><div><div class="sk">${t('set_defnode')}</div><div class="sd2">${t('set_defnode_d')}</div></div>${seg('node',[['all',t('f_all')],['A',t('f_a')],['B',t('f_b')]],CFG.node)}</div><div class="setrow"><div><div class="sk">${t('set_manual')}</div><div class="sd2">${t('set_manual_d')}</div></div><button class="btn" data-act="do" data-v="refresh">${t('btn_now')}</button></div></div>`;
  const S=d.settings||{};
  const cfgseg=(k,opts,cur)=>`<div class="seg">${opts.map(([v,l])=>`<button data-act="cfg" data-k="${k}" data-v="${v}" class="${(''+cur)===(''+v)?'on':''}">${l}</button>`).join('')}</div>`;
@@ -2033,7 +2033,9 @@ document.addEventListener('click',e=>{
  const b=e.target.closest('[data-act]');if(!b)return;const act=b.dataset.act,v=b.dataset.v;
  if(act==='theme'){CFG.theme=v;localStorage.setItem('nclaw-theme',v);document.documentElement.setAttribute('data-theme',v);loadColors();if(LAST)render(LAST)}
  else if(act==='lang'){CFG.lang=v;localStorage.setItem('nclaw-lang',v);applyChrome()}
- else if(act==='densapply'){var r=el('densbar');if(r){CFG.density=+r.value;localStorage.setItem('nclaw-density',r.value);applyDensity()}}
+ else if(act==='densminus'){DENSED=Math.max(1,(DENSED!=null?DENSED:CFG.density)-1);var l=el('densval');if(l)l.textContent=DENSED}
+  else if(act==='densplus'){DENSED=Math.min(10,(DENSED!=null?DENSED:CFG.density)+1);var l=el('densval');if(l)l.textContent=DENSED}
+  else if(act==='densapply'){var nv=(DENSED!=null?DENSED:CFG.density);CFG.density=nv;localStorage.setItem('nclaw-density',nv);applyDensity();DENSED=null;toast(t('toast_done'))}
  else if(act==='refresh'){CFG.refresh=+v;localStorage.setItem('nclaw-refresh',v);arm();if(LAST)render(LAST)}
  else if(act==='node'){CFG.node=v;localStorage.setItem('nclaw-node',v);if(LAST)render(LAST)}
  else if(act==='evf'){EVF=v;if(LAST)render(LAST)}
@@ -2091,7 +2093,7 @@ document.addEventListener('click',e=>{
    polPost({op:'endpoint_add',sb:polSB(),host:host,port:port,access:acc,binaries:bins,dry:true}).then(r=>{if(!confirm((r.out||r.msg||'')+'\n\n'+t('pol_confirm_apply'))){b.disabled=false;return}
      return polPost({op:'endpoint_add',sb:polSB(),host:host,port:port,access:acc,binaries:bins,dry:false}).then(r2=>{toast(r2.msg||t('toast_done'));if(r2.out&&!r2.ok)alert((r2.msg||'')+'\n\n'+r2.out);openPolicyEditor()})}).catch(()=>{toast(t('toast_fail'));b.disabled=false})}
  else if(act==='do'){const old=b.textContent;b.disabled=true;b.textContent=t('running');fetch('/api/action?do='+v,{method:'POST'}).then(r=>r.json()).then(r=>toast(r.ok?t(TOASTDO[v]||'toast_done'):t('toast_fail'))).catch(()=>toast(t('toast_fail'))).finally(()=>{b.disabled=false;b.textContent=old;tick()})}});
-document.addEventListener('input',e=>{var r=e.target.closest('input[data-act="densbar"]');if(!r)return;var lb=el('densval');if(lb)lb.textContent=r.value});
+
 document.addEventListener('change',e=>{const sel=e.target.closest('select[data-act="cfgsel"]');if(!sel)return;fetch('/api/config?k='+encodeURIComponent(sel.dataset.k)+'&v='+encodeURIComponent(sel.value),{method:'POST'}).then(r=>r.json()).then(r=>toast(r.msg||t('toast_done'))).catch(()=>toast(t('toast_fail'))).finally(()=>tick())});
 document.addEventListener('mousemove',e=>{const tc=e.target.closest('.tchart');
  document.querySelectorAll('.tchart').forEach(x=>{if(x!==tc){const c=x.querySelector('.tccur');if(c)c.style.visibility='hidden';const p=x.querySelector('.tctip');if(p)p.style.display='none'}});
