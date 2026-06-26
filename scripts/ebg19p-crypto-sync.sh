@@ -45,8 +45,9 @@ for port, svc in TLS_PORTS.items():
     kb=(re.search(r"Public-Key:\s*\((\d+)", txt) or [None,"0"])[1]
     cn=(re.search(r"CN\s*=\s*([^,/]+)", sub) or [None,"?"])[1].strip()
     na=(run(f"date -d '{end}' +%Y-%m-%d 2>/dev/null").stdout or "").strip()
+    ktype = "EC" if ("ecdsa" in (sig or "").lower() or "id-ecPublicKey" in txt or "ASN1 OID" in txt) else "RSA"
     certs.append({"service":svc,"cn":cn,"issuer":("self-signed" if sub==iss else iss.replace("issuer=","")),
-                  "self_signed":(sub==iss),"sig_alg":sig,"key_type":"RSA","key_bits":int(kb or 0),"not_after":na or "2099-01-01"})
+                  "self_signed":(sub==iss),"sig_alg":sig,"key_type":ktype,"key_bits":int(kb or 0),"not_after":na or "2099-01-01"})
     # 協定/套件:列舉真機接受的弱協定
     vers=[]
     for flag,name in [("-tls1","TLSv1.0"),("-tls1_1","TLSv1.1"),("-tls1_2","TLSv1.2")]:

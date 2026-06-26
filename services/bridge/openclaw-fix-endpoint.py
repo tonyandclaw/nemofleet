@@ -740,7 +740,12 @@ def run_cert_scan(trigger="api"):
                 pass
         for c in src.get("certs", []):
             svc = c.get("service")
-            st = _cert_state(asset, c)
+            if _live:   # 真機 probe:直接用 openssl 解析好的欄位,不再合成自簽 stand-in(否則被 certs/ cache 凍成 demo)
+                st = {"cn": c.get("cn"), "issuer": c.get("issuer"), "self_signed": c.get("self_signed"),
+                      "sig_alg": c.get("sig_alg"), "key_type": c.get("key_type"), "key_bits": c.get("key_bits"),
+                      "not_after": c.get("not_after"), "days_left": _days_left(c.get("not_after")), "parsed_by": "live-probe"}
+            else:
+                st = _cert_state(asset, c)
             statep = [["not_after", (st.get("not_after") or "-") + ((" (%dd)" % st["days_left"]) if st.get("days_left") is not None else "")],
                       ["key", "%s %s-bit" % (st.get("key_type", "RSA"), st.get("key_bits"))],
                       ["signature", st.get("sig_alg") or "-"],
@@ -754,7 +759,7 @@ def run_cert_scan(trigger="api"):
                 findings.append(dict(_cf(asset, svc, "weak_algorithm", "High",
                     f"簽章演算法 {st.get('sig_alg')} 低於門檻({sig_min.upper()})", f"改用 {sig_min.upper()} 以上重簽",
                     f"Signature algorithm {st.get('sig_alg')} below threshold ({sig_min.upper()})", f"Re-sign with {sig_min.upper()} or stronger"), state=statep))
-            if (st.get("key_bits") or 0) < rsa_min:
+            if (st.get("key_type") or "RSA").upper() == "RSA" and (st.get("key_bits") or 0) < rsa_min:
                 findings.append(dict(_cf(asset, svc, "weak_algorithm", "High",
                     f"RSA 金鑰僅 {st.get('key_bits')} bit(< {rsa_min})", "改用 RSA-2048+ 或 ECDSA P-256",
                     f"RSA key only {st.get('key_bits')} bit (< {rsa_min})", "Use RSA-2048+ or ECDSA P-256"), state=statep))
