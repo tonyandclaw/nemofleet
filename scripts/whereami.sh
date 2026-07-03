@@ -42,6 +42,6 @@ g "容器運行中:$(docker ps --format '{{.Names}}' 2>/dev/null | wc -l)"
 
 hr "🩺 開機自啟 / 排程"
 crontab -l 2>/dev/null | grep -q boot-stack-autostart && g "@reboot 自啟 stack 已設" || r "@reboot 自啟未設"
-crontab -l 2>/dev/null | grep -q fleet-compliance && g "機隊同步 cron 已設(每 5 分)" || r "機隊同步 cron 未設"
+crontab -l 2>/dev/null | grep -q ebg19p-compliance && g "機隊同步 cron 已設(每 5 分)" || r "機隊同步 cron 未設"
 echo
 echo "  提醒:LAN 連不到時 → Windows 系統管理員 PowerShell 開 8899 inbound;CA 根憑證 $BRIDGE_DIR/dash-ca.pem 各裝置裝一次。"

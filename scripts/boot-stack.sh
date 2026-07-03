@@ -56,9 +56,14 @@ oc_ip() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{
 oc2_ip() { local ct; ct=$(docker ps --format '{{.Names}}' | grep -m1 worker-b || true); [ -n "$ct" ] && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$ct" 2>/dev/null; }
 # 部署單台 worker zone 端點(冪等):$1=容器名 $2=zone(A/B)。health 對得上 zone+markers 才算當前版,否則重部署。
 deploy_oc_endpoint() {
-  local ct="$1" zone="$2" h
+  local ct="$1" zone="$2" h same=1
   h=$(docker exec "$ct" sh -c 'curl -s -m3 http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null)
-  if echo "$h" | grep -q "\"zone\": \"$zone\"" && echo "$h" | grep -q '"design": true' && echo "$h" | grep -q '"source": true' && echo "$h" | grep -q '"cert": true' && echo "$h" | grep -q '"managed":'; then
+  # 「當前版」= 端點健康(對的 zone + a2a marker)且部署的每個模組都與本地逐位元一致。
+  # 逐檔 cmp 取代舊的 marker 偵測 → 任何程式碼變更(含新模組缺檔)都會觸發重部署,不再靜默跑舊碼。
+  for m in worker-itops ebg19p knowledge wi_a2a; do
+    docker exec "$ct" sh -c "cat /usr/local/bin/$m.py 2>/dev/null" | cmp -s - "$BRIDGE/$m.py" || same=0
+  done
+  if [ "$same" = 1 ] && echo "$h" | grep -q "\"zone\": \"$zone\"" && echo "$h" | grep -q '"a2a": true'; then
     ok "worker 端點 :9099 已當前版(zone $zone @ ${ct##*openshell-})"
   else
     docker cp "$BRIDGE/worker-itops.py" "$ct:/usr/local/bin/worker-itops.py" >>"$LOG" 2>&1
