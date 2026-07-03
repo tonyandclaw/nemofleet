@@ -32,28 +32,6 @@ class TestCipherBad(unittest.TestCase):
         self.assertFalse(w._cipher_bad("ECDHE-RSA-AES256-GCM-SHA384", ["RC4", "3DES"]))
 
 
-class TestNucleiParse(unittest.TestCase):
-    SAMPLE = "\n".join([
-        '{"template-id":"CVE-2024-3080","info":{"name":"ASUS Router Auth Bypass","severity":"Critical",'
-        '"classification":{"cve-id":["CVE-2024-3080"]},"reference":["https://nvd.nist.gov/vuln/detail/CVE-2024-3080"]},'
-        '"matched-at":"http://10.0.0.1","type":"http"}',
-        '{"template-id":"tech-detect","info":{"name":"ASUSWRT","severity":"info"},"host":"10.0.0.1","type":"http"}',
-        "not-json-garbage",
-        "",
-    ])
-
-    def test_parses_and_normalizes(self):
-        f = w._parse_nuclei(self.SAMPLE)
-        self.assertEqual(len(f), 2)                          # garbage + blank lines skipped
-        self.assertEqual(f[0]["template"], "CVE-2024-3080")
-        self.assertEqual(f[0]["severity"], "critical")       # lowercased
-        self.assertEqual(f[0]["cve"], ["CVE-2024-3080"])
-        self.assertEqual(f[1]["matched_at"], "10.0.0.1")     # falls back to host when no matched-at
-
-    def test_empty_and_none(self):
-        self.assertEqual(w._parse_nuclei(""), [])
-        self.assertEqual(w._parse_nuclei(None), [])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ import wi_a2a  # A2A protocol adapter (Agent Card + JSON-RPC envelope; dependenc
 import wi_util  # pure helpers (version/cert/cipher/conf parse) — unit-tested; see wi_util.py
 from wi_util import sig_tier, vtuple as _vt, cipher_bad as _cipher_bad, days_left as _days_left, conf_kv as _conf_kv
 _vtuple = _vt  # legacy alias — _vt/_vtuple were duplicate number-tuple extractors, now consolidated
+import wi_nuclei  # worker-b active nuclei scan subsystem (configured once deps exist, below)
 
 # 容器 egress 走不了 IPv6(NVD 等 Cloudflare 主機會解析到 IPv6 → 連線逾時);所有外部主機都有可用 IPv4。
 # 全域強制 IPv4 解析:NVD 變可達,github/osv 不受影響(本來就走 IPv4)。
@@ -174,11 +175,6 @@ CVE_DB = [
 ]
 # 「定期」掃描內建排程:BRIDGE_CVE_INTERVAL 秒(預設每日;0=關閉)。每次掃描落一行歷史(證據)。
 CVE_INTERVAL = int(os.environ.get("BRIDGE_CVE_INTERVAL", "86400"))
-# nuclei(worker-b 主動掃描):見 run_nuclei_scan。target 僅 zone B 由 boot 以 -e EBG19P_TARGET=<ip> 注入。
-NUCLEI_INTERVAL = int(os.environ.get("BRIDGE_NUCLEI_INTERVAL", "86400"))
-NUCLEI_TARGET = os.environ.get("EBG19P_TARGET", "").strip()
-NUCLEI_TAGS = os.environ.get("BRIDGE_NUCLEI_TAGS", "asus").strip()
-LAST_NUCLEI = {}
 CVE_HISTORY = f"{WD}/cve-scan-history.jsonl"
 # ── 管理設定(伺服器端持久化;掃描迴圈/門檻讀這裡。預設對齊現狀,不改則行為不變)──
 SETTINGS_FILE = f"{WD}/agent-settings.json"
@@ -1714,99 +1710,8 @@ def run_ebg_remediate_bg(bug):
         BUSY["on"] = False
         save_last()
 
-# ── nuclei active vuln scan (worker-b / 資安) ────────────────────────
-# 固定時間用 projectdiscovery/nuclei + nuclei-templates 主動掃 ASUS 裝置(補「版本比對式 CVE」不足)。
-# 需:worker-b 沙箱有 nuclei binary(OpenShell binaries 允許)+ worker-b→裝置 egress + nuclei-templates(github 治理 egress)。
-def _parse_nuclei(jsonl):
-    """nuclei -jsonl 輸出 → 正規化 findings(純函式，可單元測試)。"""
-    out = []
-    for line in (jsonl or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            r = json.loads(line)
-        except Exception:
-            continue
-        info = r.get("info") or {}
-        cls = info.get("classification") or {}
-        cves = cls.get("cve-id") or cls.get("cve_id") or []
-        if isinstance(cves, str):
-            cves = [cves]
-        ref = info.get("reference")
-        out.append({
-            "template": r.get("template-id") or r.get("templateID") or "",
-            "name": info.get("name") or "",
-            "severity": (info.get("severity") or "unknown").lower(),
-            "matched_at": r.get("matched-at") or r.get("host") or "",
-            "type": r.get("type") or "",
-            "cve": [c.upper() for c in cves if c],
-            "reference": ref[:3] if isinstance(ref, list) else [],
-        })
-    return out
-
-def run_nuclei_scan(trigger="api"):
-    """worker-b 用 nuclei-templates 主動掃 EBG19P。高/嚴重命中 → 開真實 Jira(依 auto_escalate)。"""
-    global LAST_NUCLEI
-    if not _zone_has("nuclei"):
-        return {"available": False, "note": "非資安節點(僅 zone B 跑 nuclei)", "zone": ZONE}
-    import shutil
-    now = time.strftime("%Y-%m-%dT%H:%M:%S")
-    if not shutil.which("nuclei"):
-        LAST_NUCLEI = {"available": False, "note": "nuclei 未安裝於 worker-b 沙箱(OpenShell binaries policy 需允許 nuclei)", "ts": now}
-        return LAST_NUCLEI
-    if not NUCLEI_TARGET:
-        LAST_NUCLEI = {"available": False, "note": "無掃描目標(boot 需 -e EBG19P_TARGET=<ip> 給 worker-b + 開 worker-b→裝置 egress)", "ts": now}
-        return LAST_NUCLEI
-    url = NUCLEI_TARGET if NUCLEI_TARGET.startswith("http") else "http://" + NUCLEI_TARGET
-    settings = load_settings()
-    tags = (settings.get("nuclei_tags") or NUCLEI_TAGS or "asus").strip()
-    cmd = ["nuclei", "-u", url, "-tags", tags, "-severity", "low,medium,high,critical",
-           "-jsonl", "-silent", "-nc", "-timeout", "10", "-retries", "1", "-rate-limit", "50"]
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        LAST_NUCLEI = {"available": True, "target": url, "note": "nuclei 逾時(600s)", "count": 0, "findings": [], "ts": now}
-        return LAST_NUCLEI
-    except Exception as e:
-        LAST_NUCLEI = {"available": False, "note": "nuclei 執行失敗:%s" % e, "ts": now}
-        return LAST_NUCLEI
-    findings = _parse_nuclei(p.stdout)
-    counts = {}
-    for fnd in findings:
-        counts[fnd["severity"]] = counts.get(fnd["severity"], 0) + 1
-    opened = []
-    if settings.get("auto_escalate", True):
-        for fnd in findings:
-            if fnd["severity"] in ("high", "critical"):
-                tid = _open_jira_dedup(
-                    "[nuclei] %s (%s)" % (fnd["name"], ", ".join(fnd["cve"]) or fnd["template"]),
-                    "nuclei 主動掃描命中:%s\ntemplate=%s severity=%s\nmatched=%s\ntarget=%s" % (
-                        fnd["name"], fnd["template"], fnd["severity"], fnd["matched_at"], url),
-                    "nuclei", "lab-asus-ebg19p-01", "High")
-                if tid:
-                    opened.append({"template": fnd["template"], "ticket": tid})
-    LAST_NUCLEI = {"available": True, "target": url, "tags": tags, "count": len(findings),
-                   "counts": counts, "findings": findings[:50], "escalated": opened,
-                   "schedule_interval_sec": settings.get("nuclei_interval_sec", NUCLEI_INTERVAL),
-                   "trigger": trigger, "ts": now}
-    print("[NUCLEI] %s findings on %s (%s)" % (len(findings), url, counts), flush=True)
-    return LAST_NUCLEI
-
-def _nuclei_schedule_loop():
-    """worker-b nuclei 排程:就緒後先掃一輪,之後每 nuclei_interval_sec 秒掃一次(0=暫停)。"""
-    time.sleep(30)
-    while True:
-        iv = NUCLEI_INTERVAL
-        try:
-            iv = int(load_settings().get("nuclei_interval_sec", NUCLEI_INTERVAL) or 0)
-            if iv > 0:
-                run_nuclei_scan("schedule")
-            else:
-                iv = 3600
-        except Exception as e:
-            print("[NUCLEI] loop error:", e, flush=True); iv = 3600
-        time.sleep(max(iv, 60))
+# ── nuclei active vuln scan → wi_nuclei.py (worker-b). Inject the host deps once (all defined above).
+wi_nuclei.configure(_zone_has, load_settings, _open_jira_dedup, ZONE)
 
 # ── A2A (Agent2Agent) adapter — Agent Card + JSON-RPC envelope live in wi_a2a.py (dependency-injected).
 #    _a2a_run below is the local skill router (needs the scanners / knowledge / LAST_NUCLEI).
@@ -1816,7 +1721,7 @@ def _a2a_run(skill, params):
     if skill in ("cve-scan", "cve"): return _single_flight("cve", run_cve_scan)
     if skill in ("cert-scan", "cert"): return _single_flight("cert", run_cert_scan)
     if skill in ("source-scan", "source"): return _single_flight("source", run_source_scan)
-    if skill in ("nuclei", "nuclei-scan"): return LAST_NUCLEI or {"note": "尚未掃描(POST /nuclei-scan 或排程觸發)"}
+    if skill in ("nuclei", "nuclei-scan"): return wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(POST /nuclei-scan 或排程觸發)"}
     if skill in ("syslog", "log-analysis"): return _single_flight("log-analysis", run_syslog_analysis)
     if skill in ("remediate", "fix") or skill in EBG_ACTIONS or skill in EBG_MULTI:
         bug = params.get("bug") or (skill if (skill in EBG_ACTIONS or skill in EBG_MULTI) else "")
@@ -1851,7 +1756,7 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/nuclei":   # worker-b nuclei 主動掃描最近結果
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
-            self._send(200, LAST_NUCLEI or {"note": "尚未掃描(schedule 或 POST /nuclei-scan 觸發)", "zone": ZONE})
+            self._send(200, wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(schedule 或 POST /nuclei-scan 觸發)", "zone": ZONE})
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1923,7 +1828,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send(403, {"error": "X-Bridge-Token required"})
             if not _zone_has("nuclei"):
                 return self._send(200, {"available": False, "note": "非資安節點"})
-            threading.Thread(target=run_nuclei_scan, args=("api",), daemon=True).start()
+            threading.Thread(target=wi_nuclei.run_nuclei_scan, args=("api",), daemon=True).start()
             return self._send(200, {"accepted": True, "note": "nuclei 掃描已於背景啟動(讀 GET /nuclei 取結果)"})
         if self.path == "/monitor-scan":   # 定期合規巡檢 + 對安全退化開 Jira(治理 egress);排程呼叫
             if not self._authed():
@@ -1993,7 +1898,7 @@ if __name__ == "__main__":
     if _zone_has("cve"):   # 迴圈自身依設定的 interval 決定掃不掃(0=暫停),故依能力啟動即可
         threading.Thread(target=_cve_schedule_loop, daemon=True).start()
     if _zone_has("nuclei"):
-        threading.Thread(target=_nuclei_schedule_loop, daemon=True).start()
+        threading.Thread(target=wi_nuclei.schedule_loop, daemon=True).start()
     if _zone_has("cert"):
         threading.Thread(target=_cert_schedule_loop, daemon=True).start()
     print(f"[worker-itops] listening on 0.0.0.0:{PORT} "
