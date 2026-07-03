@@ -2,7 +2,7 @@
 # works from anywhere in the tree.
 SHELL := /bin/bash
 
-.PHONY: help bootstrap boot health mail-up gen-certs lint test clean
+.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -29,6 +29,9 @@ lint: ## syntax-check every shell script + py-compile services
 
 test: ## run unit tests (pure logic; no live stack needed)
 	python3 -m unittest discover -s tests/unit -p 'test_*.py'
+
+itest: ## run integration tests (services started standalone; python3 + curl only, no live stack)
+	@set -e; for t in tests/integration/*.sh; do echo "→ $$t"; bash "$$t"; done
 
 clean: ## remove runtime junk (bus messages, logs, pycache) — keeps dirs
 	find data/bus -type f ! -name '.gitkeep' -delete 2>/dev/null || true

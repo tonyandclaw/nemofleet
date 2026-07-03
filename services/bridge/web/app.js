@@ -281,9 +281,41 @@ const FleetView = memo(function FleetView({ d }) {
     </div></div></div>`;
 });
 
+// posture(d) — fuse drift + CVE + nuclei + cert into one EBG19P security-posture score (0-100 + grade
+// + what's dragging it down). Pure; reads the normalized model. The payoff of running all four scanners.
+function posture(d) {
+  let score = 100; const factors = [];
+  const pen = (label, n, each, cap) => { if (n > 0) { const p = Math.min(n * each, cap); score -= p; factors.push({ label, n, penalty: p }); } };
+  const regs = (d.devices || []).reduce((a, x) => a + ((x.regressions || []).length), 0);
+  const nucF = (d.nuclei && d.nuclei.findings) || [];
+  const sev = re => nucF.filter(f => re.test(f.severity || '')).length;
+  const certHigh = ((d.cert && d.cert.findings) || []).filter(f => /high|crit/i.test(f.severity || f.issue || '')).length;
+  pen('nuclei critical', sev(/crit/i), 15, 45);
+  pen('設定安全退化 (drift)', regs, 8, 40);
+  pen('affected CVE', ((d.cve && d.cve.findings) || []).length, 6, 36);
+  pen('nuclei high', sev(/high/i), 8, 32);
+  pen('憑證/加密高風險', certHigh, 7, 28);
+  score = Math.max(0, Math.round(score));
+  return { score, grade: score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 65 ? 'C' : score >= 50 ? 'D' : 'F', factors };
+}
 const SecurityView = memo(function SecurityView({ d }) {
+  const P = posture(d);
+  const gc = P.score >= 80 ? 'var(--ok)' : P.score >= 65 ? 'var(--warn)' : 'var(--crit)';
   return html`<div class="viewfade"><div class="viewhd"><h2>Security</h2><span class="lbl">worker-b · CVE / nuclei / cert / source</span></div>
     <div class="grid1">
+      ${html`<${Panel} title="EBG19P security posture" label="drift · CVE · nuclei · cert 融合成一個分數">
+        <div style=${{ display: 'flex', gap: '22px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style=${{ textAlign: 'center', minWidth: '104px' }}>
+            <div style=${{ fontSize: '46px', fontWeight: 800, lineHeight: 1, color: gc }}>${P.score}</div>
+            <div style=${{ fontSize: '13px', color: 'var(--ink2)', marginTop: '3px' }}>/ 100 · grade <b style=${{ color: gc }}>${P.grade}</b></div>
+          </div>
+          <div style=${{ flex: 1, minWidth: '220px' }}>
+            ${P.factors.length ? P.factors.map(f => html`<div key=${f.label} style=${{ marginBottom: '7px' }}>
+              <div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span class="ink2">${f.label} <b>×${f.n}</b></span><span style=${{ color: 'var(--crit)' }}>−${f.penalty}</span></div>
+              <div style=${{ height: '4px', background: 'var(--line)', borderRadius: '3px', overflow: 'hidden', marginTop: '3px' }}><div style=${{ width: Math.min(f.penalty * 2, 100) + '%', height: '100%', background: 'var(--crit)' }}></div></div>
+            </div>`) : html`<div class="muted">無扣分項 — 機隊安全姿態良好 ✓</div>`}
+          </div>
+        </div></${Panel}>`}
       ${html`<${Panel} title="CVE findings" label="fleet scan" right=${html`<${ActionBtn} act="cve" label="Rescan" busyLabel="Scanning" ghost=${true}/>`}>
         <${DataTable} rows=${d.cve.findings} pageSize=${8} empty="No affected CVEs — or scan pending."
           cols=${[
@@ -450,6 +482,11 @@ const ProactiveView = memo(function ProactiveView({ d }) {
             <${Field} label="Cadence"><div class="mono ink2">patrol ${fmtSec(p.patrol_interval_sec)} · digest ${fmtSec(p.digest_interval_sec)}</div></${Field}>
             <${Field} label="Safety net"><span class=${'pill2 ' + (p.safety_net ? 'g' : 'w')}>${p.safety_net ? 'on · 保證送達' : 'off'}</span></${Field}>
             <${Field} label="Last cycle"><div><b style=${{ color: (p.last_critical || 0) > 0 ? 'var(--crit)' : 'var(--ink2)' }}>${p.last_critical || 0}</b> <span class="muted">critical ·</span> ${p.last_routine || 0} <span class="muted">routine</span></div></${Field}>
+            <${Field} label="Critical alerts" hint="維護時暫時靜音主動打斷(仍巡邏+記錄)">
+              ${(p.snooze_until && p.snooze_until * 1000 > Date.now())
+                ? html`<span class="pill2 w">snoozed → ${new Date(p.snooze_until * 1000).toLocaleTimeString()}</span> <${ActionBtn} act="snooze_off" label="Resume" busyLabel="…" ghost=${true}/>`
+                : html`<span class="pill2 g">active</span> <${ActionBtn} act="snooze30" label="Snooze 30m" busyLabel="…" ghost=${true}/> <${ActionBtn} act="snooze120" label="2h" busyLabel="…" ghost=${true}/>`}
+            </${Field}>
           </div>
           ${p.summary ? html`<hr class="sep" style=${{ margin: '12px 0' }}/><pre class="mono" style=${{ whiteSpace: 'pre-wrap', fontSize: '11.5px', color: 'var(--ink2)', margin: 0 }}>${p.summary}</pre>` : null}
         </${Panel}>`}

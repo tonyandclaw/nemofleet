@@ -207,6 +207,7 @@ SETTINGS_DEFAULTS = {
   "patrol_interval_sec": int(os.environ.get("BRIDGE_PATROL_INTERVAL", "1200")),  # 主動巡邏頻率(積極=20 分)
   "digest_interval_sec": int(os.environ.get("BRIDGE_DIGEST_INTERVAL", "3600")),  # 主動 digest 頻率(每小時)
   "proactive_safety_net": True,  # critical 確定性告警(不依賴 team-lead;Email 直送 + Telegram Bot API 保底)
+  "proactive_snooze_until": 0,   # epoch;now < 此值時暫停 critical 主動告警(維護靜音;仍巡邏+記錄)
 }
 _SET_RANGE = {
   "cve_interval_sec": {0, 3600, 21600, 86400}, "cert_interval_sec": {0, 3600, 21600, 86400},

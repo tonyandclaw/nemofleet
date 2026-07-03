@@ -164,7 +164,8 @@ run_cycle(){
   DIGEST_IV=$(printf '%s' "$S" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("digest_interval_sec",3600)))' 2>/dev/null || echo 3600)
   RECIPIENTS_JSON=$(printf '%s' "$S" | python3 -c 'import sys,json;print(json.dumps(json.load(sys.stdin).get("recipients",[]),ensure_ascii=False))' 2>/dev/null || echo "[]")
   SAFETY_NET=$(printf '%s' "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("proactive_safety_net",True))' 2>/dev/null || echo True)
-  export DIGEST_IV RECIPIENTS_JSON SAFETY_NET
+  SNOOZE_UNTIL=$(printf '%s' "$S" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("proactive_snooze_until",0)))' 2>/dev/null || echo 0)
+  export DIGEST_IV RECIPIENTS_JSON SAFETY_NET SNOOZE_UNTIL
   if [ "$PROACTIVE" != "True" ]; then
     log "proactive_enabled=off,略過"; PATROL_INTERVAL=$PATROL_IV
     printf '{"enabled":false}' > "$DATA_DIR/proactive-status.json" 2>/dev/null || true
@@ -185,8 +186,12 @@ run_cycle(){
   # ① critical → immediate agentic alert
   if [ "${NCRIT:-0}" -gt 0 ]; then
     local BODY; BODY=$(printf '%s' "$OUT" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("關鍵變化:\n- "+"\n- ".join(d["critical"])+"\n\n現況:\n"+d["summary"])')
-    [ "${SAFETY_NET:-True}" = "True" ] && deterministic_alert "⚠️ NemoFleet critical" "$BODY"   # 保證送達(不依賴 team-lead)
-    wake_teamlead "即時告警" "$BODY"   # 加值:team-lead 自然語言
+    if [ "${SNOOZE_UNTIL:-0}" -gt "$(date +%s)" ]; then
+      log "critical $NCRIT 筆,但在維護靜音期 → 不打斷(仍巡邏+記錄)"
+    else
+      [ "${SAFETY_NET:-True}" = "True" ] && deterministic_alert "⚠️ NemoFleet critical" "$BODY"   # 保證送達(不依賴 team-lead)
+      wake_teamlead "即時告警" "$BODY"   # 加值:team-lead 自然語言
+    fi
   fi
   # ② digest cadence → agentic status report (even if all-green: proactive "我巡過了,沒事")
   if [ "$DUE" = "True" ]; then
@@ -197,7 +202,7 @@ run_cycle(){
 
   # record status + rolling log for dashboard visibility (/api/status → proactive)
   OUT="$OUT" NCRIT="$NCRIT" NROUT="$NROUT" DUE="$DUE" SAFETY_NET="${SAFETY_NET:-True}" \
-  PATROL_IV="$PATROL_IV" DIGEST_IV="$DIGEST_IV" STATUS="$DATA_DIR/proactive-status.json" \
+  PATROL_IV="$PATROL_IV" DIGEST_IV="$DIGEST_IV" SNOOZE_UNTIL="${SNOOZE_UNTIL:-0}" STATUS="$DATA_DIR/proactive-status.json" \
   PLOG="$DATA_DIR/proactive-log.jsonl" python3 - <<'PYREC' 2>/dev/null || true
 import os, json, time
 try: out = json.loads(os.environ["OUT"])
@@ -206,7 +211,7 @@ now = time.strftime("%Y-%m-%d %H:%M:%S"); nc = int(os.environ.get("NCRIT") or 0)
 json.dump({"enabled": True, "patrol_interval_sec": int(os.environ.get("PATROL_IV") or 1200),
            "digest_interval_sec": int(os.environ.get("DIGEST_IV") or 3600),
            "safety_net": os.environ.get("SAFETY_NET") == "True", "last_patrol": now,
-           "last_critical": nc, "last_routine": int(os.environ.get("NROUT") or 0),
+           "last_critical": nc, "last_routine": int(os.environ.get("NROUT") or 0), "snooze_until": int(os.environ.get("SNOOZE_UNTIL") or 0),
            "summary": out.get("summary", "")}, open(os.environ["STATUS"], "w"), ensure_ascii=False)
 rec = {"ts": now, "critical": out.get("critical", []), "routine": out.get("routine", []),
        "digest_sent": os.environ.get("DUE") == "True",

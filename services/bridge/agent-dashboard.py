@@ -47,9 +47,9 @@ except Exception:
     BRAND_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0066ff"/></svg>'
 
 # ===== 存取控制:帳號 / session / RBAC / timeout / IP 白名單 =====
-USERS_FILE = f"{BRIDGE}/dash-users.json"
-AUTH_FILE = f"{BRIDGE}/dash-auth.json"
-SEED_FILE = f"{DIR}/config/bridge/dash-seed.json"   # 首次啟動的種子帳密;git-ignored,見 config/bridge/README.md
+USERS_FILE = os.environ.get("DASH_USERS_FILE") or f"{BRIDGE}/dash-users.json"
+AUTH_FILE = os.environ.get("DASH_AUTH_FILE") or f"{BRIDGE}/dash-auth.json"
+SEED_FILE = os.environ.get("DASH_SEED_FILE") or f"{DIR}/config/bridge/dash-seed.json"   # 首次啟動的種子帳密;git-ignored,見 config/bridge/README.md
 SESSIONS = {}   # sid -> {email, role, created, last, ip}
 _LOGINF = {}    # ip -> {count, until}
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -568,7 +568,7 @@ ALLOWED_CFG = {"cve_interval_sec", "cert_interval_sec", "cert_expire_warn_days",
                "auto_escalate", "quiet_enabled", "quiet_start", "quiet_end", "quiet_days", "notify_channels", "cert_sig_min", "cert_cipher_policy", "cert_ec_min",
                "dev_cpu_hi", "dev_ram_hi", "dev_temp_hi",
                "proactive_enabled", "patrol_interval_sec", "digest_interval_sec", "proactive_safety_net",
-               "nuclei_interval_sec", "nuclei_tags"}
+               "nuclei_interval_sec", "nuclei_tags", "proactive_snooze_until"}
 def _worker_post(path, payload, timeout=10):
     """POST JSON to each worker's IT-ops endpoint. The JSON is piped via stdin to an in-container
     curl (docker exec -i … --data-binary @-): no nested shell quoting, no base64 smuggling, and the
@@ -785,6 +785,11 @@ def do_action(do):
         except Exception:
             pass
         return {"ok": True, "msg": "已請求立即巡邏(≤20s 生效)"}
+    if do in ("snooze30", "snooze120", "snooze_off"):
+        until = 0 if do == "snooze_off" else int(time.time()) + (1800 if do == "snooze30" else 7200)
+        do_config("proactive_snooze_until", until)
+        _CACHE["ts"] = 0
+        return {"ok": True, "msg": ("已靜音 critical 主動告警至 " + time.strftime("%H:%M", time.localtime(until))) if until else "已取消靜音"}
     if do == "refresh":
         _CACHE["ts"] = 0; return {"ok": True, "msg": "已重新整理"}
     if do == "cve" and ct2:
@@ -2169,7 +2174,7 @@ if(location.search.indexOf('drawer=ebg')>=0)setTimeout(()=>{if(LAST)openDrawer()
 setTimeout(()=>{if(location.search.indexOf('demoexpand')>=0&&LAST&&LAST.events){EVF='DENIED';LAST.events.filter(e=>e.verb==='DENIED').slice(0,2).forEach(e=>OPEN_EV.add(e.ts));if(tabId()==='gov')render(LAST)}},900);
 </script></body></html>"""
 
-ADMIN_AUDIT = os.path.expanduser("~/.config/nemoclaw/admin-audit.jsonl")
+ADMIN_AUDIT = os.environ.get("DASH_AUDIT_FILE") or os.path.expanduser("~/.config/nemoclaw/admin-audit.jsonl")
 _AUDIT_LOCK = threading.Lock()
 def _audit_canon(e):
     return json.dumps([e["seq"], e["ts"], e["actor"], e["action"], e["detail"], e["ip"], e["ok"]], ensure_ascii=False)
@@ -2364,6 +2369,10 @@ class H(BaseHTTPRequestHandler):
         if p in ("/", "/index.html"):
             if not sess:
                 self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
+            self.send_response(302); self.send_header("Location", "/app"); self.end_headers(); return   # SPA is the default UI now
+        if p == "/classic":   # legacy inline UI — fallback until the SPA is live-verified, then this + HTML blob get deleted
+            if not self._sess():
+                self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
             return self._send(200, HTML, "text/html; charset=utf-8")
         if not sess:
             return self._send(401, json.dumps({"error": "auth required"}), "application/json; charset=utf-8")
@@ -2451,7 +2460,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作"}), "application/json; charset=utf-8")
             try:
                 self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")
