@@ -20,6 +20,8 @@ import wi_util  # pure helpers (version/cert/cipher/conf parse) — unit-tested;
 from wi_util import sig_tier, vtuple as _vt, cipher_bad as _cipher_bad, days_left as _days_left, conf_kv as _conf_kv
 _vtuple = _vt  # legacy alias — _vt/_vtuple were duplicate number-tuple extractors, now consolidated
 import wi_nuclei  # worker-b active nuclei scan subsystem (configured once deps exist, below)
+import wi_review  # worker-c QA-review gates (pure)
+import hashlib
 
 # 容器 egress 走不了 IPv6(NVD 等 Cloudflare 主機會解析到 IPv6 → 連線逾時);所有外部主機都有可用 IPv4。
 # 全域強制 IPv4 解析:NVD 變可達,github/osv 不受影響(本來就走 IPv4)。
@@ -145,12 +147,12 @@ FLEET = [
 #           ZONE B=資安/原始碼分析(CVE + source SBOM/SAST/設計文件)。
 # 每台端點用 BRIDGE_ZONE 認角色;依角色 caps 啟用職責、monitor 只巡自己負責的設備。未設→A(相容)。
 ZONE = os.environ.get("BRIDGE_ZONE", "A").upper()
-ZONE_ROLE = {"A": "IT 運維 / 網路管理", "B": "資安 / 原始碼分析"}
+ZONE_ROLE = {"A": "IT 運維 / 網路管理", "B": "資安 / 原始碼分析", "C": "變更治理 / QA 監督"}
 ZONE_MONITOR = {
   "A": {"lab-asus-ebg19p-01"},   # 運維管:真實 EBG19P 商用閘道
   "B": set(),                     # 資安節點:CVE / 原始碼分析(不綁特定設備監控)
 }
-ZONE_CAPS = {"A": {"monitor", "fix", "cert"}, "B": {"monitor", "cve", "source", "nuclei"}}
+ZONE_CAPS = {"A": {"monitor", "fix", "cert"}, "B": {"monitor", "cve", "source", "nuclei"}, "C": {"backup", "firmware", "rollback", "review"}}
 def _zone_has(cap):
     c = ZONE_CAPS.get(ZONE)
     return (cap in c) if c is not None else True          # 未知 zone → 全開(相容)
@@ -209,6 +211,7 @@ SETTINGS_DEFAULTS = {
   "proactive_enabled": True,     # team-lead 主動巡邏 + 主動回報(scripts/teamlead-proactive.sh)
   "patrol_interval_sec": int(os.environ.get("BRIDGE_PATROL_INTERVAL", "1200")),  # 主動巡邏頻率(積極=20 分)
   "digest_interval_sec": int(os.environ.get("BRIDGE_DIGEST_INTERVAL", "3600")),  # 主動 digest 頻率(每小時)
+  "backup_interval_sec": int(os.environ.get("BRIDGE_BACKUP_INTERVAL", "86400")),  # worker-c 設定備份頻率
   "proactive_safety_net": True,  # critical 確定性告警(不依賴 team-lead;Email 直送 + Telegram Bot API 保底)
   "proactive_snooze_until": 0,   # epoch;now < 此值時暫停 critical 主動告警(維護靜音;仍巡邏+記錄)
 }
@@ -1715,6 +1718,88 @@ def run_ebg_remediate_bg(bug):
         BUSY["on"] = False
         save_last()
 
+# ── worker-c(zone C)變更治理官:備份 / 韌體 / rollback + a/b 品質審查 ──────────
+# 生命週期(備份/韌體/rollback)對真機操作 → 無 EBG19P_CRED 則優雅降級。審查(review)為純函式閘,可測。
+BACKUP_DIR = f"{WD}/backups"
+BACKUP_INTERVAL = int(os.environ.get("BRIDGE_BACKUP_INTERVAL", "86400"))
+def _ebg_client():
+    ip, user, pw = ebg19p.parse_cred(EBG_CRED)      # 無 cred → EBG19PError
+    c = ebg19p.EBG19PClient(ip, user, pw); c.login(); return c
+def run_backup(trigger="api"):
+    """對 EBG19P 拍設定快照(nvget 受管 nvram 鍵 + firmver)→ 版本化存檔。無 cred → 降級。"""
+    if not _zone_has("backup"):
+        return {"available": False, "note": "backup 屬 zone C(治理官)職責", "zone": ZONE}
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        c = _ebg_client()
+    except Exception as e:
+        return {"available": False, "note": "EBG19P 憑證/連線不可用(zone C 需 EBG19P_CRED):%s" % e, "ts": now}
+    nvkeys = sorted({EBG_ACTIONS[b][0] for b in EBG_ACTIONS} | {"firmver"})
+    snap = {}
+    for k in nvkeys:
+        try:
+            snap[k] = c.nvget(k)
+        except Exception:
+            pass
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    bid = "bk-" + time.strftime("%Y%m%d-%H%M%S")
+    body = {"id": bid, "asset": "lab-asus-ebg19p-01", "ts": now, "trigger": trigger, "config": snap,
+            "sha256": hashlib.sha256(json.dumps(snap, sort_keys=True).encode()).hexdigest()[:16]}
+    with open(f"{BACKUP_DIR}/{bid}.json", "w", encoding="utf-8") as fp:
+        json.dump(body, fp, ensure_ascii=False, indent=2)
+    sh(f"chown -R 998:998 {BACKUP_DIR}")
+    print("[BACKUP] %s (%d keys)" % (bid, len(snap)), flush=True)
+    return {"available": True, "latest": bid, "ts": now, "keys": len(snap), "sha256": body["sha256"]}
+def list_backups():
+    try:
+        ids = sorted((x[:-5] for x in os.listdir(BACKUP_DIR) if x.endswith(".json")), reverse=True)
+    except Exception:
+        ids = []
+    return {"count": len(ids), "backups": ids[:20], "dir": BACKUP_DIR}
+def firmware_status():
+    if not _zone_has("firmware"):
+        return {"note": "firmware 屬 zone C 職責", "zone": ZONE}
+    cur = "unknown(需 EBG19P 連線)"
+    try:
+        cur = _ebg_client().nvget("firmver") or cur
+    except Exception:
+        pass
+    return {"current": cur, "available": [], "urgency": "normal", "cve_driven": [],
+            "note": "ASUS 韌體來源未設定(需 worker-c-allow-firmware egress);urgency 由 worker-b CVE 驅動"}
+def run_rollback(to, approval_token=""):
+    """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。需真機驗證。"""
+    if not _zone_has("rollback"):
+        return {"ok": False, "note": "rollback 屬 zone C 職責", "zone": ZONE}
+    if not approval_token:
+        return {"ok": False, "error": "高風險動作需 approval_token(人核准);見 worker-c-spec §5"}
+    p = f"{BACKUP_DIR}/{to}.json"
+    if not os.path.exists(p):
+        return {"ok": False, "error": "找不到備份 %s" % to}
+    try:
+        bk = json.load(open(p, encoding="utf-8"))
+        c = _ebg_client()
+        c.apply("restart_all", list((bk.get("config") or {}).items()), wait=15)
+        return {"ok": True, "restored_to": to, "keys": len(bk.get("config") or {}), "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    except Exception as e:
+        return {"ok": False, "error": "rollback 失敗(需真機):%s" % e}
+def run_review(kind, subject):
+    """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層。"""
+    if not _zone_has("review"):
+        return {"note": "review 屬 zone C(治理官)職責", "zone": ZONE}
+    return wi_review.review(kind, subject or {}, knowledge.baseline_conf("ebg19p"), knowledge.security_keys("ebg19p"))
+def _backup_schedule_loop():
+    time.sleep(90)
+    while True:
+        iv = load_settings().get("backup_interval_sec", BACKUP_INTERVAL)
+        if iv and iv > 0:
+            try:
+                run_backup("schedule")
+            except Exception as e:
+                print("[BACKUP loop]", e, flush=True)
+            time.sleep(max(int(iv), 3600))
+        else:
+            time.sleep(3600)
+
 # ── nuclei active vuln scan → wi_nuclei.py (worker-b). Inject the host deps once (all defined above).
 wi_nuclei.configure(_zone_has, load_settings, _open_jira_dedup, ZONE)
 
@@ -1722,6 +1807,10 @@ wi_nuclei.configure(_zone_has, load_settings, _open_jira_dedup, ZONE)
 #    _a2a_run below is the local skill router (needs the scanners / knowledge / LAST_NUCLEI).
 def _a2a_run(skill, params):
     if skill in ("knowledge",): return knowledge.get_knowledge()
+    if skill in ("review",): return run_review(params.get("kind", ""), params.get("subject") or {})
+    if skill in ("backup",): return run_backup("a2a")
+    if skill in ("firmware", "firmware-update"): return firmware_status()
+    if skill in ("rollback",): return run_rollback(params.get("to", ""), params.get("approval_token", ""))
     if skill in ("monitor",): return _single_flight("monitor", run_monitor)
     if skill in ("cve-scan", "cve"): return _single_flight("cve", run_cve_scan)
     if skill in ("cert-scan", "cert"): return _single_flight("cert", run_cert_scan)
@@ -1766,6 +1855,14 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             self._send(200, {"flow": FLOW[-40:]})
+        elif self.path == "/backup":   # worker-c:列出備份
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            self._send(200, list_backups())
+        elif self.path == "/firmware":   # worker-c:韌體狀態
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            self._send(200, firmware_status())
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1837,6 +1934,21 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 flow("team-lead", _sk, "error", str(e))
                 return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rpc.get("id")})
+        if self.path in ("/review", "/backup", "/firmware-apply", "/rollback"):   # worker-c 治理官動作
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            try:
+                n = int(self.headers.get("Content-Length", 0)); b = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                b = {}
+            if self.path == "/review":
+                return self._send(200, run_review(b.get("kind", ""), b.get("subject") or {}))
+            if self.path == "/backup":
+                return self._send(200, run_backup("api"))
+            if self.path == "/firmware-apply":
+                return self._send(200, {"ok": False, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)", "approval_token": bool(b.get("approval_token"))})
+            if self.path == "/rollback":
+                return self._send(200, run_rollback(b.get("to", ""), b.get("approval_token", "")))
         if self.path == "/flow":   # flow 事件 ingest:team-lead 把「人→team-lead 收件 / 回報」記這(走既有 bridge,免新 egress)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1928,6 +2040,8 @@ if __name__ == "__main__":
         threading.Thread(target=wi_nuclei.schedule_loop, daemon=True).start()
     if _zone_has("cert"):
         threading.Thread(target=_cert_schedule_loop, daemon=True).start()
+    if _zone_has("backup"):
+        threading.Thread(target=_backup_schedule_loop, daemon=True).start()
     print(f"[worker-itops] listening on 0.0.0.0:{PORT} "
           f"(actions: {list(EBG_ACTIONS) + list(EBG_MULTI)}, auth: {'on' if TOKEN else 'off'}, "
           f"periodic_cve: {'every %ds' % CVE_INTERVAL if CVE_INTERVAL else 'off'})", flush=True)

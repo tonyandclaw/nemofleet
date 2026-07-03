@@ -585,7 +585,7 @@ ALLOWED_CFG = {"cve_interval_sec", "cert_interval_sec", "cert_expire_warn_days",
                "auto_escalate", "quiet_enabled", "quiet_start", "quiet_end", "quiet_days", "notify_channels", "cert_sig_min", "cert_cipher_policy", "cert_ec_min",
                "dev_cpu_hi", "dev_ram_hi", "dev_temp_hi",
                "proactive_enabled", "patrol_interval_sec", "digest_interval_sec", "proactive_safety_net",
-               "nuclei_interval_sec", "nuclei_tags", "proactive_snooze_until"}
+               "nuclei_interval_sec", "nuclei_tags", "proactive_snooze_until", "backup_interval_sec"}
 def _worker_post(path, payload, timeout=10):
     """POST JSON to each worker's IT-ops endpoint. The JSON is piped via stdin to an in-container
     curl (docker exec -i … --data-binary @-): no nested shell quoting, no base64 smuggling, and the

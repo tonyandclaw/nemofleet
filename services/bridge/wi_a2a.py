@@ -13,6 +13,10 @@ A2A_SKILLS = {
     "cve":     {"id": "cve-scan", "name": "Fleet CVE scan", "description": "機隊 CVE 分級", "tags": ["security", "cve"]},
     "source":  {"id": "source-scan", "name": "SBOM / SAST source analysis", "description": "上游韌體原始碼 SBOM + SAST", "tags": ["security", "sast"]},
     "nuclei":  {"id": "nuclei-scan", "name": "Active vuln scan (nuclei)", "description": "nuclei-templates 主動掃 ASUS 裝置(projectdiscovery)", "tags": ["security", "nuclei", "dast"]},
+  "backup":   {"id": "backup", "name": "Config backup / snapshot", "description": "EBG19P 設定版本化快照", "tags": ["governance", "backup"]},
+  "firmware": {"id": "firmware-update", "name": "Firmware lifecycle", "description": "韌體版本 / 更新查核 · 分批上線", "tags": ["governance", "firmware"]},
+  "rollback": {"id": "rollback", "name": "Restore known-good config", "description": "還原已知良好設定(需人核准)", "tags": ["governance", "rollback"]},
+  "review":   {"id": "review", "name": "QA review (a/b outputs)", "description": "審查 worker-a/b 解法決策 → 綁定判決", "tags": ["governance", "review"]},
 }
 A2A_KNOWLEDGE = {"id": "knowledge", "name": "Shared fleet knowledge", "description": "共享知識：核准 baseline / 安全鍵定義 / lessons / fleet 快照", "tags": ["knowledge", "context"]}
 
