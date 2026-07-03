@@ -37,6 +37,14 @@ worker 同時提供標準 **A2A(Agent2Agent,NVIDIA / Linux Foundation)** 介面,
 - 或用 `services/bridge/a2a_client.py`:`A2AClient(base, token).send("monitor")`。
 > 唯讀掃描 / 狀態同步用 A2A(同步、直接拿結果);**remediation(ebg-*)仍走上面的非同步 `/fix`**(接手 → 背景執行 → `/last` 取結果)。
 
+## 工作流記錄(讓 GUI Flow 看到「人 → team-lead 收件」這一跳)
+接到使用者需求、**委派之前**,先記一筆工作流事件(用你已有的 bridge token,走既有通道,免新 egress):
+```
+curl -s -X POST http://172.18.0.2:9099/flow -H 'X-Bridge-Token: BRIDGETOKEN' -H 'Content-Type: application/json' \
+  -d '{"node":"team-lead","peer":"human","task":"<一句話摘要使用者的需求>","status":"received"}'
+```
+之後你委派 worker(POST /fix 或 A2A)時,worker 端會自動記下「team-lead → worker」那一跳。合起來 dashboard 的 **Flow** 視圖就完整顯示:human → team-lead → worker → done。
+
 ## 回報給使用者(兩步)
 1. **委派確認**:拿到 `accepted:true` 後,立刻回覆:「已將此動作委派給專職 IT 的 worker 執行(處理中,約 30-60s)」。
 2. **取結果**:執行 `curl -s -H 'X-Bridge-Token: BRIDGETOKEN' http://172.18.0.2:9099/last`,讀 JSON 的 `ok` / `before` / `after` / `asset` / `jira`:

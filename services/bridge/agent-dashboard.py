@@ -568,6 +568,10 @@ def _collect_impl():
             _flow += (json.loads(_worker_get(_frag, "/flow", timeout=6) or "{}").get("flow") or [])
         except Exception:
             pass
+    try:
+        _flow += [json.loads(l) for l in open(FLOW_LOG, encoding="utf-8") if l.strip()][-30:]
+    except Exception:
+        pass
     _ps = d.get("proactive") or {}
     if _ps.get("last_patrol"):
         _t = _ps["last_patrol"].split(" ")[-1] if " " in _ps["last_patrol"] else _ps["last_patrol"]
@@ -790,6 +794,21 @@ def notify_loop():
             print("[notify loop]", e, flush=True)
         time.sleep(20)
 
+FLOW_LOG = f"{DIR}/data/flow-log.jsonl"
+def _flow_append(node, peer, task, status, detail=""):
+    try:
+        os.makedirs(os.path.dirname(FLOW_LOG), exist_ok=True)
+        ev = {"ts": time.strftime("%H:%M:%S"), "node": str(node)[:20], "peer": str(peer)[:20],
+              "task": str(task)[:40], "status": str(status)[:16], "detail": str(detail)[:100]}
+        try:
+            lines = [l for l in open(FLOW_LOG, encoding="utf-8") if l.strip()][-59:]
+        except Exception:
+            lines = []
+        lines.append(json.dumps(ev, ensure_ascii=False))
+        with open(FLOW_LOG, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
 def do_action(do):
     ct2 = ct("worker-b")
     if do == "patrol":
@@ -797,6 +816,7 @@ def do_action(do):
             open(f"{DIR}/data/proactive-trigger", "w").close()
         except Exception:
             pass
+        _flow_append("team-lead", "human", "patrol (GUI)", "working")
         return {"ok": True, "msg": "已請求立即巡邏(≤20s 生效)"}
     if do in ("snooze30", "snooze120", "snooze_off"):
         until = 0 if do == "snooze_off" else int(time.time()) + (1800 if do == "snooze30" else 7200)
@@ -807,12 +827,15 @@ def do_action(do):
         _CACHE["ts"] = 0; return {"ok": True, "msg": "已重新整理"}
     if do == "cve" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m20 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/cve\"", 25)
+        _flow_append("worker-b", "human", "CVE rescan (GUI)", "working")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重掃設備 CVE"}
     if do == "source" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m25 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/source-cve\"", 30)
+        _flow_append("worker-b", "human", "source scan (GUI)", "working")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重跑原始碼分析(SBOM/SAST)"}
     if do == "nuclei" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m20 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/nuclei-scan\"", 25)
+        _flow_append("worker-b", "human", "nuclei scan (GUI)", "working")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)"}
     return {"ok": False, "msg": "未知動作"}
 

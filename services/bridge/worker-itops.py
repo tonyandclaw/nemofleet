@@ -49,8 +49,8 @@ def _single_flight(name, fn, reuse_sec=5):
         return r
 
 FLOW = []   # 最近的跨節點工作流事件(GUI Flow 視圖):誰(node)受誰(peer)委派做什麼、狀態
-def flow(peer, task, status, detail=""):
-    FLOW.append({"ts": time.strftime("%H:%M:%S"), "node": "worker-" + ZONE.lower(), "peer": peer,
+def flow(peer, task, status, detail="", node=None):
+    FLOW.append({"ts": time.strftime("%H:%M:%S"), "node": node or ("worker-" + ZONE.lower()), "peer": peer,
                  "task": str(task)[:40], "status": status, "detail": str(detail)[:100]})
     del FLOW[:-60]
 
@@ -1837,6 +1837,15 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 flow("team-lead", _sk, "error", str(e))
                 return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rpc.get("id")})
+        if self.path == "/flow":   # flow 事件 ingest:team-lead 把「人→team-lead 收件 / 回報」記這(走既有 bridge,免新 egress)
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            try:
+                n = int(self.headers.get("Content-Length", 0)); b = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                b = {}
+            flow(b.get("peer", "human"), b.get("task", ""), b.get("status", "received"), b.get("detail", ""), node=b.get("node", "team-lead"))
+            return self._send(200, {"ok": True})
         if self.path == "/nuclei-scan":   # 觸發一次 nuclei 主動掃(背景;active scan 較久)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
