@@ -2,7 +2,7 @@
 # works from anywhere in the tree.
 SHELL := /bin/bash
 
-.PHONY: help bootstrap boot health demo mail-up gen-certs lint clean
+.PHONY: help bootstrap boot health mail-up gen-certs lint test clean
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -17,18 +17,18 @@ boot: ## bring up the whole stack (idempotent)
 health: ## zero-cost health / hygiene check
 	bash scripts/healthcheck.sh
 
-demo: ## run the one-shot demo runbook
-	bash demo/demo.sh
-
-mail-up: ## bring up the GreenMail email-channel host parts
+mail-up: ## configure the real SMTP relay for outbound notifications (reads .env)
 	bash services/mail/up.sh
 
 gen-certs: ## (re)generate dashboard CA + TLS + bridge token
 	bash scripts/gen-dash-ca.sh && bash scripts/gen-dash-tls.sh && bash scripts/rotate-bridge-token.sh
 
 lint: ## syntax-check every shell script + py-compile services
-	@set -e; for f in $$(find lib scripts demo tests eval services -name '*.sh'); do bash -n "$$f"; done; echo "shell OK"
-	@set -e; for p in $$(find services eval tools -name '*.py'); do python3 -m py_compile "$$p"; done; echo "python OK"
+	@set -e; for f in $$(find lib scripts tests eval services provisioning -name '*.sh'); do bash -n "$$f"; done; echo "shell OK"
+	@set -e; for p in $$(find services eval -name '*.py'); do python3 -m py_compile "$$p"; done; echo "python OK"
+
+test: ## run unit tests (pure logic; no live stack needed)
+	python3 -m unittest discover -s tests/unit -p 'test_*.py'
 
 clean: ## remove runtime junk (bus messages, logs, pycache) — keeps dirs
 	find data/bus -type f ! -name '.gitkeep' -delete 2>/dev/null || true

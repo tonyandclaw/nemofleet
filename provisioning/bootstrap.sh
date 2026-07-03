@@ -5,7 +5,7 @@ while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirnam
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # bootstrap.sh — deterministic first-time setup on a fresh device.
 # Does the parts that DON'T need interactive credentials. The sandbox onboarding
-# (NemoClaw/OpenShell install + Hermes/OpenClaw creation) is interactive — see
+# (NemoClaw/OpenShell install + Hermes/worker creation) is interactive — see
 # provisioning/install-prereqs.md.
 set -uo pipefail
 cd "$NEMOFLEET_ROOT"

@@ -7,10 +7,10 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 # 涵蓋:CLI 可用 → policy get(版本/Loaded)→ active policy YAML 結構 → policy list 歷史
 #        → policy prove 形式化證明(可執行 + 量化 + 決定性)→ policy set 冪等回灌。
 # 安全性:唯一寫入是 policy set,且回灌的是「現行 active policy 本身」=冪等(Policy unchanged),不改變實際規則。
-# 用法:bash tests/e2e-openshell.sh [sandbox]   預設 hermes-demo
+# 用法:bash tests/e2e-openshell.sh [sandbox]   預設 team-lead
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT; cd "$DIR"; :
-SB="${1:-hermes-demo}"
+SB="${1:-team-lead}"
 PASS=0; FAIL=0
 ok(){  printf '  \033[32m✓\033[0m %s\n' "$*"; PASS=$((PASS+1)); }
 bad(){ printf '  \033[31m✗\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }

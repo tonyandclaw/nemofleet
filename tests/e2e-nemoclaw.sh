@@ -7,10 +7,10 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 # 涵蓋:CLI 可用 → sandbox 清單 → status 健康 → 快照 list/create/restore → 政策 preset list/add/remove(dry-run)。
 # 安全性:破壞性操作只用 --dry-run;唯一真寫入是 snapshot create(附加性),restore 還原「剛建的快照=當前狀態」
 #         等同 no-op,不改變 live 狀態。退出碼 = 失敗項數(可用於 CI)。
-# 用法:bash tests/e2e-nemoclaw.sh [sandbox]   預設 my-assistant
+# 用法:bash tests/e2e-nemoclaw.sh [sandbox]   預設 worker-a
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT; cd "$DIR"; :
-SB="${1:-my-assistant}"
+SB="${1:-worker-a}"
 PASS=0; FAIL=0
 ok(){  printf '  \033[32m✓\033[0m %s\n' "$*"; PASS=$((PASS+1)); }
 bad(){ printf '  \033[31m✗\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }

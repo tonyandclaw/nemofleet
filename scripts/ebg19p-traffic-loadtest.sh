@@ -14,11 +14,11 @@ set -uo pipefail
 DUR="${1:-40}"; WORKERS="${2:-2}"; SAMPLES="${3:-7}"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CRED="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
+WD="/sandbox/.hermes/workspace/it-task"
 [ -s "$CRED" ] || { echo "缺憑證 $CRED" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED"; B="http://$IP"
-CTO="$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)"
-[ -n "$CTO" ] || { echo "node A(my-assistant)容器未跑" >&2; exit 1; }
+CTO="$(docker ps --format '{{.Names}}' | grep -m1 worker-a)"
+[ -n "$CTO" ] || { echo "node A(worker-a)容器未跑" >&2; exit 1; }
 
 CRONBAK="$(mktemp)"; crontab -l 2>/dev/null > "$CRONBAK"
 STREAM_WAS=0; pgrep -f "ebg19p-stream.sh" >/dev/null 2>&1 && STREAM_WAS=1

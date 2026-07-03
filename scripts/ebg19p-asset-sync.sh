@@ -4,15 +4,15 @@ __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # ebg19p-asset-sync.sh — 從真機 EBG19P 唯讀拉「已連線資產清單」,正規化成 node A 沙箱的
-# ebg19p-assets.json,讓 OpenClaw /assets 做資產盤點 + 未授權接入偵測(對比已核准清單)。
+# ebg19p-assets.json,讓 worker /assets 做資產盤點 + 未授權接入偵測(對比已核准清單)。
 #   · 唯讀:只打 login.cgi + appGet.cgi?hook=get_clientlist()/dhcpLeaseMacList()。
 #   · 憑證:讀自 ~/.config/nemoclaw/ebg19p.cred(600,IP|USER|PASS,不入 repo)。
 #   · 衛生:密碼/token 不入 repo 不回顯;cookie mktemp 即刪。
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 CRED_FILE="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
-CTO="${CT_O:-$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)}"
+WD="/sandbox/.hermes/workspace/it-task"
+CTO="${CT_WA:-$(docker ps --format '{{.Names}}' | grep -m1 worker-a)}"
 [ -s "$CRED_FILE" ] || { echo "[ebg19p-asset] 缺憑證檔 $CRED_FILE" >&2; exit 1; }
 [ -n "$CTO" ] || { echo "[ebg19p-asset] node A 容器未跑" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED_FILE"

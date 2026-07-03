@@ -4,20 +4,20 @@ __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # ebg19p-stream.sh — EBG19P 即時串流 daemon:每 ~10 秒把真機 syslog + 健康(CPU/RAM/網口/溫度)
-# 推進 OpenClaw A 沙箱(/device-log、/monitor 即見),讓 GUI 近即時更新。
+# 推進 worker-a 沙箱(/device-log、/monitor 即見),讓 GUI 近即時更新。
 # 設計:登入一次、重用 token(autologout=0 不會過期);呼叫失敗才重登(連不到時 60s 退避)。
 # 唯讀(只 login.cgi + appGet.cgi);憑證 ~/.config/nemoclaw/ebg19p.cred。背景跑:setsid。
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 CRED="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
+WD="/sandbox/.hermes/workspace/it-task"
 INTERVAL="${EBG19P_STREAM_SEC:-5}"          # health 取樣間隔(秒)
 SYSLOG_EVERY="${EBG19P_SYSLOG_EVERY:-6}"    # 每幾個 cycle 抓一次 syslog(755KB);5s×6≈30s
 [ -s "$CRED" ] || { echo "[stream] 缺憑證 $CRED" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED"; B="http://$IP"
 JAR="$(mktemp)"; trap 'rm -f "$JAR"' EXIT
 TOK=""
-ctn(){ docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 my-assistant; }
+ctn(){ docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 worker-a; }
 
 login(){
   local c; c="$(printf '%s' "$USER:$PASS" | base64)"

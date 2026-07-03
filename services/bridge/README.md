@@ -1,13 +1,18 @@
-# services/bridge/ — status dashboard + cross-agent bridge
+# services/bridge/ — status dashboard + team-lead→worker channel
 
-Host-side web app + the scoped Hermes→OpenClaw channel.
+Host-side web app + the scoped team-lead→worker IT-ops channel.
 
 | File | What |
 |---|---|
-| `agent-dashboard.py` | The status board + control panel. Host web server on **:8899** (`DASHBOARD_PORT`). Started by `scripts/boot-stack.sh`. |
-| `openclaw-fix-endpoint.py` | The in-sandbox `:9099` fix endpoint (the only cross-agent channel). |
-| `jira-mock.py` | Mock Jira/ITSM target for escalation demos. |
+| `agent-dashboard.py` | The status board + control panel + JSON API. Host web server on **:8899** (`DASHBOARD_PORT`). Started by `scripts/boot-stack.sh`. |
+| `worker-itops.py` | The in-worker `:9099` IT-ops endpoint (monitor/cve/cert/syslog + EBG19P remediation; the only cross-node channel). |
+| `ebg19p.py` | Shared EBG19P device client (imported by `worker-itops.py`, shelled by the sync scripts). |
+| `web/` | React + Chart.js console (no build step; libs vendored under `web/vendor/`). Served at **`/app`** (auth-gated), talks to the same `/api/*` endpoints. `web/api.js`→`normalize()` is the only backend seam. |
 | `assets/brand.svg` | Logo. |
+
+> **Two front-ends coexist during the migration:** the classic inline UI at `/` and the
+> new React console at **`/app`**. Both hit the same JSON API. Flip the default by pointing
+> `GET /` at `web/index.html` once you've verified `/app` against the live backend.
 
 > Default dashboard login is seeded from `config/bridge/dash-seed.json` — see
 > `config/bridge/README.md`. Open <http://127.0.0.1:8899>.
@@ -58,7 +63,7 @@ appears in the side drawer.
   password. Tamper-evident **admin audit** (hash-chained).
 - **Recipients / scan settings / certs**: notify recipients, scan-schedule & alert
   thresholds, cert/weak-crypto view.
-- **Scan triggers** (`POST /api/action`): `cve`, `source`, `jira_reset`, `refresh`.
+- **Scan triggers** (`POST /api/action`): `cve`, `source`, `refresh`.
 
 ## Security model
 

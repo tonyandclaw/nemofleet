@@ -4,7 +4,7 @@ __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # ebg19p-monitor-sync.sh — 從真實 ASUS ExpertWiFi EBG19P(使用者實機)唯讀拉設定/狀態,
-# 正規化成 node A(IT 運維)OpenClaw 機隊監控的 ebg19p-current.conf,讓 /monitor 巡真機。
+# 正規化成 node A(IT 運維)worker 機隊監控的 ebg19p-current.conf,讓 /monitor 巡真機。
 #   · 唯讀:只打 login.cgi + appGet.cgi?hook=nvram_get()/get_clientlist(),不改任何設定。
 #   · 憑證:讀自 ~/.config/nemoclaw/ebg19p.cred(mode 600,格式 IP|USER|PASS,不入 repo/git)。
 #   · 衛生:密碼/token 不寫入 repo,不印到 stdout;cookie 用 mktemp 並於結束刪除。
@@ -14,12 +14,12 @@ set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 CRED_FILE="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
 ASSET="lab-asus-ebg19p-01"
-WD="/sandbox/.openclaw/workspace/it-task"
+WD="/sandbox/.hermes/workspace/it-task"
 CONF_NAME="ebg19p-current.conf"
-CTO="${CT_O:-$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)}"
+CTO="${CT_WA:-$(docker ps --format '{{.Names}}' | grep -m1 worker-a)}"
 
 [ -s "$CRED_FILE" ] || { echo "[ebg19p-sync] 缺憑證檔 $CRED_FILE(格式 IP|USER|PASS,chmod 600)" >&2; exit 1; }
-[ -n "$CTO" ] || { echo "[ebg19p-sync] node A(my-assistant)容器未跑,先 bash scripts/boot-stack.sh" >&2; exit 1; }
+[ -n "$CTO" ] || { echo "[ebg19p-sync] node A(worker-a)容器未跑,先 bash scripts/boot-stack.sh" >&2; exit 1; }
 IFS='|' read -r DEV_IP DEV_USER DEV_PASS < "$CRED_FILE"
 B="http://$DEV_IP"
 JAR="$(mktemp)"; trap 'rm -f "$JAR"' EXIT

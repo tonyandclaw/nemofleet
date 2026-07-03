@@ -10,7 +10,8 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 #   - 等 docker daemon 就緒才動。
 #   - 避開重開機後 ~150s 的 sandbox 自癒視窗(太早跑 boot-stack step1 會失敗)。
 #   - boot-stack 失敗自動重試(實測首跑常在 step1 timing 失敗,需重跑一次)。
-export PATH="$HOME/.local/bin:$NEMOFLEET_NODE_BIN:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+set -uo pipefail
+export PATH="$HOME/.local/bin:${NEMOFLEET_NODE_BIN:-}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export HOME="${HOME:-$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)}"
 DIR=$NEMOFLEET_ROOT
 LOG=/tmp/boot-stack-autostart.log

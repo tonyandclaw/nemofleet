@@ -4,20 +4,20 @@ __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # skill-sync.sh — copy a learned skill from one agent's skills dir to the other.
-# Cross-agent knowledge sharing (file-level). Hermes & OpenClaw use the same SKILL.md format.
-# Usage: skill-sync.sh <hermes2openclaw|openclaw2hermes> <skill-name>
+# Cross-agent knowledge sharing (file-level). Hermes & worker use the same SKILL.md format.
+# Usage: skill-sync.sh <lead2worker|worker2lead> <skill-name>
 set -euo pipefail
 
 :
-DIR="${1:?direction: hermes2openclaw|openclaw2hermes}"
+DIR="${1:?direction: lead2worker|worker2lead}"
 NAME="${2:?skill name}"
 TMP="$BUS_DIR/skill-xfer-$$"
 mkdir -p "$TMP"; trap 'rm -rf "$TMP"' EXIT
 
 # 來源 root 用整棵 skills 樹(技能可能在任何分類子目錄,如 productivity/、devops/);目標 TO 用各自既定落點。
 case "$DIR" in
-  hermes2openclaw) FROM_CT=$CT_H; SRC_ROOT=$HSKILLS;  TO_CT=$CT_O; TO=$OCSKILLS ;;
-  openclaw2hermes) FROM_CT=$CT_O; SRC_ROOT=$OCSKILLS; TO_CT=$CT_H; TO=$HSKILLS_SUB ;;
+  lead2worker) FROM_CT=$CT_LEAD; SRC_ROOT=$HSKILLS;  TO_CT=$CT_WA; TO=$WSKILLS ;;
+  worker2lead) FROM_CT=$CT_WA; SRC_ROOT=$WSKILLS; TO_CT=$CT_LEAD; TO=$HSKILLS_SUB ;;
   *) echo "unknown direction: $DIR" >&2; exit 2 ;;
 esac
 

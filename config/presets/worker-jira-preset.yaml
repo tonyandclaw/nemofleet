@@ -1,0 +1,15 @@
+preset:
+  name: worker-jira
+  description: "worker IT escalation → governed Jira egress (修不了/需人審→開單,受 policy:jira 治理)"
+network_policies:
+  jira:
+    name: jira
+    endpoints:
+      # 真實 Jira host — boot-stack 從 .env 的 JIRA_URL 渲染 __JIRA_HOST__。HTTPS via L7 proxy,驗證憑證。
+      - host: __JIRA_HOST__
+        port: 443
+        access: full
+        tls: verify
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/python3* }

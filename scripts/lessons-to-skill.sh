@@ -3,10 +3,10 @@
 __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>/dev/null || echo "$__src")")" && pwd)"
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
-# lessons-to-skill.sh — 把 eval/lessons.json 的負案例糾正渲染成常駐 SKILL.md,沉澱進 Hermes 與/或 OpenClaw。
+# lessons-to-skill.sh — 把 eval/lessons.json 的負案例糾正渲染成常駐 SKILL.md,沉澱進 Hermes 與/或 worker。
 # 讓「教訓」從外部回灌檔升級成 agent 自身持久知識(跨 session、可隨 snapshot 還原)。
 # 關鍵:docker cp 進沙箱後一律 chown 998(否則 agent EACCES、snapshot pre-backup audit 會 exit 1)。
-# 用法:lessons-to-skill.sh [hermes|openclaw|both]   (預設 both)
+# 用法:lessons-to-skill.sh [hermes|worker|both]   (預設 both)
 set -euo pipefail
 DIR=$NEMOFLEET_ROOT
 :
@@ -52,8 +52,8 @@ install_into() {  # $1=container $2=skill父目錄
 }
 
 case "$TARGET" in
-  hermes)   install_into "$CT_H" "$HSKILLS_SUB" ;;
-  openclaw) install_into "$CT_O" "$OCSKILLS" ;;
-  both)     install_into "$CT_H" "$HSKILLS_SUB"; install_into "$CT_O" "$OCSKILLS" ;;
-  *) echo "用法:$0 [hermes|openclaw|both]" >&2; exit 2 ;;
+  hermes)   install_into "$CT_LEAD" "$HSKILLS_SUB" ;;
+  worker) install_into "$CT_WA" "$WSKILLS" ;;
+  both)     install_into "$CT_LEAD" "$HSKILLS_SUB"; install_into "$CT_WA" "$WSKILLS" ;;
+  *) echo "用法:$0 [hermes|worker|both]" >&2; exit 2 ;;
 esac

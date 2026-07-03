@@ -3,7 +3,7 @@
 __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>/dev/null || echo "$__src")")" && pwd)"
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
-# ebg19p-remediate.sh — 對 EBG19P 真實設定 remediation(OpenClaw A 維運動作),目前支援:wps-off / upnp-off。
+# ebg19p-remediate.sh — 對 EBG19P 真實設定 remediation(worker-a 維運動作),目前支援:wps-off / upnp-off。
 # 流程:login.cgi 取 token → applyapp.cgi(action_mode=apply)寫 nvram + 套用 → 重讀驗證。可逆、可稽核。
 # 用法:bash scripts/ebg19p-remediate.sh wps-off   # 或 upnp-off
 set -uo pipefail

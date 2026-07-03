@@ -5,10 +5,10 @@ while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirnam
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # e2e.sh — 一鍵跑 NemoClaw + OpenShell 端到端測試並彙總。退出碼 = 總失敗項數(CI 友善)。
 # 用法:bash tests/e2e.sh [nemoclaw_sandbox] [openshell_sandbox]
-#   預設:NemoClaw 測 my-assistant、OpenShell 測 hermes-demo。
+#   預設:NemoClaw 測 worker-a、OpenShell 測 team-lead。
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT; cd "$DIR"
-NSB="${1:-my-assistant}"; OSB="${2:-hermes-demo}"
+NSB="${1:-worker-a}"; OSB="${2:-team-lead}"
 rc=0
 bash tests/e2e-nemoclaw.sh  "$NSB"; rc=$((rc + $?))
 bash tests/e2e-openshell.sh "$OSB"; rc=$((rc + $?))

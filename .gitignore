@@ -12,6 +12,7 @@
 services/bridge/dash-users.json
 services/bridge/dash-auth.json
 services/bridge/notified.json
+services/bridge/*.json.tmp
 config/bridge/dash-seed.json
 
 # ─── python / virtualenvs ────────────────────────────────────────────────────

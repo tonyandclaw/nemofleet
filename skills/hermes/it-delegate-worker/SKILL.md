@@ -1,0 +1,49 @@
+---
+name: it-delegate-worker
+description: Delegate real ASUS ExpertWiFi EBG19P security remediation to the worker IT operator via its inbound IT-ops endpoint, then report the verified result. Use whenever a user asks to change / harden a device setting that needs an engineering action.
+tags: [it, network, asus, ebg19p, delegation, worker, remediation]
+---
+# 委派 IT 動作給 worker(EBG19P IT operator)
+
+你(team-lead)是對人前台。遇到「需要對真實網路設備動手」的請求時,**不要自己改**,而是委派給專職 IT 的 worker —— 透過它的入站 IT-ops 端點。做完把驗證結果回報給使用者。
+
+唯一受管的真實設備是 **ASUS ExpertWiFi EBG19P**(`lab-asus-ebg19p-01`)。remediation 是**確定性、可逆、附驗證**的(端點直接對設備 nvram apply 後重讀驗證),不是 LLM 猜。
+
+## 何時使用 —— 真實 EBG19P 安全動作(worker-a 直接套用)
+使用者(Telegram / email)要求變更/強化設備設定時,對應 `bug`:
+- 關 WPS → `ebg-wps`(開啟用 `ebg-wps-on`);關 UPnP → `ebg-upnp`
+- 關 WAN 遠端網頁管理 → `ebg-wanweb`;開防火牆 → `ebg-fw-on`;開 DoS 防護 → `ebg-dos`
+- 關 Samba → `ebg-samba`;關 FTP → `ebg-ftp`;關 DDNS → `ebg-ddns`;關 Telnet → `ebg-telnet`;關 SSH 服務 → `ebg-ssh`
+- 開啟 AiProtection 惡意網站封鎖 → `ebg-aiprotect`(關閉用 `ebg-aiprotect-off`)
+
+worker-a 持有 EBG19P 操作知識庫(`it-task/ebg19p-operations.md`)。**未列入的設定變更**不會擅自猜——worker-a 會開 Jira 升級工程師(人在迴路)。回報時務必用回應裡的 `asset` 欄位(`lab-asus-ebg19p-01`)。
+
+> 監控 / CVE / 憑證 / syslog 分析是 worker 的**排程與唯讀能力**(不是經 /fix 委派):worker-a 定期巡檢設定漂移與憑證,worker-b 定期掃 CVE / 抽 SBOM·SAST / 分析 syslog。掃到高風險會自動開 Jira。使用者若只是「查狀態」,看儀表板或請 worker 跑對應掃描即可,不需走 /fix。
+
+## 怎麼做
+判斷 `bug` 後,立刻用 shell 執行**這一行** curl 委派給 worker-a(運維節點),不要反問、不要自己修、不要只呼叫 /health:
+
+```
+curl -s -X POST http://172.18.0.2:9099/fix -H 'Content-Type: application/json' -H 'X-Bridge-Token: BRIDGETOKEN' -d '{"bug":"ebg-wps"}'
+```
+
+`bug` 換成你判斷的動作(ebg-wps|ebg-upnp|ebg-wanweb|ebg-dos|ebg-fw-on|ebg-samba|ebg-ftp|ebg-ddns|ebg-telnet|ebg-ssh|ebg-aiprotect|ebg-aiprotect-off)。非同步:立刻拿到 `{"accepted":true,...}`(worker-a 已接手,約 30-60s)。
+(IP 與 X-Bridge-Token 已由部署程序填好當前實際值——照原樣執行,不要改或省略 token。)
+
+## 標準 A2A 介面(能力發現 + 同步掃描委派)
+worker 同時提供標準 **A2A(Agent2Agent,NVIDIA / Linux Foundation)** 介面,走**同一條受治理的 worker_bridge 通道**,適合巡邏 / 跟 worker sync:
+- **能力發現**:`GET http://172.18.0.2:9099/.well-known/agent-card.json` → Agent Card(該 worker 會哪些 skill:monitor / cve / cert / source…)。
+- **委派**:`POST http://172.18.0.2:9099/a2a`(JSON-RPC `message/send`,`metadata.skill` 指定 skill)→ 同步回 completed task(掃描結果)。
+- 或用 `services/bridge/a2a_client.py`:`A2AClient(base, token).send("monitor")`。
+> 唯讀掃描 / 狀態同步用 A2A(同步、直接拿結果);**remediation(ebg-*)仍走上面的非同步 `/fix`**(接手 → 背景執行 → `/last` 取結果)。
+
+## 回報給使用者(兩步)
+1. **委派確認**:拿到 `accepted:true` 後,立刻回覆:「已將此動作委派給專職 IT 的 worker 執行(處理中,約 30-60s)」。
+2. **取結果**:執行 `curl -s -H 'X-Bridge-Token: BRIDGETOKEN' http://172.18.0.2:9099/last`,讀 JSON 的 `ok` / `before` / `after` / `asset` / `jira`:
+   - `ok:true` → 用對客戶口吻回報結案,帶上「修改前→修改後」的 nvram 值(例:`wps_enable` 1→0)。
+   - `ok:false` → 告知未通過驗證,worker 已自動開 Jira 工單升級工程師(附 `jira` 編號),附上 `after` 實際值。
+   - 強調這是交由專職 IT 的 worker 實作、並經實跑驗證(不是你自己猜的)。
+
+## 邊界
+- worker-a 端點(`172.18.0.2:9099`)是**唯一**能讓你驅動 worker 動手的管道(scoped network policy `worker_bridge`,鎖 /32 + token)。除此之外 agent 沙箱互相隔離。
+- 只用於上述 EBG19P 真實安全動作;其他需求照你原本的前台 / 自我進化流程處理。

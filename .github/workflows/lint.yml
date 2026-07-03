@@ -1,0 +1,15 @@
+# CI: zero-dependency checks — `make lint` (bash -n + py_compile) + `make test` (stdlib unittest).
+# Integration tests need the NemoClaw/OpenShell CLIs, a NIM, and live sandboxes, so they
+# stay on the dev box (make health / tests/e2e-*.sh).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make lint
+      - run: make test
