@@ -39,6 +39,13 @@ echo "$(g $PB /.well-known/agent-card.json)" | grep -q '"id": *"nuclei-scan"' &&
 curl -s -X POST -H "X-Bridge-Token: $TOK" "http://127.0.0.1:$PB/nuclei-scan" | grep -q '"accepted": true' && ok "POST /nuclei-scan accepted (async)" || bad "trigger"
 N=""; for _ in $(seq 12); do N=$(g $PB /nuclei); echo "$N" | grep -q '"available"' && break; sleep 0.3; done
 echo "$N" | grep -q '"available": false' && ok "GET /nuclei degrades gracefully (no binary -> clear note)" || bad "nuclei: ${N:0:120}"
+# every authed route is still wired (no-token -> 403, before any scan runs; guards refactors/modularization)
+WIRED=1
+for ep in /jira /assets /device-log /log-analysis /traffic /cve /monitor /source-cve /cert-scan /settings /recipients /last /knowledge /nuclei; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PB$ep")
+  [ "$code" = 403 ] || { WIRED=0; bad "route $ep not wired (got $code)"; }
+done
+[ "$WIRED" = 1 ] && ok "all 14 authed routes wired (no-token -> 403)"
 stop
 
 echo "== worker_endpoint: $PASS pass, $FAIL fail =="
