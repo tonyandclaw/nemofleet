@@ -16,6 +16,9 @@ _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ebg19p  # shared EBG19P device client (co-located; boot-stack cp's it next to this file)
 import knowledge  # shared fleet knowledge — same baseline/security-keys team-lead reads via /knowledge
 import wi_a2a  # A2A protocol adapter (Agent Card + JSON-RPC envelope; dependency-injected)
+import wi_util  # pure helpers (version/cert/cipher/conf parse) — unit-tested; see wi_util.py
+from wi_util import sig_tier, vtuple as _vt, cipher_bad as _cipher_bad, days_left as _days_left, conf_kv as _conf_kv
+_vtuple = _vt  # legacy alias — _vt/_vtuple were duplicate number-tuple extractors, now consolidated
 
 # 容器 egress 走不了 IPv6(NVD 等 Cloudflare 主機會解析到 IPv6 → 連線逾時);所有外部主機都有可用 IPv4。
 # 全域強制 IPv4 解析:NVD 變可達,github/osv 不受影響(本來就走 IPv4)。
@@ -169,8 +172,6 @@ CVE_DB = [
   {"id": "CVE-2021-27219", "component": "glib", "title": "GLib g_byte_array 整數溢位",
    "fixed_in": "2.66.7", "severity": "Medium", "kind": "version"},
 ]
-def _vtuple(s):
-    return tuple(int(x) for x in _re_pending.findall(r"\d+", s or ""))
 # 「定期」掃描內建排程:BRIDGE_CVE_INTERVAL 秒(預設每日;0=關閉)。每次掃描落一行歷史(證據)。
 CVE_INTERVAL = int(os.environ.get("BRIDGE_CVE_INTERVAL", "86400"))
 # nuclei(worker-b 主動掃描):見 run_nuclei_scan。target 僅 zone B 由 boot 以 -e EBG19P_TARGET=<ip> 注入。
@@ -429,20 +430,6 @@ WEAK_SSH = {"diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1", "ssh-rs
 CERT_MIN_RSA = 2048
 CERT_EXPIRE_WARN_DAYS = 30
 SIG_ORDER = ["md2", "md5", "sha1", "sha256", "sha384", "sha512"]   # 由弱到強
-def sig_tier(alg):
-    a = (alg or "").lower()
-    for tk in ("sha512", "sha384", "sha256", "sha1", "md5", "md2"):
-        if tk in a:
-            return tk
-    return None
-def _cipher_bad(x, pats):
-    for p in pats:
-        if p == "@SHA1MAC":
-            if x.endswith("-SHA"):
-                return True
-        elif p in x:
-            return True
-    return False
 CIPHER_FAMS = ["RC4", "3DES", "DES", "NULL", "EXPORT", "-MD5", "@SHA1MAC", "anon", "IDEA", "SEED", "CAMELLIA"]
 def _persist(st):
     os.makedirs(WD, exist_ok=True)
@@ -524,11 +511,6 @@ CRYPTO_INVENTORY = {}   # 僅由 live probe 驅動(EBG19P → ebg19p-crypto.json
 def _cf(asset, service, issue, severity, detail, fix, detail_en=None, fix_en=None):
     return {"asset": asset, "service": service, "issue": issue, "severity": severity, "detail": detail, "fix": fix,
             "detail_en": detail_en or detail, "fix_en": fix_en or fix}
-def _days_left(not_after):
-    try:
-        return (datetime.strptime(not_after, "%Y-%m-%d").date() - datetime.now().date()).days
-    except Exception:
-        return None
 CERT_DIR = f"{WD}/certs"
 def _cert_state(asset, c):
     """產生(快取)符合該設備宣告規格的自簽憑證,再用 openssl 解析出當下實際狀態。"""
@@ -693,16 +675,6 @@ def _cert_schedule_loop():
             time.sleep(max(int(iv), 300))
         else:
             time.sleep(600)
-def _conf_kv(path):
-    d = {}
-    try:
-        for line in open(path, encoding="utf-8"):
-            m = _re_pending.match(r"\s*([A-Za-z0-9_.]+)\s*=\s*(.*?)\s*$", line)  # 含大寫:支援大寫設定鍵(UCI 風格)
-            if m:
-                d[m.group(1)] = m.group(2)
-    except Exception:
-        pass
-    return d
 
 
 # 第三台機隊資產:ASUS ExpertWiFi EBG19P(商用 PoE+ VPN 閘道,使用者實機;韌體 3.0.0.6.102_45537,2025/01)。
@@ -1096,8 +1068,6 @@ def _fresh(path, ttl):
         return os.path.exists(path) and (time.time() - os.path.getmtime(path)) < ttl
     except Exception:
         return False
-def _vt(s):
-    return tuple(int(x) for x in re.findall(r"\d+", s))
 def fetch_upstream_sbom():
     """worker-b 自主:列 upstream release/src/router → 元件→版本(同元件取最高)→ 寫 source-sbom.json。"""
     out = f"{WD}/source-sbom.json"
