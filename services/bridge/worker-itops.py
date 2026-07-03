@@ -15,6 +15,7 @@ import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ebg19p  # shared EBG19P device client (co-located; boot-stack cp's it next to this file)
 import knowledge  # shared fleet knowledge — same baseline/security-keys team-lead reads via /knowledge
+import wi_a2a  # A2A protocol adapter (Agent Card + JSON-RPC envelope; dependency-injected)
 
 # 容器 egress 走不了 IPv6(NVD 等 Cloudflare 主機會解析到 IPv6 → 連線逾時);所有外部主機都有可用 IPv4。
 # 全域強制 IPv4 解析:NVD 變可達,github/osv 不受影響(本來就走 IPv4)。
@@ -1837,32 +1838,8 @@ def _nuclei_schedule_loop():
             print("[NUCLEI] loop error:", e, flush=True); iv = 3600
         time.sleep(max(iv, 60))
 
-# ── A2A (Agent2Agent) adapter ────────────────────────────────────────────────
-# Standard capability discovery + task delegation, layered on the governed worker_bridge
-# channel. Agent Card at /.well-known/agent-card.json (public discovery); JSON-RPC message/send
-# maps a skill → the existing scan/fix function. Linux-Foundation A2A shape, no extra deps;
-# transport stays governed by OpenShell (worker_bridge /32 + X-Bridge-Token).
-A2A_SKILLS = {
-  "monitor": {"id": "monitor", "name": "Device drift monitor", "description": "\u5df2\u6838\u51c6 baseline \u6bd4\u5c0d\u5de1\u6aa2 + \u5b89\u5168\u9000\u5316\u544a\u8b66", "tags": ["ops", "monitor"]},
-  "fix":     {"id": "remediate", "name": "EBG19P remediation", "description": "EBG19P \u78ba\u5b9a\u6027\u5b89\u5168 remediation (ebg-wps/upnp/telnet\u2026)", "tags": ["ops", "remediation"]},
-  "cert":    {"id": "cert-scan", "name": "Certificate & crypto audit", "description": "\u6191\u8b49 / \u5f31\u52a0\u5bc6\u76e4\u9ede", "tags": ["ops", "cert"]},
-  "cve":     {"id": "cve-scan", "name": "Fleet CVE scan", "description": "\u6a5f\u968a CVE \u5206\u7d1a", "tags": ["security", "cve"]},
-  "source":  {"id": "source-scan", "name": "SBOM / SAST source analysis", "description": "\u4e0a\u6e38\u97cc\u9ad4\u539f\u59cb\u78bc SBOM + SAST", "tags": ["security", "sast"]},
-  "nuclei":  {"id": "nuclei-scan", "name": "Active vuln scan (nuclei)", "description": "nuclei-templates \u4e3b\u52d5\u6383 ASUS \u88dd\u7f6e(projectdiscovery)", "tags": ["security", "nuclei", "dast"]},
-}
-A2A_KNOWLEDGE = {"id": "knowledge", "name": "Shared fleet knowledge", "description": "\u5171\u4eab\u77e5\u8b58\uff1a\u6838\u51c6 baseline / \u5b89\u5168\u9375\u5b9a\u7fa9 / lessons / fleet \u5feb\u7167", "tags": ["knowledge", "context"]}
-def agent_card():
-    caps = sorted(ZONE_CAPS.get(ZONE, []))
-    skills = [A2A_SKILLS[c] for c in caps if c in A2A_SKILLS] + [A2A_KNOWLEDGE]
-    return {
-        "name": "nemofleet-worker-" + ZONE.lower(),
-        "description": "NemoFleet " + (ZONE_ROLE.get(ZONE) or "") + " worker (zone " + ZONE + ")",
-        "url": "http://127.0.0.1:%d/a2a" % PORT, "version": "1.0.0", "protocolVersion": "0.3.0",
-        "capabilities": {"streaming": False, "pushNotifications": False, "stateTransitionHistory": False},
-        "defaultInputModes": ["text"], "defaultOutputModes": ["text"],
-        "provider": {"organization": "NemoFleet", "url": "http://127.0.0.1:%d/health" % PORT},
-        "skills": skills,
-    }
+# ── A2A (Agent2Agent) adapter — Agent Card + JSON-RPC envelope live in wi_a2a.py (dependency-injected).
+#    _a2a_run below is the local skill router (needs the scanners / knowledge / LAST_NUCLEI).
 def _a2a_run(skill, params):
     if skill in ("knowledge",): return knowledge.get_knowledge()
     if skill in ("monitor",): return _single_flight("monitor", run_monitor)
@@ -1877,21 +1854,6 @@ def _a2a_run(skill, params):
             return run_ebg_remediate(bug)
         return {"ok": False, "error": "remediate requires a known bug (ebg-*); got %r" % bug}
     return None
-def _a2a_message_send(params):
-    # A2A message/send → run the requested skill synchronously, return a completed Task object.
-    msg = params.get("message") or {}
-    meta = msg.get("metadata") or {}
-    text = " ".join(p.get("text", "") for p in (msg.get("parts") or []) if p.get("kind") == "text").strip()
-    skill = meta.get("skill") or (text.split()[0] if text else "")
-    tid = "task-" + str(int(time.time() * 1000))
-    result = _a2a_run(skill, meta)
-    if result is None:
-        return {"id": tid, "kind": "task", "status": {"state": "rejected"},
-                "artifacts": [{"artifactId": "error", "parts": [{"kind": "text", "text": "unknown skill '%s'; see agent-card skills" % skill}]}]}
-    return {"id": tid, "contextId": msg.get("contextId") or tid, "kind": "task",
-            "status": {"state": "completed"},
-            "artifacts": [{"artifactId": "result", "parts": [{"kind": "text", "text": json.dumps(result, ensure_ascii=False)}]}]}
-
 class H(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         b = json.dumps(obj, ensure_ascii=False).encode()
@@ -1911,7 +1873,7 @@ class H(BaseHTTPRequestHandler):
                              "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
                              "caps": sorted(ZONE_CAPS.get(ZONE, [])), "periodic_cve_sec": CVE_INTERVAL, "a2a": True})
         elif self.path in ("/.well-known/agent-card.json", "/.well-known/agent.json"):
-            self._send(200, agent_card())   # A2A capability discovery (public)
+            self._send(200, wi_a2a.build_agent_card(ZONE, sorted(ZONE_CAPS.get(ZONE, [])), ZONE_ROLE.get(ZONE), PORT))   # A2A discovery (public)
         elif self.path == "/knowledge":   # 共享知識層:核准 baseline / 安全鍵 / lessons / fleet(團隊同一份)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1982,15 +1944,10 @@ class H(BaseHTTPRequestHandler):
                 n = int(self.headers.get("Content-Length", 0)); rpc = json.loads(self.rfile.read(n) or b"{}")
             except Exception:
                 return self._send(400, {"jsonrpc": "2.0", "error": {"code": -32700, "message": "parse error"}, "id": None})
-            rid, method, params = rpc.get("id"), rpc.get("method"), (rpc.get("params") or {})
             try:
-                if method == "message/send":
-                    return self._send(200, {"jsonrpc": "2.0", "result": _a2a_message_send(params), "id": rid})
-                if method == "tasks/get":
-                    return self._send(200, {"jsonrpc": "2.0", "result": (LAST or {"note": "no task"}), "id": rid})
-                return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32601, "message": "method not found: %s" % method}, "id": rid})
+                return self._send(200, wi_a2a.handle_rpc(rpc, _a2a_run, LAST))
             except Exception as e:
-                return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rid})
+                return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rpc.get("id")})
         if self.path == "/nuclei-scan":   # 觸發一次 nuclei 主動掃(背景;active scan 較久)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})

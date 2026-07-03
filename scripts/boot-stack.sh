@@ -63,6 +63,10 @@ deploy_oc_endpoint() {
   else
     docker cp "$BRIDGE/worker-itops.py" "$ct:/usr/local/bin/worker-itops.py" >>"$LOG" 2>&1
     docker cp "$BRIDGE/ebg19p.py" "$ct:/usr/local/bin/ebg19p.py" >>"$LOG" 2>&1   # shared device client (imported by worker-itops)
+    docker cp "$BRIDGE/knowledge.py" "$ct:/usr/local/bin/knowledge.py" >>"$LOG" 2>&1   # shared knowledge loader (import knowledge)
+    docker cp "$BRIDGE/wi_a2a.py" "$ct:/usr/local/bin/wi_a2a.py" >>"$LOG" 2>&1   # A2A protocol adapter (import wi_a2a)
+    docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-knowledge' >>"$LOG" 2>&1
+    docker cp "$NEMOFLEET_ROOT/knowledge" "$ct:/usr/local/share/nemofleet-knowledge" >>"$LOG" 2>&1   # canonical shared knowledge → KNOWLEDGE_DIR
     docker exec -u 0 "$ct" sh -c 'pkill -f worker-itops; true' >>"$LOG" 2>&1; sleep 1
     local NVDK=""; [ -s "$BRIDGE/.nvd-api-key" ] && NVDK="$(tr -d ' \n\r' < "$BRIDGE/.nvd-api-key")"
     # EBG19P 設定 remediation cred:僅注入運維節點 A(A 管 ebg19p);格式 ip|user|pass
