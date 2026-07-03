@@ -508,7 +508,7 @@ const ProactiveView = memo(function ProactiveView({ d }) {
 const FlowView = memo(function FlowView({ d }) {
   const flow = d.flow || [];
   const active = new Set(flow.filter(e => e.status === 'working').map(e => e.node));
-  const nodes = [{ id: 'team-lead', label: 'team-lead', role: 'front desk · coordinator' }, { id: 'worker-a', label: 'worker-a', role: 'ops' }, { id: 'worker-b', label: 'worker-b', role: 'security' }];
+  const nodes = [{ id: 'team-lead', label: 'team-lead', role: 'front desk · coordinator' }, { id: 'worker-a', label: 'worker-a', role: 'ops' }, { id: 'worker-b', label: 'worker-b', role: 'security' }, { id: 'worker-c', label: 'worker-c', role: 'governance' }];
   const stPill = st => html`<span class=${'pill2 ' + (st === 'working' ? 'a' : st === 'done' ? 'g' : (st === 'fail' || st === 'error') ? 'c' : '')}>${st}</span>`;
   return html`<div class="viewfade">
     <div class="viewhd"><h2>Flow</h2>

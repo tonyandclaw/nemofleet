@@ -70,6 +70,7 @@ function normalize(d) {
       { name: 'team-lead', role: 'Front desk · Telegram / Email intake', tag: 'lead', port: 8642, up: true, zone: '' },
       { name: 'worker-a', role: 'Monitor · drift · cert · remediation', tag: 'ops', port: 18789, up: true, zone: 'zone A' },
       { name: 'worker-b', role: 'CVE · SBOM / SAST · syslog', tag: 'sec', port: 18790, up: true, zone: 'zone B' },
+      { name: 'worker-c', role: 'backup · firmware · rollback · QA review', tag: 'gov', port: 18791, up: true, zone: 'zone C' },
     ],
     inference: d.inference || { provider: 'nim', model: 'nemotron-3-super-120b', reachable: true },
     containers: arr(d.containers, d.stack && d.stack.containers),

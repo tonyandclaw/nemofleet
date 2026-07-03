@@ -563,7 +563,7 @@ def _collect_impl():
         d["proactive"] = {}
     # cross-node work flow: worker /flow events + host-side team-lead events (proactive patrol/report)
     _flow = []
-    for _frag in ("worker-a", "worker-b"):
+    for _frag in ("worker-a", "worker-b", "worker-c"):
         try:
             _flow += (json.loads(_worker_get(_frag, "/flow", timeout=6) or "{}").get("flow") or [])
         except Exception:
