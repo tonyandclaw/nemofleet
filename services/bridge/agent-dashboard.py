@@ -561,6 +561,19 @@ def _collect_impl():
         d["proactive"]["log"] = [json.loads(l) for l in open(f"{DIR}/data/proactive-log.jsonl", encoding="utf-8") if l.strip()][-20:][::-1]
     except Exception:
         d["proactive"] = {}
+    # cross-node work flow: worker /flow events + host-side team-lead events (proactive patrol/report)
+    _flow = []
+    for _frag in ("worker-a", "worker-b"):
+        try:
+            _flow += (json.loads(_worker_get(_frag, "/flow", timeout=6) or "{}").get("flow") or [])
+        except Exception:
+            pass
+    _ps = d.get("proactive") or {}
+    if _ps.get("last_patrol"):
+        _t = _ps["last_patrol"].split(" ")[-1] if " " in _ps["last_patrol"] else _ps["last_patrol"]
+        _flow.append({"ts": _t, "node": "team-lead", "peer": "human", "task": "patrol",
+                      "status": "done", "detail": "%s crit / %s routine" % (_ps.get("last_critical", 0), _ps.get("last_routine", 0))})
+    d["flow"] = sorted(_flow, key=lambda e: e.get("ts", ""), reverse=True)[:30]
     _CACHE["ts"] = now; _CACHE["data"] = d
     return d
 

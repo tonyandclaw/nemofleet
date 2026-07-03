@@ -505,8 +505,37 @@ const ProactiveView = memo(function ProactiveView({ d }) {
     </div>
   </div>`;
 });
+const FlowView = memo(function FlowView({ d }) {
+  const flow = d.flow || [];
+  const active = new Set(flow.filter(e => e.status === 'working').map(e => e.node));
+  const nodes = [{ id: 'team-lead', label: 'team-lead', role: 'front desk · coordinator' }, { id: 'worker-a', label: 'worker-a', role: 'ops' }, { id: 'worker-b', label: 'worker-b', role: 'security' }];
+  const stPill = st => html`<span class=${'pill2 ' + (st === 'working' ? 'a' : st === 'done' ? 'g' : (st === 'fail' || st === 'error') ? 'c' : '')}>${st}</span>`;
+  return html`<div class="viewfade">
+    <div class="viewhd"><h2>Flow</h2>
+      <span class=${'pill2 ' + (active.size ? 'a' : 'g')}>${active.size ? active.size + ' working' : 'idle'}</span>
+      <span class="lbl">誰委派誰、正在做什麼 · 即時</span></div>
+    <div class="grid1">
+      ${html`<${Panel} title="Fleet activity" label="正在工作的節點會亮起">
+        <div style=${{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          ${nodes.map(n => html`<div key=${n.id} style=${{ padding: '11px 15px', borderRadius: '11px', border: '1px solid ' + (active.has(n.id) ? 'var(--acc)' : 'var(--line)'), background: active.has(n.id) ? 'rgba(57,135,229,.12)' : 'var(--panel2, var(--panel))', minWidth: '132px', transition: 'all .2s' }}>
+            <div class="mono" style=${{ fontWeight: 700, fontSize: '13px' }}>${n.label}</div>
+            <div class="muted" style=${{ fontSize: '11px', marginTop: '1px' }}>${n.role}</div>
+            <div style=${{ fontSize: '11.5px', marginTop: '5px', fontWeight: 600, color: active.has(n.id) ? 'var(--warn)' : 'var(--ink3, var(--muted))' }}>${active.has(n.id) ? '● working' : '○ idle'}</div>
+          </div>`)}
+        </div></${Panel}>`}
+      ${html`<${Panel} title="Delegation timeline" label="最近的委派 / 交接 (peer → node)" right=${html`<${ActionBtn} act="patrol" label="Trigger patrol" busyLabel="…" ghost=${true}/>`}>
+        <${DataTable} rows=${flow} pageSize=${12} empty="尚無工作流事件 — 委派 / 掃描觸發後會出現(team-lead → worker → 狀態)。"
+          cols=${[
+            { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
+            { k: 'hop', label: 'Handoff', render: r => html`<span><b class="ink2">${r.peer || '?'}</b> <span class="muted">→</span> <b class="ink2">${r.node || '?'}</b></span>` },
+            { k: 'task', label: 'Task', render: r => html`<span class="mono">${r.task || ''}</span>${r.detail ? html` <span class="muted" style=${{ fontSize: '11px' }}>${r.detail}</span>` : null}` },
+            { k: 'status', label: 'Status', align: 'right', render: r => stPill(r.status) },
+          ]}/></${Panel}>`}
+    </div></div>`;
+});
 const VIEWS = {
   overview: { label: 'Overview', comp: OverviewView },
+  flow: { label: 'Flow', comp: FlowView },
   fleet: { label: 'Fleet', comp: FleetView },
   security: { label: 'Security', comp: SecurityView },
   governance: { label: 'Governance', comp: GovernanceView },

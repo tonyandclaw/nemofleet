@@ -94,5 +94,6 @@ function normalize(d) {
     recipients: arr(d.recipients, d.settings && d.settings.recipients),
     acl: d._acl || null,
     proactive: d.proactive || null,
+    flow: arr(d.flow),
   };
 }

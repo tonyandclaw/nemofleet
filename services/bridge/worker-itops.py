@@ -48,6 +48,11 @@ def _single_flight(name, fn, reuse_sec=5):
         st["ts"] = time.time(); st["result"] = r
         return r
 
+FLOW = []   # 最近的跨節點工作流事件(GUI Flow 視圖):誰(node)受誰(peer)委派做什麼、狀態
+def flow(peer, task, status, detail=""):
+    FLOW.append({"ts": time.strftime("%H:%M:%S"), "node": "worker-" + ZONE.lower(), "peer": peer,
+                 "task": str(task)[:40], "status": status, "detail": str(detail)[:100]})
+    del FLOW[:-60]
 
 def sh(cmd, **kw):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)
@@ -1757,6 +1762,10 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             self._send(200, wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(schedule 或 POST /nuclei-scan 觸發)", "zone": ZONE})
+        elif self.path == "/flow":   # 最近的跨節點工作流事件(GUI Flow 視圖)
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            self._send(200, {"flow": FLOW[-40:]})
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1819,21 +1828,29 @@ class H(BaseHTTPRequestHandler):
                 n = int(self.headers.get("Content-Length", 0)); rpc = json.loads(self.rfile.read(n) or b"{}")
             except Exception:
                 return self._send(400, {"jsonrpc": "2.0", "error": {"code": -32700, "message": "parse error"}, "id": None})
+            _sk = (((rpc.get("params") or {}).get("message") or {}).get("metadata") or {}).get("skill") or rpc.get("method", "a2a")
+            flow("team-lead", _sk, "working")
             try:
-                return self._send(200, wi_a2a.handle_rpc(rpc, _a2a_run, LAST))
+                _r = wi_a2a.handle_rpc(rpc, _a2a_run, LAST)
+                flow("team-lead", _sk, "done")
+                return self._send(200, _r)
             except Exception as e:
+                flow("team-lead", _sk, "error", str(e))
                 return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rpc.get("id")})
         if self.path == "/nuclei-scan":   # 觸發一次 nuclei 主動掃(背景;active scan 較久)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             if not _zone_has("nuclei"):
                 return self._send(200, {"available": False, "note": "非資安節點"})
-            threading.Thread(target=wi_nuclei.run_nuclei_scan, args=("api",), daemon=True).start()
+            threading.Thread(target=lambda: (flow("team-lead", "nuclei-scan", "working"), wi_nuclei.run_nuclei_scan("api"), flow("team-lead", "nuclei-scan", "done")), daemon=True).start()
             return self._send(200, {"accepted": True, "note": "nuclei 掃描已於背景啟動(讀 GET /nuclei 取結果)"})
         if self.path == "/monitor-scan":   # 定期合規巡檢 + 對安全退化開 Jira(治理 egress);排程呼叫
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
-            return self._send(200, _single_flight("monitor-scan", monitor_scan))
+            flow("team-lead", "monitor-scan", "working")
+            _r = _single_flight("monitor-scan", monitor_scan)
+            flow("team-lead", "monitor-scan", "done")
+            return self._send(200, _r)
         if self.path == "/settings":   # 更新管理設定;body = {key: value, ...}
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1885,7 +1902,8 @@ class H(BaseHTTPRequestHandler):
             if not _zone_has("fix"):
                 return self._send(400, {"accepted": False, "error": f"EBG19P remediation 屬運維節點 A 職責;本節點({ZONE})不做"})
             _desc = EBG_MULTI[bug]["desc"] if bug in EBG_MULTI else EBG_ACTIONS[bug][3]
-            threading.Thread(target=run_ebg_remediate_bg, args=(bug,), daemon=True).start()
+            flow("team-lead", bug, "working")
+            threading.Thread(target=lambda b=bug: (run_ebg_remediate_bg(b), flow("team-lead", b, "done" if (LAST or {}).get("ok") else "fail")), daemon=True).start()
             return self._send(202, {"accepted": True, "bug": bug, "asset": "lab-asus-ebg19p-01",
                                     "note": f"worker-a 已接手對 EBG19P 套用 {_desc}(約 30-60s)。完成後 GET /last。"})
         # 只接受已知的真實 EBG19P remediation;未知一律拒絕(不對錯設備謊報成功)
