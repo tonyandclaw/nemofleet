@@ -33,6 +33,7 @@ clock_check
 [ -n "$CT_LEAD" ] && ok "hermes container: $CT_LEAD" || bad "hermes container missing"
 [ -n "$CT_WA" ] && ok "worker-a container: $CT_WA" || bad "worker-a container missing"
 [ -n "$CT_WB" ] && ok "worker-b container: $CT_WB" || warn "worker-b container 未見(資安節點;非致命)"
+[ -n "$CT_WC" ] && ok "worker-c container: $CT_WC" || warn "worker-c container 未見(治理節點;非致命)"
 curl -sS -m 6 "$HERMES_API/models" 2>/dev/null | grep -q hermes-agent && ok "hermes API alive ($HERMES_API)" || bad "hermes API down"
 [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:18789/ 2>/dev/null)" = 200 ] && ok "worker UI :18789" || bad "worker UI not 200"
 ss -ltn 2>/dev/null | grep -q ':18080' && ok "openshell gateway :18080" || bad "gateway :18080 down"
@@ -42,6 +43,8 @@ if [ -n "$CT_WA" ] && docker exec "$CT_WA" sh -c 'curl -s -m3 -o /dev/null -w "%
 else bad "fix endpoint :9099 down → boot-stack.sh 的 ensure_xagent 會拉起"; fi
 if [ -n "$CT_WB" ]; then docker exec "$CT_WB" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
   && ok "worker-b 端點 :9099(資安:CVE/nuclei/SBOM)" || warn "worker-b :9099 未回應(資安節點;boot 會拉起)"; fi
+if [ -n "$CT_WC" ]; then docker exec "$CT_WC" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
+  && ok "worker-c 端點 :9099(治理:backup/firmware/rollback/review)" || warn "worker-c :9099 未回應(治理節點;boot 會拉起)"; fi
 [ -n "${SMTP_HOST:-}" ] && [ -n "${SMTP_FROM:-}" ] && ok "SMTP relay 設定($SMTP_FROM via $SMTP_HOST:${SMTP_PORT:-587})" || warn "SMTP relay 未設定(.env SMTP_HOST/SMTP_FROM;通知寄不出)"
 if [ -n "${JIRA_URL:-}" ]; then
   [ "$(curl -s -m4 -o /dev/null -w '%{http_code}' "$JIRA_URL" 2>/dev/null)" != 000 ] && ok "真實 Jira 可達($JIRA_URL)" || warn "Jira 不可達($JIRA_URL)"

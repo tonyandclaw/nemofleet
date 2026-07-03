@@ -91,6 +91,7 @@ export INFER_PROVIDER INFER_MODEL INFER_ENDPOINT
 TEAMLEAD_CT_NAME="${TEAMLEAD_CT_NAME:-team-lead}"     # human-facing coordinator
 WORKERA_CT_NAME="${WORKERA_CT_NAME:-worker-a}"        # ops worker: monitor/drift/cert
 WORKERB_CT_NAME="${WORKERB_CT_NAME:-worker-b}"        # security worker: CVE/SBOM/SAST/syslog
+WORKERC_CT_NAME="${WORKERC_CT_NAME:-worker-c}"        # governance worker: backup/firmware/rollback/review
 
 # in-sandbox skill / workspace paths (all nodes run the Hermes harness now)
 HSKILLS=/sandbox/.hermes/skills
@@ -105,6 +106,7 @@ resolve_ct() {  # $1 = name fragment (team-lead | worker-a | worker-b)
 CT_LEAD="$(resolve_ct "$TEAMLEAD_CT_NAME")"
 CT_WA="$(resolve_ct "$WORKERA_CT_NAME")"
 CT_WB="$(resolve_ct "$WORKERB_CT_NAME")"
+CT_WC="$(resolve_ct "$WORKERC_CT_NAME")"
 
 require_ct() {  # warn if a needed container is missing. $1=varname $2=human name
   local var="$1" name="$2"

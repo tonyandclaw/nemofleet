@@ -1,6 +1,6 @@
 # worker-c 設計規格 — 變更治理官(release manager + QA 監督)
 
-_設計藍圖 · 尚未實作。第四個 worker,zone C。_
+_第四個 worker,zone C。**Stage 1 已實作**(review 監督 + zone C 端點/A2A + wi_review 純函式閘,沙箱驗過);lifecycle(備份/韌體/rollback)結構完成、對真機操作待實機驗證。_
 
 worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期**(備份 / 韌體 / rollback),一面當 worker-a、worker-b 的**品質閘門** —— 審查它們的解法/決策,爛的可退回重做。兩個角色是同一件事的兩面:它定義「什麼是好狀態、什麼變更准放行」。
 

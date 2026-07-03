@@ -78,7 +78,7 @@ deploy_oc_endpoint() {
     docker exec -u 0 "$ct" sh -c 'pkill -f worker-itops; true' >>"$LOG" 2>&1; sleep 1
     local NVDK=""; [ -s "$BRIDGE/.nvd-api-key" ] && NVDK="$(tr -d ' \n\r' < "$BRIDGE/.nvd-api-key")"
     # EBG19P 設定 remediation cred:僅注入運維節點 A(A 管 ebg19p);格式 ip|user|pass
-    local EBGC=""; [ "$zone" = "A" ] && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGC="$(tr -d '\n\r' < "$HOME/.config/nemoclaw/ebg19p.cred")"
+    local EBGC=""; { [ "$zone" = "A" ] || [ "$zone" = "C" ]; } && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGC="$(tr -d '\n\r' < "$HOME/.config/nemoclaw/ebg19p.cred")"
     # nuclei 目標:僅 zone B 注入裝置 IP(只給 target,不含 cred;nuclei 打 HTTP 表面)
     local EBGT=""; [ "$zone" = "B" ] && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGT="$(cut -d'|' -f1 "$HOME/.config/nemoclaw/ebg19p.cred" 2>/dev/null | tr -d ' \n\r')"
     docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
@@ -104,6 +104,10 @@ ensure_xagent() {
   local CT_O2 OC2IP=""
   CT_O2=$(docker ps --format '{{.Names}}' | grep -m1 worker-b || true)
   [ -n "$CT_O2" ] && { OC2IP=$(oc2_ip); deploy_oc_endpoint "$CT_O2" B; }
+  # 節點 C=worker-c(zone C 變更治理:備份/韌體/rollback/review;備份/rollback 需 device cred)
+  local CT_O3=""; CT_O3=$(docker ps --format '{{.Names}}' | grep -m1 worker-c || true)
+  [ -n "$CT_O3" ] && deploy_oc_endpoint "$CT_O3" C
+  # NOTE: worker-c 上線後需:worker_bridge policy 加其 /32(team-lead→worker-c)+ worker-c→裝置/ASUS 韌體 egress
   # worker-b 自主抽 SBOM/SAST/上游 advisory 需經受治理 egress 連 github(scoped allow,非全開)。重建後重套。
   local ALLOW_GH="$(dirname "$BRIDGE")/scripts/worker-b-allow-github.sh"
   [ -n "$CT_O2" ] && [ -x "$ALLOW_GH" ] && \
