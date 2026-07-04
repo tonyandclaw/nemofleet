@@ -297,14 +297,24 @@ def _collect_impl():
         except Exception:
             pass
 
-    cto = ct("worker-a"); ct2 = ct("worker-b")
+    cto = ct("worker-a"); ct2 = ct("worker-b"); ct3 = ct("worker-c")
+    _ZTAG = {"A": "ops", "B": "sec", "C": "gov"}
+    _ZPORT = {"A": 18791, "B": 18792, "C": 18793}
+    _ZROLE = {"A": "Monitor · drift · cert · remediation", "B": "CVE · SBOM / SAST · syslog", "C": "backup · firmware · rollback · QA review"}
     nodes = []
-    for label, c in (("A", cto), ("B", ct2)):
+    # team-lead(協調者;跑 Hermes :8642,無 :9099 端點)→ 由 hermes API 可達性判在線
+    _lead = ct("team-lead")
+    if _lead:
+        nodes.append({"label": "lead", "name": short(_lead), "zone": "", "role": "Front desk · Telegram / Email intake",
+                      "caps": [], "alive": bool(d.get("hermes_api")), "up": bool(d.get("hermes_api")),
+                      "tag": "lead", "port": 8642, "alerts": 0, "monitor": []})
+    for label, c in (("A", cto), ("B", ct2), ("C", ct3)):
         if not c:
             continue
         h = ep(c, "/health"); m = ep(c, "/monitor")
-        node = {"label": label, "name": short(c), "zone": h.get("zone"), "role": h.get("role"),
-                "caps": h.get("caps", []), "alive": bool(h), "alerts": m.get("alerts", 0),
+        node = {"label": label, "name": short(c), "zone": h.get("zone") or ("zone " + label), "role": h.get("role") or _ZROLE.get(label, ""),
+                "caps": h.get("caps", []), "alive": bool(h), "up": bool(h), "tag": _ZTAG.get(label, "ops"), "port": _ZPORT.get(label, 9099),
+                "alerts": m.get("alerts", 0),
                 "monitor": [{"asset": x["asset"].replace("lab-", ""), "status": x.get("status"),
                              "regressions": x.get("regressions", []), "pending": x.get("pending_review", []),
                              "offline": x.get("offline", False), "health": x.get("health")}
