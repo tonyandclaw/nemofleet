@@ -124,6 +124,15 @@ const I18N = {
   'grp_monitor': { en: 'MONITOR', zh: '監控' },
   'grp_govern': { en: 'GOVERN', zh: '治理' },
   'grp_system': { en: 'SYSTEM', zh: '系統' },
+  'managed devices': { en: 'managed devices', zh: '受管設備' },
+  'agent nodes': { en: 'agent nodes', zh: 'agent 節點' },
+  'OPA / L7 governed': { en: 'governance enforced by OPA / L7', zh: 'OPA / L7 治理中' },
+  'Audit chain': { en: 'Audit chain', zh: '稽核鏈' },
+  '✓ verified': { en: '✓ verified', zh: '✓ 已驗證' },
+  '✗ broken': { en: '✗ broken', zh: '✗ 已損毀' },
+  'entries': { en: 'entries', zh: '筆' },
+  'live every 5s': { en: 'live every 5s', zh: '每 5 秒更新' },
+  'reconnecting…': { en: 'reconnecting…', zh: '重新連線中…' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -875,7 +884,7 @@ function App() {
     <main class="main">
       <header class="top live">
         <div><h1>${t((VIEWS[route] || VIEWS.overview).label)}</h1>
-          <div class="meta">${d.devices.length} managed device(s) · ${d.nodes.length} agent nodes · governance enforced by OPA / L7 policy</div></div>
+          <div class="meta">${d.devices.length} ${t('managed devices')} · ${d.nodes.length} ${t('agent nodes')} · ${t('OPA / L7 governed')}</div></div>
         <div style=${{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button class="hdrbtn" title="Language / 語言" onClick=${() => setLang(LANG === 'zh' ? 'en' : 'zh')}>${LANG === 'zh' ? 'EN' : '中'}</button>
           <button class="hdrbtn" title=${THEME === 'dark' ? 'Switch to light' : 'Switch to dark'} onClick=${() => setTheme(THEME === 'dark' ? 'light' : 'dark')}>${THEME === 'dark' ? '☀' : '🌙'}</button>
@@ -889,8 +898,8 @@ function App() {
       </header>
       <${View} d=${d}/>
       <footer class="foot">
-        <span>Audit chain <b style=${{ color: d.audit.ok ? 'var(--good)' : 'var(--crit)' }}>${d.audit.ok ? '✓ verified' : '✗ broken'}</b> · <span class="mono">${(d.audit.count || 0).toLocaleString()} entries</span></span>
-        <span style=${{ marginLeft: 'auto' }} class="mono">nemofleet · live every 5s${err ? ' · reconnecting…' : ''}</span>
+        <span>${t('Audit chain')} <b style=${{ color: d.audit.ok ? 'var(--good)' : 'var(--crit)' }}>${d.audit.ok ? t('✓ verified') : t('✗ broken')}</b> · <span class="mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></span>
+        <span style=${{ marginLeft: 'auto' }} class="mono">nemofleet · ${t('live every 5s')}${err ? ' · ' + t('reconnecting…') : ''}</span>
       </footer>
     </main>
   </div>`;
