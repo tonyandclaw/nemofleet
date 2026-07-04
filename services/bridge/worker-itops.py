@@ -1803,11 +1803,16 @@ def _load_skills():
                     except Exception:
                         pass
     return out
+CURATIONS = []
 def run_skill_curate(op, name, text):
-    """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹)→ 綁定判決。"""
+    """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹)→ 綁定判決;記入 CURATIONS 供 console。"""
     if not _zone_has("curate"):
         return {"note": "skill 治理屬 zone C(治理官)職責", "zone": ZONE}
-    return wi_skills.curate(op, text or "", _load_skills(), name=name)
+    v = wi_skills.curate(op, text or "", _load_skills(), name=name)
+    CURATIONS.append({"ts": time.strftime("%H:%M:%S"), "op": v.get("op"), "name": v.get("name") or name,
+                      "verdict": v.get("verdict"), "reason": (v.get("reasons") or [""])[0]})
+    del CURATIONS[:-40]
+    return v
 def skill_search(query):
     """SkillOS BM25 檢索:給 query 找最相關的技能。"""
     return {"query": query, "results": wi_skills.bm25_search(query, _load_skills())}
@@ -1901,6 +1906,10 @@ class H(BaseHTTPRequestHandler):
             else:
                 _sk = _load_skills()
                 self._send(200, {"count": len(_sk), "skills": [s["name"] for s in _sk]})
+        elif self.path == "/curations":   # worker-c 最近的技能治理判決(console)
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            self._send(200, {"curations": CURATIONS[-30:]})
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})

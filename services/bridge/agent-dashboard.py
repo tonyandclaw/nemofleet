@@ -578,13 +578,16 @@ def _collect_impl():
         _flow.append({"ts": _t, "node": "team-lead", "peer": "human", "task": "patrol",
                       "status": "done", "detail": "%s crit / %s routine" % (_ps.get("last_critical", 0), _ps.get("last_routine", 0))})
     d["flow"] = sorted(_flow, key=lambda e: e.get("ts", ""), reverse=True)[:30]
-    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": {}}
+    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": {}, "skills_count": 0, "curations": []}
     try:
         _rv = json.loads(_worker_get("worker-c", "/reviews", timeout=6) or "{}")
         _bk = json.loads(_worker_get("worker-c", "/backup", timeout=6) or "{}")
         _fw = json.loads(_worker_get("worker-c", "/firmware", timeout=6) or "{}")
-        _gc = {"up": bool(_rv or _bk or _fw), "reviews": _rv.get("reviews", []),
-               "backups": _bk.get("backups", []), "backup_count": _bk.get("count", 0), "firmware": _fw}
+        _sk = json.loads(_worker_get("worker-c", "/skills", timeout=6) or "{}")
+        _cu = json.loads(_worker_get("worker-c", "/curations", timeout=6) or "{}")
+        _gc = {"up": bool(_rv or _bk or _fw or _sk), "reviews": _rv.get("reviews", []),
+               "backups": _bk.get("backups", []), "backup_count": _bk.get("count", 0), "firmware": _fw,
+               "skills_count": _sk.get("count", 0), "curations": _cu.get("curations", [])}
     except Exception:
         pass
     d["governance_c"] = _gc

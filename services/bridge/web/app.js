@@ -537,6 +537,8 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
   const g = d.governance_c || {};
   const reviews = g.reviews || [];
   const rejects = reviews.filter(r => r.verdict === 'reject').length;
+  const affCves = ((d.cve && d.cve.findings) || []).map(f => f.cve).filter(Boolean);
+  const fwUrgent = affCves.length > 0 || (g.firmware && g.firmware.urgency === 'high');
   const vPill = v => html`<span class=${'pill2 ' + (v === 'approve' ? 'g' : v === 'reject' ? 'c' : 'w')}>${v || '—'}</span>`;
   return html`<div class="viewfade">
     <div class="viewhd"><h2>Change control</h2>
@@ -565,9 +567,16 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
           cols=${[{ k: 'id', label: 'Backup snapshot', render: r => html`<span class="mono">${r.id}</span>` }]}/></${Panel}>`}
       ${html`<${Panel} title="Firmware" label="生命週期 · urgency 由 CVE 驅動">
         <div style=${{ fontSize: '13px' }}>
-          <div style=${{ marginBottom: '5px' }}>current <b class="mono ink2">${(g.firmware && g.firmware.current) || '—'}</b> ${g.firmware && g.firmware.urgency === 'high' ? html`<span class="pill2 c">update urgent</span>` : null}</div>
-          <div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || 'worker-c 未部署'}</div>
+          <div style=${{ marginBottom: '5px' }}>current <b class="mono ink2">${(g.firmware && g.firmware.current) || '—'}</b> ${fwUrgent ? html`<span class="pill2 c">update urgent</span>` : html`<span class="pill2 g">current</span>`}</div>
+          ${affCves.length ? html`<div class="muted" style=${{ fontSize: '12px' }}>CVE-driven:worker-b 判 ${affCves.length} 個 affected → <span class="mono">${affCves.slice(0, 3).join(', ')}${affCves.length > 3 ? '…' : ''}</span>(韌體更新可修)</div>` : html`<div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || 'worker-c 未部署'}</div>`}
         </div></${Panel}>`}
+      ${html`<${Panel} title="Skills · curator (SkillOS)" label="技能庫治理 · arXiv 2605.06614" right=${html`<span class="lbl">${g.skills_count || 0} skills</span>`}>
+        <${DataTable} rows=${g.curations || []} pageSize=${6} empty="尚無技能治理判決(worker-c 未部署或無 insert/update/delete)。"
+          cols=${[
+            { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
+            { k: 'op', label: 'Op', render: r => html`<span class="mono">${r.op || ''} ${r.name || ''}</span>` },
+            { k: 'verdict', label: 'Verdict', align: 'right', render: r => html`<span class=${'pill2 ' + (r.verdict === 'approve' ? 'g' : 'c')}>${r.verdict || '—'}</span>` },
+          ]}/></${Panel}>`}
     </div></div>`;
 });
 const VIEWS = {
