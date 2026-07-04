@@ -16,13 +16,13 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 WORK=${WORK:-/tmp/realscan}
-CT_O=${CT_O:-$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)}
-SRC_IN=/sandbox/.openclaw/workspace/it-task/source
+CT_WA=${CT_WA:-$(docker ps --format '{{.Names}}' | grep -m1 worker-a)}
+SRC_IN=/sandbox/.hermes/workspace/it-task/source
 
-[ -n "$CT_O" ] || { echo "[real-scan] my-assistant 容器未跑,先 bash scripts/boot-stack.sh" >&2; exit 1; }
+[ -n "$CT_WA" ] || { echo "[real-scan] worker-a 容器未跑,先 bash scripts/boot-stack.sh" >&2; exit 1; }
 rm -rf "$WORK"; mkdir -p "$WORK"
-docker cp "$CT_O:$SRC_IN" "$WORK/src" >/dev/null 2>&1 || { echo "[real-scan] 撈不到真實源碼 $SRC_IN" >&2; exit 1; }
-echo "== 真實掃描標的(自 $CT_O 撈出)=="
+docker cp "$CT_WA:$SRC_IN" "$WORK/src" >/dev/null 2>&1 || { echo "[real-scan] 撈不到真實源碼 $SRC_IN" >&2; exit 1; }
+echo "== 真實掃描標的(自 $CT_WA 撈出)=="
 find "$WORK/src" -type f | sed "s|$WORK/src/|  |"
 echo
 

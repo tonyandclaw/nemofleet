@@ -5,16 +5,16 @@ while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirnam
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # ebg19p-syslog-sync.sh — 從真機 EBG19P 唯讀拉系統日誌(nvram_dump syslog.log),
 # 正規化成 OCSF-style 事件(category/severity)寫進 node A(運維)沙箱 ebg19p-syslog.jsonl,
-# 讓 OpenClaw /device-log 做設備日誌集中 + 安全事件分類。把「無遠端 syslog」缺口轉成整合閉環。
+# 讓 worker /device-log 做設備日誌集中 + 安全事件分類。把「無遠端 syslog」缺口轉成整合閉環。
 #   · 唯讀:只打 login.cgi + appGet.cgi?hook=nvram_dump(...);不改設備、不需設備主動送(免跨網段)。
 #   · 憑證:~/.config/nemoclaw/ebg19p.cred(600);密碼/token 不入 repo 不回顯;cookie mktemp 即刪。
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 CRED_FILE="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
-CTO="${CT_O:-$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)}"
+WD="/sandbox/.hermes/workspace/it-task"
+CTO="${CT_WA:-$(docker ps --format '{{.Names}}' | grep -m1 worker-a)}"
 [ -s "$CRED_FILE" ] || { echo "[ebg19p-syslog] 缺憑證檔 $CRED_FILE" >&2; exit 1; }
-[ -n "$CTO" ] || { echo "[ebg19p-syslog] node A(my-assistant)容器未跑" >&2; exit 1; }
+[ -n "$CTO" ] || { echo "[ebg19p-syslog] node A(worker-a)容器未跑" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED_FILE"
 B="http://$IP"; JAR="$(mktemp)"; trap 'rm -f "$JAR" "${RAWF:-}"' EXIT
 CRED="$(printf '%s' "$USER:$PASS" | base64)"

@@ -5,8 +5,8 @@ while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirnam
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # ebg19p-compliance-cron.sh — 定期合規流水線(排程用):
 #   ① 從真機 EBG19P 唯讀同步設定 → node A 的 ebg19p-current.conf(ebg19p-monitor-sync.sh)
-#   ② POST /monitor-scan:OpenClaw 巡檢,對「安全退化」經治理 egress(policy:jira)去重開 Jira
-# 同步在 host 端(沙箱無 192.168.50.1 egress);開單在 OpenClaw 端(受治理)。日誌 /tmp/ebg19p-compliance.log。
+#   ② POST /monitor-scan:worker 巡檢,對「安全退化」經治理 egress(policy:jira)去重開 Jira
+# 同步在 host 端(沙箱無 192.168.50.1 egress);開單在 worker 端(受治理)。日誌 /tmp/ebg19p-compliance.log。
 # crontab 範例:*/15 * * * * /usr/bin/bash $NEMOFLEET_ROOT/scripts/ebg19p-compliance-cron.sh
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
@@ -19,7 +19,7 @@ ts(){ date '+%F %H:%M:%S %Z'; }
   bash "$DIR/scripts/ebg19p-asset-sync.sh"   2>&1 | sed 's/^/  /' || echo "  [warn] 資產同步失敗"
   bash "$DIR/scripts/ebg19p-syslog-sync.sh"  2>&1 | sed 's/^/  /' || echo "  [warn] syslog 同步失敗"
   bash "$DIR/scripts/ebg19p-traffic-sync.sh" 2>&1 | sed 's/^/  /' || echo "  [warn] 流量同步失敗"
-  CTO="$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)"
+  CTO="$(docker ps --format '{{.Names}}' | grep -m1 worker-a)"
   TOKEN="$(cat "$BRIDGE_DIR/.bridge-token" 2>/dev/null)"
   if [ -n "$CTO" ] && [ -n "$TOKEN" ]; then
     R="$(docker exec "$CTO" sh -c "curl -s -m15 -X POST -H 'X-Bridge-Token: $TOKEN' http://127.0.0.1:9099/monitor-scan" 2>/dev/null)"

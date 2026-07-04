@@ -5,14 +5,14 @@ while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirnam
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # ebg19p-traffic-sync.sh — 從真機 EBG19P 唯讀拉 WAN 流量計數(netdev),單次取兩樣本算瞬時
 # Mbps,append 到 node A(運維)沙箱 ebg19p-traffic.jsonl(時序 ring,最近 60 筆),
-# 讓 OpenClaw /traffic 建流量基線 + 突增異常偵測(外洩/DDoS/挖礦行為)。
+# 讓 worker /traffic 建流量基線 + 突增異常偵測(外洩/DDoS/挖礦行為)。
 #   · 唯讀:只打 login.cgi + appGet.cgi?hook=netdev(appobj);不改設備。
 #   · 憑證:~/.config/nemoclaw/ebg19p.cred(600);密碼/token 不入 repo 不回顯;cookie mktemp 即刪。
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 CRED_FILE="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
-CTO="${CT_O:-$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)}"
+WD="/sandbox/.hermes/workspace/it-task"
+CTO="${CT_WA:-$(docker ps --format '{{.Names}}' | grep -m1 worker-a)}"
 [ -s "$CRED_FILE" ] || { echo "[ebg19p-traffic] 缺憑證檔 $CRED_FILE" >&2; exit 1; }
 [ -n "$CTO" ] || { echo "[ebg19p-traffic] node A 容器未跑" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED_FILE"

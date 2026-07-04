@@ -1,10 +1,10 @@
-# EBG19P 操作知識庫 — OpenClaw A(IT 運維節點)
+# EBG19P 操作知識庫 — worker-a(IT 運維節點)
 
-本檔是 OpenClaw A 對 ASUS ExpertWiFi **EBG19P** 商用 VPN 閘道的操作知識。OpenClaw A 是負責這台設備的 IT operator,
+本檔是 worker-a 對 ASUS ExpertWiFi **EBG19P** 商用 VPN 閘道的操作知識。worker-a 是負責這台設備的 IT operator,
 應依此知識執行設定查詢與安全 remediation。資產代號 `lab-asus-ebg19p-01`。
 
 ## 連線與認證
-- 管理介面:**HTTP**(明文,未開 HTTPS/SSH);位址 `192.168.50.1`(實機靜態)。OpenClaw A 容器可直連。
+- 管理介面:**HTTP**(明文,未開 HTTPS/SSH);位址 `192.168.50.1`(實機靜態)。worker-a 容器可直連。
 - 登入:`POST /login.cgi`,body `login_authorization=base64(user:pass)` → 回應 Set-Cookie `asus_token=...`。
 - 讀設定:`GET /appGet.cgi?hook=nvram_get(<key>)`(帶 Cookie `asus_token`)。
 - 套用設定:`POST /applyapp.cgi`,body `action_mode=apply&action_script=<script>&action_wait=10&<key>=<value>`。
@@ -30,7 +30,7 @@
 | `ebg-aiprotect` | TM_EULA + wrs_enable + wrs_mals_enable + bwdpi_db_enable = 1 | restart_wrs | **啟用 AiProtection 惡意網站封鎖**(多鍵;TrendMicro WRS) |
 | `ebg-aiprotect-off` | wrs_enable + wrs_mals_enable = 0 | restart_wrs | 停用 AiProtection 惡意網站封鎖 |
 
-⚠️ **AiProtection 依賴**:惡意網站封鎖靠 TrendMicro 訊號庫(`bwdpi_sig_ver`),需**接受 EULA(TM_EULA=1)** + **有 WAN/網路**才能下載/更新訊號。本機目前無 WAN(wan0_ipaddr=0.0.0.0、bwdpi_sig_ver 空)→ 開關可設成功(nvram=1),但實際封鎖要等裝置有對外網路拉到訊號庫才生效。OpenClaw A 會誠實回報「已啟用設定;訊號庫待網路同步」。
+⚠️ **AiProtection 依賴**:惡意網站封鎖靠 TrendMicro 訊號庫(`bwdpi_sig_ver`),需**接受 EULA(TM_EULA=1)** + **有 WAN/網路**才能下載/更新訊號。本機目前無 WAN(wan0_ipaddr=0.0.0.0、bwdpi_sig_ver 空)→ 開關可設成功(nvram=1),但實際封鎖要等裝置有對外網路拉到訊號庫才生效。worker-a 會誠實回報「已啟用設定;訊號庫待網路同步」。
 
 執行後端點會重讀 nvram 驗證 before/after,並以正確 `asset=lab-asus-ebg19p-01` 回報;驗收未過 → 自動開 Jira 升級工程師(人在迴路)。
 新增操作的方法:在 `EBG_ACTIONS` 加一列 `(nvram_key, 目標值, action_script, 描述)`——key 須先以 `appGet.cgi?hook=nvram_get(key)` 確認存在,script 用對應子系統的標準 restart_*(wireless/firewall/httpd/nasapps/ddns/time)。
@@ -39,7 +39,7 @@
 ## 其他可查詢的安全相關鍵(現況硬化基準)
 telnetd_enable / sshd_enable(遠端管理服務,應為 0)、fw_enable_x(防火牆,應為 1)、
 misc_httpsport_x(HTTPS 埠)、bwdpi_db_enable(AiProtection)、wan_nat_x、dmz_ip(DMZ 應空)。
-未列入 EBG_ACTIONS 的變更屬「需人工確認」——OpenClaw A 不擅自猜 nvram 鍵/script,改開 Jira 由工程師處理(誠實、不假裝)。
+未列入 EBG_ACTIONS 的變更屬「需人工確認」——worker-a 不擅自猜 nvram 鍵/script,改開 Jira 由工程師處理(誠實、不假裝)。
 
 ## 邊界
 - 只做上表確定性操作 + 唯讀查詢;破壞性/不確定操作一律升級工程師。

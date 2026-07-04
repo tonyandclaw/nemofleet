@@ -3,21 +3,21 @@
 __src="${BASH_SOURCE[0]:-$0}"; __dir="$(cd "$(dirname "$(readlink -f "$__src" 2>/dev/null || echo "$__src")")" && pwd)"
 while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirname "$__dir")"; done
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
-# source-sast-sync.sh — [手動 fallback] 從 gnuton/asuswrt-merlin.ng 抓「真實含危險 sink 的 C 原始碼」放進 OpenClaw B(zone B),
-# 注:正常情況 OpenClaw B 已會自己抓(endpoint fetch_upstream_sast,容器內經治理 egress);本腳本僅在容器無 egress 時手動補。
+# source-sast-sync.sh — [手動 fallback] 從 gnuton/asuswrt-merlin.ng 抓「真實含危險 sink 的 C 原始碼」放進 worker-b(zone B),
+# 注:正常情況 worker-b 已會自己抓(endpoint fetch_upstream_sast,容器內經治理 egress);本腳本僅在容器無 egress 時手動補。
 # 讓 /source-cve 的 SAST(CWE)是真 repo 內容而非 demo。host 端抓(API 列目錄 + raw 抓內容,不必開沙箱 egress)。
 # 比對的 sink 與 endpoint _SAST_SINKS 一致:CWE-78 system(/popen(、CWE-798 硬編憑證。
 # 12h 新鮮度守門。寫到容器 {base}/real/ + manifest;有真檔時 endpoint 會跳過 demo 檔只掃真檔。
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 REPO="${SBOM_REPO:-gnuton/asuswrt-merlin.ng}"; REF="${SBOM_REF:-master}"
-WD="/sandbox/.openclaw/workspace/it-task"
-SRC_ASSET="lab-asus-rt-ax89x-01"
+WD="/sandbox/.hermes/workspace/it-task"
+SRC_ASSET="lab-asus-ebg19p-01"
 BASE="$WD/source/$SRC_ASSET"
 KEEP="${SAST_KEEP:-8}"        # 最多保留幾支有命中的檔
 EXAMINE="${SAST_EXAMINE:-90}" # 最多檢視幾支候選檔(限流保護)
-CTB="${CT_B:-$(docker ps --format '{{.Names}}'|grep -m1 openclaw-2)}"
-[ -n "$CTB" ] || { echo "[sast] zone B(openclaw-2)容器未跑" >&2; exit 1; }
+CTB="${CT_B:-$(docker ps --format '{{.Names}}'|grep -m1 worker-b)}"
+[ -n "$CTB" ] || { echo "[sast] zone B(worker-b)容器未跑" >&2; exit 1; }
 fresh=$(docker exec "$CTB" sh -c "[ -f $WD/source-sast-manifest.json ] && echo \$(( \$(date +%s) - \$(stat -c %Y $WD/source-sast-manifest.json) )) || echo 999999" 2>/dev/null)
 if [ "${fresh:-999999}" -lt 43200 ]; then echo "[sast] 12h 內已更新($(( ${fresh:-0}/3600 ))h 前),跳過"; exit 0; fi
 

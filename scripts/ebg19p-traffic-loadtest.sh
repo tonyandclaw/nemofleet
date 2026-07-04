@@ -7,18 +7,18 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 # 為什麼要這樣做(踩過的坑,全內建處理):
 #   · 這台 WAN 埠未接 → netdev 無 INTERNET,實際在動的是 WIRED(主機↔EBG 有線);sync 已自動落 WIRED。
 #   · ASUS 有「登入頻率鎖定」+「單一 session」:每次重登/多 worker 會把 httpd 灌爆、觸發鎖定,且新登入會作廢舊 token。
-#     對策:① 暫停 fleet-compliance cron ② 停 ebg19p-stream.sh ③ 單一登入、全程重用 token、絕不重登
+#     對策:① 暫停 ebg19p-compliance cron ② 停 ebg19p-stream.sh ③ 單一登入、全程重用 token、絕不重登
 #           ④ worker 數預設 2(httpd 很弱,>2 會把量測用的 netdev 也卡到回空)⑤ trap EXIT 一定復原 cron + 重啟 streamer。
 # 唯讀 + 自家設備自家網路的授權壓測。用法:bash scripts/ebg19p-traffic-loadtest.sh [秒數] [worker數] [取樣次數]
 set -uo pipefail
 DUR="${1:-40}"; WORKERS="${2:-2}"; SAMPLES="${3:-7}"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CRED="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
+WD="/sandbox/.hermes/workspace/it-task"
 [ -s "$CRED" ] || { echo "缺憑證 $CRED" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED"; B="http://$IP"
-CTO="$(docker ps --format '{{.Names}}' | grep -m1 my-assistant)"
-[ -n "$CTO" ] || { echo "node A(my-assistant)容器未跑" >&2; exit 1; }
+CTO="$(docker ps --format '{{.Names}}' | grep -m1 worker-a)"
+[ -n "$CTO" ] || { echo "node A(worker-a)容器未跑" >&2; exit 1; }
 
 CRONBAK="$(mktemp)"; crontab -l 2>/dev/null > "$CRONBAK"
 STREAM_WAS=0; pgrep -f "ebg19p-stream.sh" >/dev/null 2>&1 && STREAM_WAS=1
@@ -34,8 +34,8 @@ restore() {
 trap restore EXIT
 
 # 1) 暫停會自動登入 EBG 的來源(cron + streamer),讓單一 token 不被作廢
-grep -v "fleet-compliance" "$CRONBAK" | crontab - 2>/dev/null
-echo "[loadtest] fleet-compliance cron 已暫停"
+grep -v "ebg19p-compliance" "$CRONBAK" | crontab - 2>/dev/null
+echo "[loadtest] ebg19p-compliance cron 已暫停"
 for p in $(pgrep -f "ebg19p-stream.sh" 2>/dev/null); do kill "$p" 2>/dev/null; done
 [ "$STREAM_WAS" = 1 ] && echo "[loadtest] ebg19p-stream.sh 已暫停"
 

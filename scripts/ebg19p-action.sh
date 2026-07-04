@@ -21,7 +21,7 @@ audit(){ # $1=action $2=result $3=detail
   python3 - "$1" "$2" "$3" <<PY >> "$AUDIT" 2>/dev/null
 import json,sys,time
 print(json.dumps({"ts":time.strftime("%Y-%m-%d %H:%M:%S"),"action":sys.argv[1],
-  "result":sys.argv[2],"detail":sys.argv[3][:200],"by":"openclaw-A/ops"},ensure_ascii=False))
+  "result":sys.argv[2],"detail":sys.argv[3][:200],"by":"worker-A/ops"},ensure_ascii=False))
 PY
 }
 fail(){ echo "[ebg19p-action] $1" >&2; echo "RESULT=failed"; audit "$ACTION" "failed" "$1"; exit 1; }

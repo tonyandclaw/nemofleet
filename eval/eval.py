@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # eval.py — 真實任務 eval + 規則評分 + 負案例沉澱(下次自動回灌教訓)。
 # 閉環:跑任務 → 規則檢查 → 記 LEDGER → 失敗寫入 lessons.json → 下次把該任務的教訓 prepend 進 prompt。
-# 在 host 跑(呼叫 Hermes API :8642)。零額外 LLM judge,評分純規則,成本=每任務 1 次 bounded Azure turn。
+# 在 host 跑(呼叫 Hermes API :8642)。零額外 LLM judge,評分純規則,成本=每任務 1 次 bounded 推理 turn。
 import json, re, os, sys, time, urllib.request, datetime
 
 EVAL = os.path.dirname(os.path.abspath(__file__))   # nemofleet/eval

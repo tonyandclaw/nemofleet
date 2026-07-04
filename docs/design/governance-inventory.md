@@ -3,25 +3,25 @@
 _唯讀盤點 2026-06-06。改 policy 屬不可逆/可能切斷 inference 的動作 → Phase D active 時才做,且先 snapshot + --dry-run。_
 
 ## 現況(兩台受什麼治理)
-| | hermes-demo (Hermes) | my-assistant (OpenClaw) |
+| | team-lead (Hermes) | worker-a (worker) |
 |---|---|---|
 | policy tier | balanced | balanced |
 | policies preset | npm, pypi, huggingface, brew | npm, pypi, huggingface, brew, **brave** |
-| blueprint | agents/hermes/policy-additions.yaml | nemoclaw-blueprint/policies/openclaw-sandbox.yaml + tiers.yaml |
-| egress 特色 | 大量「對人/整合」白名單:github、slack、telegram、discord、wechat、nous/nvidia inference gateways… | 較精簡(openclaw-sandbox 基準 + brave) |
+| blueprint | agents/hermes/policy-additions.yaml | nemoclaw-blueprint/policies/worker-sandbox.yaml + tiers.yaml |
+| egress 特色 | 大量「對人/整合」白名單:github、slack、telegram、discord、wechat、nous/nvidia inference gateways… | 較精簡(worker-sandbox 基準 + brave) |
 
-→ 觀察:Hermes 的 egress 偏「對外整合/messaging」(符合對人前台);OpenClaw 偏精簡。兩台 tier 都 balanced。共同點:都靠 `inference.local`(經 gateway proxy)連 Azure 推理 —— **任何 policy 改動都不能切斷 inference.local**。
+→ 觀察:Hermes 的 egress 偏「對外整合/messaging」(符合對人前台);worker 偏精簡。兩台 tier 都 balanced。共同點:都靠 `inference.local`(經 gateway proxy)連本地 NIM 推理 —— **任何 policy 改動都不能切斷 inference.local**。
 
 ## 差異化治理設計(提案,尚未套用)
-依新角色(Hermes=對人前台、OpenClaw=IT operator)做差異化 egress:
-- **OpenClaw(IT)**:允許 IT 實作所需 —— 套件/repo(npm/pypi/github)、內部/IT 目標(示範用:某內網診斷端點)、診斷工具 binaries。
-- **Hermes(對人)**:允許對人整合(slack/telegram/github issues),但**不**給 IT 內網直連 —— 規劃完委派給 OpenClaw 動手。
+依新角色(Hermes=對人前台、worker=IT operator)做差異化 egress:
+- **worker(IT)**:允許 IT 實作所需 —— 套件/repo(npm/pypi/github)、內部/IT 目標(示範用:某內網診斷端點)、診斷工具 binaries。
+- **Hermes(對人)**:允許對人整合(slack/telegram/github issues),但**不**給 IT 內網直連 —— 規劃完委派給 worker 動手。
 - 用 nemoclaw policy preset(`policy-add --from-file`/`--dry-run`)做,不手改 sandbox 內檔。
 
 ## demo 佐證方式(治理「真的在管」)
 1. 唯讀展示:`nemoclaw <sb> status` / sandboxes.json 顯示各自 policies。
 2. 行為佐證:讓某 agent 嘗試連「不在其白名單」的 host → OpenShell log 出現 `DENIED ...:reason connection not allowed by policy`;允許的則 `ALLOWED`。→ 證明是 code 層強制,不是 prompt。
-3. (可選)Phase D active 時:對 OpenClaw `policy-add` 一個 IT 用 egress preset(先 `--dry-run`,snapshot 後再實施),展示「授權後 ALLOWED」。
+3. (可選)Phase D active 時:對 worker `policy-add` 一個 IT 用 egress preset(先 `--dry-run`,snapshot 後再實施),展示「授權後 ALLOWED」。
 
 ## 行為佐證(2026-06-06 實測,治理三層級皆生效)
 OpenShell OPA 引擎在多層強制(從 `nemoclaw <sb> logs` 撈到的真實行:

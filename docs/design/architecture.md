@@ -1,55 +1,69 @@
-# Hermes × OpenClaw 結合架構(對人前台 + IT operator,由 harness 治理)
+# nemofleet 架構 — team-lead + workers(單一 Hermes harness,由 harness 治理)
 
-_更新 2026-06-06 — 重定位_
+_更新 2026-07 — 三節點同型 Hermes 艦隊 · 本地 Nemotron 3 Super 120B_
+
+三個節點**都跑 Hermes harness**、都在本地 **NVIDIA NIM(Nemotron 3 Super 120B-A12B)** 上推理,只差角色/設定:
+team-lead 對人前台 + 協調,worker-a / worker-b 執行維運。唯一受管的真實設備 = ASUS ExpertWiFi **EBG19P**。
 
 ## Mermaid
 ```mermaid
 flowchart LR
   user([人 / 需求])
-  subgraph host[WSL host(結合層)]
-    route[route_decide]
-    dispatch[dispatch.sh<br/>自動分流]
-    collab[collab.sh<br/>委派鏈]
-    bus[(bus/ 信箱)]
+  device([ASUS EBG19P<br/>真實設備])
+  jira[(真實 Jira)]
+  subgraph tl[OpenShell sandbox:team-lead]
+    lead[team-lead<br/>對人前台·協調·自我進化<br/>API :8642]
   end
-  subgraph hz[OpenShell sandbox:Hermes]
-    hermes[Hermes<br/>對人前台·自我進化<br/>API :8642]
+  subgraph wa[OpenShell sandbox:worker-a]
+    workera[worker-a · 運維<br/>monitor/drift/cert<br/>IT-ops :9099]
   end
-  subgraph oc[OpenShell sandbox:OpenClaw]
-    openclaw[OpenClaw<br/>IT operator<br/>網管/診斷/修 bug]
+  subgraph wb[OpenShell sandbox:worker-b]
+    workerb[worker-b · 資安<br/>CVE/SBOM/SAST/syslog<br/>IT-ops :9099]
   end
+  nim[[本地 NIM<br/>Nemotron 3 Super 120B]]
   gov[[harness 治理<br/>OpenShell policy.yaml<br/>+ nemoclaw strategy]]
 
-  user -->|需求| hermes
-  hermes -->|規劃/分流| route
-  route -->|規劃/報告| hermes
-  route -->|IT/網管/bug| dispatch --> openclaw
-  openclaw -->|實作結果| bus --> hermes -->|回報| user
-  gov -. 治理(egress/binaries/route/tier) .-> hermes
-  gov -. 治理 .-> openclaw
+  user -->|Telegram/Email 需求| lead
+  lead -->|scoped worker_bridge · POST /fix| workera
+  lead -->|scoped worker_bridge| workerb
+  workera <-->|唯讀巡檢 / nvram apply| device
+  workera -->|修不了 / 需人審| jira
+  lead -->|結果回報| user
+  nim -. 推理 .- lead
+  nim -. 推理 .- workera
+  nim -. 推理 .- workerb
+  gov -. 治理(egress/binaries/tier) .-> lead
+  gov -. 治理 .-> workera
+  gov -. 治理 .-> workerb
 ```
 
 ## ASCII(投影片用)
 ```
-                ┌──────────────── WSL host(結合層)────────────────┐
-  人 ──需求──►  │  Hermes(對人前台) ──規劃/分流──► route_decide      │
-       ◄─回報── │     ▲                              │ IT/網管/bug    │
-                │     │ 結果經 bus 回收               ▼                │
-                │     └────────────────  dispatch ─► [OpenClaw]       │
-                │                                     IT operator      │
-                │                                     網管·診斷·修 bug │
-                └──────────────────────────────────────────────────────┘
-   ┌── harness 治理 ──┐  OpenShell policy.yaml(egress/binaries)
-   │  誰能做什麼/去哪 │  + nemoclaw strategy(model/route/policy tier)
-   └──────────────────┘  → 以 log ALLOWED/DENIED 佐證(code, not prompt)
-   兩 agent 各自在獨立 OpenShell 沙箱(Landlock+seccomp+netns+egress policy)
+  人 ──需求(Telegram/Email)──►  team-lead(對人前台·協調)
+       ◄────────結果回報────────    │  scoped worker_bridge (/32 + token) · POST :9099/fix
+                                      ├─► worker-a · 運維  ──唯讀巡檢 / nvram apply──► [ASUS EBG19P]
+                                      │     monitor / drift / cert          修不了·需人審 ──► 真實 Jira
+                                      └─► worker-b · 資安
+                                            CVE / SBOM / SAST / syslog
+  三節點都是 Hermes harness · 都在本地 NIM(Nemotron 3 Super 120B)推理 · 各自獨立 OpenShell 沙箱
+  ┌── harness 治理 ──┐  OpenShell policy.yaml(egress / binaries / host)
+  │  誰能做什麼 / 去哪 │  + nemoclaw strategy(model / route / policy tier) → log ALLOWED/DENIED(code, not prompt)
+  └────────────────────┘
 ```
 
 ## 角色分工
-- **Hermes(對人前台 + 自我進化)**:接需求、規劃、解釋、產出給人看;把重複模式寫成 SKILL.md。介面=OpenAI 相容 API `:8642`。
-- **OpenClaw(IT operator)**:網路管理/診斷、bug 修復、部署/重啟 的**實作**(沙箱內動手)。經 `nsenter` 進 gateway netns 用 `openclaw agent` 驅動。
-- **harness 治理層**:OpenShell `policy.yaml`(egress/binaries)+ nemoclaw strategy(model/route/policy tier)管控兩者能做什麼、能去哪 —— 程式碼層強制,可由 log `ALLOWED`/`DENIED` 佐證。
-- **結合層(host)**:route_decide(分流)、dispatch(自動委派)、collab(委派鏈)、bus(信箱)、eval+lessons(學習沉澱)。
+- **team-lead(對人前台 + 協調 + 自我進化 + 主動巡邏)**:接 Telegram / Email 需求、規劃、解釋、回報;把重複模式寫成 SKILL.md;判型後委派給 worker。介面 = OpenAI 相容 API `:8642`。
+  另有**積極主動**面(`scripts/teamlead-proactive.sh` + `skills/hermes/proactive-fleet-patrol`):定期主動叫 worker 掃描、偵測設備狀態/錯誤 delta,並用自己的口吻主動推 Telegram/Email 回報(不等人問;critical 即時、routine 併日報,尊重靜音時段)。
+- **worker-a(運維)**:設備狀態巡檢、設定漂移(drift)比對、憑證 / 弱加密盤點、對 **EBG19P** 的確定性 remediation(nvram apply + 重讀驗證)。
+- **worker-b(資安)**:定期 CVE 掃描、上游韌體原始碼 SBOM / SAST、syslog 分析。
+- **推理**:三節點都路由到本地 **NIM(Nemotron 3 Super 120B-A12B,原生 NVFP4、hybrid Mamba-MoE、agent / tool-use 特化)**;端點見 `inference.local`(gateway `:18080`)。
+- **跨節點通道**:唯一互通面 = scoped `worker_bridge` policy(/32)+ worker 的 `:9099` IT-ops 端點(X-Bridge-Token)。此端點同時提供**標準 A2A(Agent2Agent)介面** —— Agent Card 能力發現(`/.well-known/agent-card.json`)+ JSON-RPC `message/send` 委派(`services/bridge/a2a_client.py`),**over 同一條受治理通道**(標準協定 + OpenShell 治理兼得)。team-lead 委派、worker **確定性執行**(零 LLM 掃描 + 設備 remediation);修不了 / 需人審 → 開**真實 Jira**。拓撲為 hub-and-spoke(worker 之間不互通)。host 端另有 `dispatch` / `collab` / `bus` 作備援驅動。
+- **活動流可觀測(Flow)**:每個真實委派 / 觸發都記成 flow 事件(`human → team-lead(received)→ worker(working)→ done`),dashboard 合併 worker `/flow` + host 端 GUI 動作 + 主動巡邏,在 SPA **Flow 視圖**即時顯示(工作中的節點亮起 + 委派時間軸)。刻意不記 dashboard 的 GET 輪詢(免洗版)。完整規格見 [activity-flow-spec.md](./activity-flow-spec.md)。
+- **共享知識層**:`knowledge/`(核准 baseline + 安全鍵定義)是**單一權威來源**,`services/bridge/knowledge.py` 載入 —— worker-a 的 drift 偵測與 team-lead 讀的是**同一份**(team-lead 經 `GET /knowledge`(A2A skill `knowledge`)即時拉;boot 同步到每台 worker)。`version` hash 讓全隊確認在同一版知識上,解「context 不一致」這個多 agent 頭號失敗。完整 MCP client 掛載是其上的升級路徑。
+- **harness 治理層**:OpenShell `policy.yaml`(egress / binaries / host 三層)+ nemoclaw strategy(model / route / policy tier)—— 程式碼層強制,由 log `ALLOWED` / `DENIED` 佐證。
+
+## 規劃:第四個 worker(worker-c · 變更治理官)
+可選擴充 —— worker-c(zone C)= **生命週期**(備份 / 韌體 / rollback)+ **a/b 的品質監督**:審查 worker-a/worker-b 的解法與決策,爛的可退回重做(reject 綁定,經 team-lead 執行;worker 之間仍不互連、人在最頂端)。把艦隊從「各做各的」升級成有品質閘門的**自我校正系統**(propose → review → redo → verify)。完整規格見 [worker-c-spec.md](./worker-c-spec.md)。
 
 ## 即時 demo 亮點(可選)
-Hermes 內建 `creative/architecture-diagram` 技能,demo 時可現場請它產一張 SVG 架構圖,展示「自我進化」的實際產出。
+team-lead 內建 `creative/architecture-diagram` 技能,demo 時可現場請它產一張 SVG 架構圖,展示「自我進化」的實際產出。

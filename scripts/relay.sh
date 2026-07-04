@@ -5,14 +5,14 @@ while [ "$__dir" != / ] && [ ! -e "$__dir/.nemofleet-root" ]; do __dir="$(dirnam
 NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh"
 # relay.sh — send a message to an agent's OpenAI-compatible API and record it on the bus.
 # Usage: relay.sh <hermes> "<message>" [max_tokens]
-# hermes 腿:Azure Kimi via :8642(round1 已驗證)。openclaw 無入站 OpenAI API(round2 查明,
-# :18789 是 Control UI),openclaw 腿改走 dispatch.sh / openclaw-cp-task.sh(✅ 端到端)——本腳本僅服務 hermes。
+# hermes 腿:本地 nemotron via :8642(round1 已驗證)。worker 無入站 OpenAI API(round2 查明,
+# :18789 是 Control UI),worker 腿改走 dispatch.sh / worker-cp-task.sh(✅ 端到端)——本腳本僅服務 hermes。
 set -euo pipefail
 
 :
 BUS="$BUS_DIR"
 mkdir -p "$BUS/inbox" "$BUS/outbox"
-TARGET="${1:?target required: hermes|openclaw}"
+TARGET="${1:?target required: hermes|worker}"
 MSG="${2:?message required}"
 MAXTOK="${3:-256}"
 # deterministic-ish id without Date.now in scripts is fine here (bash, not workflow)
@@ -20,7 +20,7 @@ ID="$(date +%s)-$$"
 
 case "$TARGET" in
   hermes)   URL="$HERMES_API/chat/completions";  MODEL="hermes-agent" ;;
-  openclaw) echo "[relay] openclaw has NO inbound OpenAI API (:18789 is Control UI). Use dispatch.sh / openclaw-cp-task.sh all instead. See design/combined-use-case.md" >&2; exit 3 ;;
+  worker) echo "[relay] worker has NO inbound OpenAI API (:18789 is Control UI). Use dispatch.sh / worker-cp-task.sh all instead. See design/combined-use-case.md" >&2; exit 3 ;;
   *) echo "unknown target: $TARGET" >&2; exit 2 ;;
 esac
 

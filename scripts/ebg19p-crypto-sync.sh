@@ -10,9 +10,9 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT
 CRED="${EBG19P_CRED:-$HOME/.config/nemoclaw/ebg19p.cred}"
-WD="/sandbox/.openclaw/workspace/it-task"
+WD="/sandbox/.hermes/workspace/it-task"
 ASSET="lab-asus-ebg19p-01"
-CTO="${CT_O:-$(docker ps --format '{{.Names}}'|grep -m1 my-assistant)}"
+CTO="${CT_WA:-$(docker ps --format '{{.Names}}'|grep -m1 worker-a)}"
 [ -s "$CRED" ] || { echo "[ebg19p-crypto] 缺憑證 $CRED" >&2; exit 1; }
 [ -n "$CTO" ] || { echo "[ebg19p-crypto] node A 容器未跑" >&2; exit 1; }
 IFS='|' read -r IP USER PASS < "$CRED"

@@ -31,17 +31,17 @@ fi
 hr "🧩 Stack 健康"
 gw=$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ 2>/dev/null); { [ -n "$gw" ] && [ "$gw" != 000 ]; } && g "OpenShell gateway :18080" || r "gateway :18080 未起"
 hm=$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/v1/models 2>/dev/null); { [ -n "$hm" ] && [ "$hm" != 000 ]; } && g "Hermes API :8642" || r "Hermes :8642 未起"
-for entry in "my-assistant:A" "openclaw-2:B"; do
+for entry in "worker-a:A" "worker-b:B"; do
   frag=${entry%%:*}; ct=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 "$frag")
   if [ -n "$ct" ]; then
     c=$(docker exec "$ct" sh -c "curl -s -m4 -o /dev/null -w '%{http_code}' -H 'X-Bridge-Token: $TOKEN' http://127.0.0.1:9099/health" 2>/dev/null)
-    [ "$c" = 200 ] && g "OpenClaw $frag :9099 健康" || r "OpenClaw $frag :9099 異常($c)"
-  else r "OpenClaw $frag 容器不在"; fi
+    [ "$c" = 200 ] && g "worker $frag :9099 健康" || r "worker $frag :9099 異常($c)"
+  else r "worker $frag 容器不在"; fi
 done
 g "容器運行中:$(docker ps --format '{{.Names}}' 2>/dev/null | wc -l)"
 
 hr "🩺 開機自啟 / 排程"
 crontab -l 2>/dev/null | grep -q boot-stack-autostart && g "@reboot 自啟 stack 已設" || r "@reboot 自啟未設"
-crontab -l 2>/dev/null | grep -q fleet-compliance && g "機隊同步 cron 已設(每 5 分)" || r "機隊同步 cron 未設"
+crontab -l 2>/dev/null | grep -q ebg19p-compliance && g "機隊同步 cron 已設(每 5 分)" || r "機隊同步 cron 未設"
 echo
 echo "  提醒:LAN 連不到時 → Windows 系統管理員 PowerShell 開 8899 inbound;CA 根憑證 $BRIDGE_DIR/dash-ca.pem 各裝置裝一次。"

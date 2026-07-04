@@ -1,40 +1,53 @@
 # Provisioning a fresh device
 
 `nemofleet` is the orchestration layer. The system components it drives —
-**NemoClaw** + **OpenShell** CLIs and the **Hermes** / **OpenClaw** sandboxes — are
+**NemoClaw** + **OpenShell** CLIs and the **Hermes** / **worker** sandboxes — are
 installed products, not vendored in this repo. This is the one-time setup to recreate
 them on a new machine, after which `make boot` runs the fleet.
 
 ## 1. Host prerequisites
 
-- **Docker** (sandboxes + GreenMail run as containers).
+- **Docker** (sandboxes + the local NIM run as containers).
 - **Node.js** via nvm — provides the `nemoclaw` and `openshell` CLIs.
   `lib/common.sh` auto-detects the newest `~/.nvm/versions/node/*/bin`; pin it with
   `NEMOFLEET_NODE_BIN` in `.env` if needed.
 - **NemoClaw + OpenShell** — install per the upstream project (source lives under
   `~/.nemoclaw/source`, remote `github.com/NVIDIA/NemoClaw`). After install,
   `nemoclaw --version` and `openshell --version` should resolve.
-- **uv**, **openssl**, **python3**, **socat** — used by the mail channel + cert gen.
+- **openssl**, **python3** — used by cert gen + the SMTP sender.
+- **NVIDIA GPU + drivers + NVIDIA Container Toolkit** — required to run the local NIM
+  (nemotron). CPU-only hosts are impractically slow (>60 s/turn).
 
 > **WSL2 note (this stack's home):** WSL → Windows host (e.g. LM Studio) needs a
 > vEthernet firewall rule, and the Windows host IP changes per boot. See memory
 > `user_wsl_lmstudio_setup`.
 
-## 2. Inference gateway
+## 2. Inference: local NVIDIA NIM
 
-NemoClaw routes inference through a local gateway. **Use port `18080`**
+All three nodes run the Hermes harness on a **local NVIDIA NIM — Nemotron 3 Super 120B-A12B**,
+OpenAI-compatible. NemoClaw routes inference through a local gateway on port `18080`
 (`NEMOCLAW_GATEWAY_PORT=18080`) — `8080` is taken by Token_Hunter on this stack.
 
-Provider is `compatible-endpoint` (OpenAI-compatible). Two known backends:
+> Nemotron 3 Super 120B is a 120B / 12B-active hybrid Mamba-MoE **reasoning** model trained
+> natively in **NVFP4** (~60GB at 4-bit) — it fits a single **GB10** (e.g. ASUS Ascent GX10,
+> 128GB) with room for KV cache, runs at native FP4 on Blackwell (no quantization penalty), and
+> is tuned for agentic / tool-use + IT-ticket automation. Two GX10 give extra KV / longer-context
+> headroom. (It's a reasoning model — it emits a reasoning trace per turn; use the effort toggle
+> to keep simple turns cheap.)
 
-- **Azure AI**: `https://<resource>.services.ai.azure.com/openai/v1`, Bearer auth,
-  body `model: "<deployment>"`. (memory `reference_azure_ai_endpoint`)
-- **LM Studio** (Windows host): set `NEMOCLAW_PREFERRED_API=chat-completions` when
-  onboarding to skip the Responses-API tool-calling probe that hangs reasoning-only
-  models. (memory `feedback_nemoclaw_lmstudio`)
+1. Run the NIM container (needs GPU + NVIDIA Container Toolkit). It serves an
+   OpenAI-compatible `/v1` endpoint — set `INFER_ENDPOINT` / `INFER_MODEL` in `.env`
+   to match (default `http://127.0.0.1:8000/v1`, `nvidia/nemotron-3-super-120b-a12b`).
+2. Point each sandbox at it:
 
-The base URL is only changeable via **re-onboard**. Gateway port `18080`, provider
-`custom`/`compatible-endpoint`. (memory `reference_nemoclaw_local_onboard`)
+   ```bash
+   for sb in team-lead worker-a worker-b; do
+     nemoclaw inference set --provider nim --model "$INFER_MODEL" --sandbox "$sb"
+   done
+   ```
+
+The base URL is only changeable via **re-onboard** (provider `nim` / `compatible-endpoint`,
+gateway port `18080`).
 
 ## 3. Create the sandboxes
 
@@ -43,17 +56,37 @@ The base URL is only changeable via **re-onboard**. Gateway port `18080`, provid
 
 | Sandbox | Port | Agent / role |
 |---|---|---|
-| `hermes-demo`  | 8642  | Hermes front desk (channels: telegram); default sandbox |
-| `my-assistant` | 18789 | OpenClaw node A |
-| `openclaw-2`   | 18790 | OpenClaw node B |
+| `team-lead`  | 8642  | Hermes front desk (channels: telegram); default sandbox |
+| `worker-a` | 18789 | worker node A |
+| `worker-b`   | 18790 | worker node B |
 
-Onboard each with `nemoclaw` against your chosen provider (all use `Kimi-K2.5` here;
-the difference is harness, not model). For Hermes, supply the real
+Onboard each with `nemoclaw` against the local NIM (all three run the same Hermes
+harness + model; they differ only by role/config). For the team-lead, supply the real
 `TELEGRAM_BOT_TOKEN` during onboarding (it is stored in the sandbox, **not** in git).
 
-Custom egress policies (`openclaw-jira`, `greenmail-mail`, `openclaw-bridge`) are in
-`config/presets/`; `boot-stack.sh` renders + applies the bridge/jira ones with the
-current container IPs and token.
+Custom egress policies (`worker-jira`, `worker-bridge`) are in `config/presets/`;
+`boot-stack.sh` renders + applies them with the current container IPs, token, and the
+real Jira host from `.env`. Outbound mail goes host-side via `services/mail/send.py`
+to your real SMTP relay; the team-lead's inbound email adapter reaches your real
+IMAP/SMTP over governed egress (add that host to a mail egress preset).
+
+### worker-b active scanning (nuclei)
+
+worker-b runs **scheduled `nuclei` scans** against the EBG19P — active vulnerability probing with
+[`projectdiscovery/nuclei-templates`](https://github.com/projectdiscovery/nuclei-templates),
+complementing the version-based CVE scan. Three prerequisites, all governed:
+
+1. **nuclei binary** in the worker-b sandbox at `/usr/local/bin/nuclei` (install per upstream). The
+   OpenShell binaries policy must allow it — `scripts/worker-b-allow-device.sh` adds the allow.
+2. **Templates** via `nuclei -update-templates` (GitHub egress is already allowed by
+   `worker-b-allow-github.sh`).
+3. **Device egress** — worker-b → the EBG19P IP. `boot-stack.sh` injects `EBG19P_TARGET` (the IP
+   **only**, no credentials) and runs `worker-b-allow-device.sh` (a scoped allow to that one host).
+
+Cadence + template filter live in the dashboard **Settings** (`nuclei_interval_sec`, `nuclei_tags`
+default `asus`; `0` disables). High/critical hits open a real Jira ticket per `auto_escalate`.
+Endpoints on worker-b: `GET /nuclei` (last result), `POST /nuclei-scan` (trigger), and A2A skill
+`nuclei-scan`. Until the binary is installed the scan degrades gracefully (`available: false`).
 
 > **ClawHub skills:** installing ClawHub skills needs a custom `clawhub` egress preset
 > and stripping `HTTPS_PROXY` via `sh -c` (not `sh -lc`) to dodge the 403-CONNECT proxy.
@@ -63,7 +96,7 @@ current container IPs and token.
 
 ```bash
 bash provisioning/bootstrap.sh     # certs, token, runtime config (idempotent)
-bash services/mail/up.sh           # optional: GreenMail + STARTTLS shim
+bash services/mail/up.sh           # validate the real SMTP config from .env
 make boot && make health           # bring the fleet up; expect all green
 ```
 

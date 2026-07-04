@@ -24,7 +24,7 @@ for n in [x for x in sh("docker ps --format '{{.Names}}'").splitlines() if x]:
     aptc = len([l for l in sh(f"docker exec {n} sh -c 'dpkg -l 2>/dev/null | grep -c ^ii'").splitlines() if l]) or sh(f"docker exec {n} sh -c 'dpkg -l 2>/dev/null | grep -c ^ii'")
     npmc = sh(f"docker exec {n} sh -c 'npm ls -g --depth=0 2>/dev/null | grep -c @' ")
     sbom["images"].append({"container": n, "image": img, "digest": dig, "pip_pkgs": pipc, "apt_pkgs": aptc, "npm_global": npmc})
-for f in ["$BRIDGE_DIR/agent-dashboard.py", "$BRIDGE_DIR/openclaw-fix-endpoint.py", "scripts/boot-stack.sh", "scripts/rotate-bridge-token.sh"]:
+for f in ["$BRIDGE_DIR/agent-dashboard.py", "$BRIDGE_DIR/worker-itops.py", "scripts/boot-stack.sh", "scripts/rotate-bridge-token.sh"]:
     if os.path.exists(f):
         sbom["files"].append({"path": f, "sha256": hashlib.sha256(open(f, "rb").read()).hexdigest(), "bytes": os.path.getsize(f)})
 json.dump(sbom, open(out, "w"), indent=2, ensure_ascii=False)

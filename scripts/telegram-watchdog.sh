@@ -15,7 +15,7 @@ STAMP=/tmp/.telegram-watchdog-last
 COOLDOWN=1800
 ts(){ date '+%F %H:%M:%S'; }
 
-CTH="$(docker ps --format '{{.Names}}' | grep -m1 hermes-demo)"
+CTH="$(docker ps --format '{{.Names}}' | grep -m1 team-lead)"
 [ -n "$CTH" ] || exit 0   # 容器不在(可能 stack 沒起),交給 boot-stack autostart
 
 N=$(docker logs --since 10m "$CTH" 2>&1 | grep -ac getUpdates)

@@ -2,8 +2,8 @@
 # agent-dashboard.py — NemoClaw Multi-Agent 即時狀態儀表板(host web server, Apple/enterprise-grade)。
 # http://127.0.0.1:8899 → 整個 agent stack 活狀態 + 可操作控制 + 即時事件流/趨勢/告警/巡檢歷史。
 # 渲染:側欄 menu + hash 路由分頁;分區 memo(內容沒變不重繪→無閃爍)。唯讀為主、每 call timeout、整體快取 ~8s、單項失敗降級。
-# X-Bridge-Token 只 server 端用,不入 HTML/JSON。POST /api/action?do=cve|source|jira_reset|refresh(localhost only)。
-import json, os, re, shlex, subprocess, threading, time, hashlib, secrets, base64
+# X-Bridge-Token 只 server 端用,不入 HTML/JSON。POST /api/action?do=cve|source|refresh(localhost only)。
+import json, os, re, shlex, subprocess, threading, time, hashlib, secrets
 from http.cookies import SimpleCookie
 try:
     import ipaddress
@@ -22,26 +22,34 @@ import glob as _glob
 DIR = os.environ.get("NEMOFLEET_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root (services/bridge/<file> → up 3)
 BRIDGE = f"{DIR}/services/bridge"
 MAIL = f"{DIR}/services/mail"
+WEB_DIR = f"{BRIDGE}/web"   # React + Chart.js SPA (served at /app; talks to the same /api/* endpoints)
+_WEB_CT = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
+           ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8",
+           ".map": "application/json"}
 TOKEN = ""
 try:
     TOKEN = open(f"{BRIDGE}/.bridge-token").read().strip()
 except Exception:
     pass
+# 只有明確宣告前面有可信 reverse proxy 時才信 X-Forwarded-For(否則任何客戶端可偽造繞過 IP 白名單/登入鎖)
+TRUST_XFF = os.environ.get("DASH_TRUST_XFF", "").lower() in ("1", "true", "yes")
+# TLS 是否啟用在啟動時即確定(cookie 的 Secure flag 與 __main__ 共用同一判定)
+DASH_TLS_ON = bool(os.environ.get("DASH_TLS") and os.path.exists(f"{BRIDGE}/dash-cert.pem") and os.path.exists(f"{BRIDGE}/dash-key.pem"))
 NVM = os.environ.get("NEMOFLEET_NODE_BIN") or next(iter(sorted(_glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin")), reverse=True)), "")
 ENV = dict(os.environ, PATH=(NVM + ":" if NVM else "") + os.environ.get("PATH", ""))
-WD = "/sandbox/.openclaw/workspace/it-task"
+WD = "/sandbox/.hermes/workspace/it-task"
 _CACHE = {"ts": 0, "data": None}
 _COLLECT_TTL = int(os.environ.get("DASH_COLLECT_TTL", "5"))   # SWR 背景刷新間隔(秒);搭配 streamer 5s + 前端 5s 輪詢
 HISTORY = []
-try:                                                  # 真 NemoClaw/OpenClaw 家族品牌圖(🦞 Claw logo)
+try:                                                  # 真 NemoClaw/worker 家族品牌圖(🦞 Claw logo)
     BRAND_SVG = open(f"{BRIDGE}/assets/brand.svg").read()
 except Exception:
     BRAND_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0066ff"/></svg>'
 
 # ===== 存取控制:帳號 / session / RBAC / timeout / IP 白名單 =====
-USERS_FILE = f"{BRIDGE}/dash-users.json"
-AUTH_FILE = f"{BRIDGE}/dash-auth.json"
-SEED_FILE = f"{DIR}/config/bridge/dash-seed.json"   # 首次啟動的種子帳密;git-ignored,見 config/bridge/README.md
+USERS_FILE = os.environ.get("DASH_USERS_FILE") or f"{BRIDGE}/dash-users.json"
+AUTH_FILE = os.environ.get("DASH_AUTH_FILE") or f"{BRIDGE}/dash-auth.json"
+SEED_FILE = os.environ.get("DASH_SEED_FILE") or f"{DIR}/config/bridge/dash-seed.json"   # 首次啟動的種子帳密;git-ignored,見 config/bridge/README.md
 SESSIONS = {}   # sid -> {email, role, created, last, ip}
 _LOGINF = {}    # ip -> {count, until}
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -56,8 +64,15 @@ def _pwhash(pw, salt): return hashlib.pbkdf2_hmac("sha256", (pw or "").encode(),
 def _mkuser(pw, role):
     salt = secrets.token_hex(16)
     return {"salt": salt, "pwhash": _pwhash(pw, salt), "role": role, "created": time.strftime("%Y-%m-%d %H:%M:%S")}
+_USERS_LOCK = threading.RLock()   # 帳號/授權檔 load→改→存 保護(server 是多執行緒)
+def _json_write(path, obj, **kw):
+    # 原子寫:tmp + os.replace;程序中途死掉不會留半寫壞檔(dash-users.json 毀損 = 全帳號消失)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, **kw)
+    os.replace(tmp, path)
 def save_users(u):
-    json.dump(u, open(USERS_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    _json_write(USERS_FILE, u, indent=2)
 def load_users():
     try: u = json.load(open(USERS_FILE, encoding="utf-8"))
     except Exception: u = {}
@@ -70,7 +85,7 @@ def load_users():
         except Exception:
             pass    # 無 seed 檔 → 不種帳號;請先建立 dash-seed.json(見 config/bridge/README.md)
     return u
-def save_auth(d): json.dump(d, open(AUTH_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+def save_auth(d): _json_write(AUTH_FILE, d, indent=2)
 def load_auth():
     d = {"max_sessions": 3, "timeout_min": 30, "ip_whitelist": []}
     try: d.update(json.load(open(AUTH_FILE, encoding="utf-8")))
@@ -109,6 +124,9 @@ def get_session(sid):
     if v: v["last"] = time.time()
     return v
 def do_user_op(body, actor):
+    with _USERS_LOCK:   # 兩個 admin 同時操作不會互蓋(load→改→save 非原子)
+        return _do_user_op(body, actor)
+def _do_user_op(body, actor):
     op = body.get("op"); email = (body.get("email") or "").strip().lower(); u = load_users()
     if op == "add":
         if not _EMAIL_RE.match(email): return {"ok": False, "msg": "Email 格式不正確"}
@@ -138,6 +156,9 @@ def do_user_op(body, actor):
         save_users(u); return {"ok": True, "msg": f"{email} 密碼已重設"}
     return {"ok": False, "msg": "未知操作"}
 def do_auth_config(body):
+    with _USERS_LOCK:
+        return _do_auth_config(body)
+def _do_auth_config(body):
     a = load_auth()
     if "max_sessions" in body:
         try: a["max_sessions"] = max(0, int(body["max_sessions"]))
@@ -202,7 +223,7 @@ def read_conf_in(container, fname, timeout=5):
 def short(name):
     return re.sub(r"-[0-9a-f]{8}.*$", "", name.replace("openshell-", ""))
 
-def parse_policy(out, sandbox="hermes-demo"):
+def parse_policy(out, sandbox="team-lead"):
     # 解析 `openshell policy get <sb> --full` → 唯讀摘要(版本/雜湊/egress 白名單/可寫路徑)
     p = {"sandbox": sandbox, "version": None, "hash": None, "networks": [], "fs_rw": []}
     if not out:
@@ -221,7 +242,7 @@ def parse_policy(out, sandbox="hermes-demo"):
     fp = y.get("filesystem_policy") or {}
     p["fs_rw"] = [x for x in (fp.get("read_write") or []) if isinstance(x, str)]
     nets = y.get("network_policies") or {}
-    pri = {"greenmail_mail": 0, "telegram": 1, "telegram_bot": 2, "openclaw_bridge": 3, "nvidia": 4}
+    pri = {"mail_egress": 0, "telegram": 1, "telegram_bot": 2, "worker_bridge": 3, "nvidia": 4}
     items = []
     for name, pp in nets.items():
         if not isinstance(pp, dict):
@@ -268,7 +289,7 @@ def _collect_impl():
 
     d["gateway"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ 2>/dev/null", 4).strip() not in ("", "000")
     d["hermes_api"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/v1/models 2>/dev/null", 4).strip() not in ("", "000")
-    cth = ct("hermes-demo")
+    cth = ct("team-lead")
     d["telegram_recent"] = 0
     if cth:
         try:
@@ -276,7 +297,7 @@ def _collect_impl():
         except Exception:
             pass
 
-    cto = ct("my-assistant"); ct2 = ct("openclaw-2")
+    cto = ct("worker-a"); ct2 = ct("worker-b")
     nodes = []
     for label, c in (("A", cto), ("B", ct2)):
         if not c:
@@ -303,7 +324,7 @@ def _collect_impl():
             if dl.get("available"):
                 node["devlog"] = {"total": dl.get("total", 0), "by_category": dl.get("by_category", {}),
                                   "by_severity": dl.get("by_severity", {}), "security_events": dl.get("security_events", [])}
-            la = read_json_in(c, "syslog-analysis.json")  # OpenClaw A syslog 進階分析(異常/根因/融合/日報;排程寫檔)
+            la = read_json_in(c, "syslog-analysis.json")  # worker-a syslog 進階分析(異常/根因/融合/日報;排程寫檔)
             if la and la.get("available"):
                 node["loganalysis"] = {"findings": la.get("findings", []), "root_causes": (la.get("root_causes") or [])[:5],
                                        "fusion": la.get("fusion", []), "summary": la.get("summary", ""),
@@ -342,6 +363,20 @@ def _collect_impl():
                                                  "upstream_path": s.get("upstream_path"), "url": s.get("url"),
                                                  "remediation": s.get("remediation"), "patch_kind": s.get("patch_kind")}
                                                 for s in src.get("sast_findings", [])[:6]]}
+        if "nuclei" in (h.get("caps") or []):
+            try:
+                nz = json.loads(_worker_get("worker-b", "/nuclei", timeout=8) or "{}")
+            except Exception:
+                nz = {}
+            if nz:
+                node["nuclei"] = {"available": nz.get("available"), "target": nz.get("target"),
+                                  "tags": nz.get("tags"), "count": nz.get("count", 0),
+                                  "counts": nz.get("counts", {}), "note": nz.get("note"), "ts": nz.get("ts"),
+                                  "escalated": nz.get("escalated", []),
+                                  "findings": [{"template": fd.get("template"), "name": fd.get("name"),
+                                                "severity": fd.get("severity"), "matched_at": fd.get("matched_at"),
+                                                "cve": fd.get("cve", []), "reference": fd.get("reference", [])}
+                                               for fd in (nz.get("findings") or [])[:30]]}
         nodes.append(node)
     d["nodes"] = nodes
     d["settings"] = (ep(cto, "/settings") if cto else {}) or {}   # 管理設定(讀 node A;兩台同步)
@@ -443,13 +478,13 @@ def _collect_impl():
         pass
     d["guard"] = guard[-14:]
 
-    polout = sh("openshell policy get hermes-demo --full 2>/dev/null", 12)
+    polout = sh("openshell policy get team-lead --full 2>/dev/null", 12)
     d["bridge_ips"] = sorted(set(re.findall(r"172\.18\.0\.\d+/32", polout)))
     d["policy"] = parse_policy(polout)
     d["policy"]["sandboxes"] = _list_agent_sandboxes()   # 供唯讀卡 agent 選單
-    # 快照是每個 sandbox 各自一份(Hermes / OpenClaw A / OpenClaw B)→ 逐台收集
+    # 快照是每個 sandbox 各自一份(Hermes / worker-a / worker-b)→ 逐台收集
     by_agent = []; all_names = []
-    for label, sb in (("Hermes", "hermes-demo"), ("OpenClaw A", "my-assistant"), ("OpenClaw B", "openclaw-2")):
+    for label, sb in (("Hermes", "team-lead"), ("worker-a", "worker-a"), ("worker-b", "worker-b")):
         items = []
         for ln in sh(f"nemoclaw {sb} snapshot list 2>/dev/null", 10).splitlines():
             vm = re.search(r"\b(v\d+)\b", ln)
@@ -463,7 +498,7 @@ def _collect_impl():
         all_names += [it["name"] for it in items]
     d["snapshots_by_agent"] = by_agent
     d["snapshots"] = all_names   # 全 stack 合計(KPI 計數用)
-    d["snapshots_meta"] = next((a["items"] for a in by_agent if a["sb"] == "my-assistant"), [])
+    d["snapshots_meta"] = next((a["items"] for a in by_agent if a["sb"] == "worker-a"), [])
 
     al = []   # 雙語:{msg(zh), msg_en};前端用 L() 挑語言
     if not d["gateway"]: al.append({"msg": "OpenShell gateway :18080 離線", "msg_en": "OpenShell gateway :18080 offline"})
@@ -501,7 +536,7 @@ def _collect_impl():
         tl.append({"sk": _sk(g["ts"]), "tm": (g["ts"] or "")[5:16], "type": "guard",
                    "tone": "bad" if g["fails"] > 0 else "ok",
                    "a": "fails=" + str(g["fails"]), "b": ("bridge PASS" if g.get("bridge") else "self-check")})
-    for n in d.get("nodes", []):  # EBG19P syslog 進階分析(OpenClaw A):異常 / 融合洞察 → device 類別
+    for n in d.get("nodes", []):  # EBG19P syslog 進階分析(worker-a):異常 / 融合洞察 → device 類別
         la = n.get("loganalysis")
         if not la:
             continue
@@ -521,54 +556,93 @@ def _collect_impl():
         d["sysinfo"] = _sysinfo()   # 高價值系統資訊(60s 快取,不增加輪詢負擔)
     except Exception:
         d["sysinfo"] = {}
+    try:
+        d["proactive"] = json.load(open(f"{DIR}/data/proactive-status.json", encoding="utf-8"))
+        d["proactive"]["log"] = [json.loads(l) for l in open(f"{DIR}/data/proactive-log.jsonl", encoding="utf-8") if l.strip()][-20:][::-1]
+    except Exception:
+        d["proactive"] = {}
+    # cross-node work flow: worker /flow events + host-side team-lead events (proactive patrol/report)
+    _flow = []
+    for _frag in ("worker-a", "worker-b", "worker-c"):
+        try:
+            _flow += (json.loads(_worker_get(_frag, "/flow", timeout=6) or "{}").get("flow") or [])
+        except Exception:
+            pass
+    try:
+        _flow += [json.loads(l) for l in open(FLOW_LOG, encoding="utf-8") if l.strip()][-30:]
+    except Exception:
+        pass
+    _ps = d.get("proactive") or {}
+    if _ps.get("last_patrol"):
+        _t = _ps["last_patrol"].split(" ")[-1] if " " in _ps["last_patrol"] else _ps["last_patrol"]
+        _flow.append({"ts": _t, "node": "team-lead", "peer": "human", "task": "patrol",
+                      "status": "done", "detail": "%s crit / %s routine" % (_ps.get("last_critical", 0), _ps.get("last_routine", 0))})
+    d["flow"] = sorted(_flow, key=lambda e: e.get("ts", ""), reverse=True)[:30]
     _CACHE["ts"] = now; _CACHE["data"] = d
     return d
 
 ALLOWED_CFG = {"cve_interval_sec", "cert_interval_sec", "cert_expire_warn_days", "cert_rsa_min",
                "auto_escalate", "quiet_enabled", "quiet_start", "quiet_end", "quiet_days", "notify_channels", "cert_sig_min", "cert_cipher_policy", "cert_ec_min",
-               "dev_cpu_hi", "dev_ram_hi", "dev_temp_hi"}
-def do_config(k, v):
-    # 管理設定:推到兩台 OpenClaw endpoint 的 /settings(各容器持久化;掃描迴圈讀取)
-    if k not in ALLOWED_CFG:
-        return {"ok": False, "msg": "不允許的設定"}
-    b64 = base64.b64encode(json.dumps({k: v}).encode()).decode()  # ('"', '\\"')   # 巢狀 docker exec sh -c "..." 內的雙引號要逸出
-    ok = False
-    for frag in ("my-assistant", "openclaw-2"):
+               "dev_cpu_hi", "dev_ram_hi", "dev_temp_hi",
+               "proactive_enabled", "patrol_interval_sec", "digest_interval_sec", "proactive_safety_net",
+               "nuclei_interval_sec", "nuclei_tags", "proactive_snooze_until", "backup_interval_sec"}
+def _worker_post(path, payload, timeout=10):
+    """POST JSON to each worker's IT-ops endpoint. The JSON is piped via stdin to an in-container
+    curl (docker exec -i … --data-binary @-): no nested shell quoting, no base64 smuggling, and the
+    token/body are argv rather than interpolated into a shell string. Returns (any_ok, last_text)."""
+    body = json.dumps(payload, ensure_ascii=False)
+    any_ok, last = False, ""
+    for frag in ("worker-a", "worker-b"):
         c = ct(frag)
         if not c:
             continue
-        out = sh(f"docker exec {c} sh -c \"echo {b64} | base64 -d | curl -s -m6 -H 'X-Bridge-Token: {TOKEN}' "
-                 f"-H 'Content-Type: application/json' -X POST --data-binary @- http://127.0.0.1:9099/settings\"", 10)
-        if '"ok":true' in out.replace(" ", ""):
-            ok = True
-    if ok and k in ("cert_rsa_min", "cert_expire_warn_days", "cert_sig_min", "cert_cipher_policy", "cert_ec_min"):  # 改門檻 → 立刻重掃刷新報表(避免時間差)
-        cta = ct("my-assistant")
-        if cta:
-            sh(f"docker exec {cta} sh -c \"curl -s -m12 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/cert-scan\"", 16)
+        try:
+            r = subprocess.run(
+                ["docker", "exec", "-i", c, "curl", "-s", "-m", "6",
+                 "-H", f"X-Bridge-Token: {TOKEN}", "-H", "Content-Type: application/json",
+                 "-X", "POST", "--data-binary", "@-", f"http://127.0.0.1:9099{path}"],
+                input=body, capture_output=True, text=True, timeout=timeout, env=ENV)
+            last = r.stdout or r.stderr or ""
+            if '"ok":true' in last.replace(" ", ""):
+                any_ok = True
+        except Exception:
+            pass
+    return any_ok, last
+
+def _worker_get(frag, path, timeout=16):
+    """GET an in-container worker endpoint (e.g. re-trigger a scan). No body → no quoting hazard."""
+    c = ct(frag)
+    if not c:
+        return ""
+    try:
+        r = subprocess.run(
+            ["docker", "exec", c, "curl", "-s", "-m", "12", "-H", f"X-Bridge-Token: {TOKEN}",
+             f"http://127.0.0.1:9099{path}"],
+            capture_output=True, text=True, timeout=timeout, env=ENV)
+        return r.stdout or ""
+    except Exception:
+        return ""
+
+def do_config(k, v):
+    # 管理設定:推到兩台 worker endpoint 的 /settings(各容器持久化;掃描迴圈讀取)
+    if k not in ALLOWED_CFG:
+        return {"ok": False, "msg": "不允許的設定"}
+    ok, _ = _worker_post("/settings", {k: v})
+    if ok and k in ("cert_rsa_min", "cert_expire_warn_days", "cert_sig_min", "cert_cipher_policy", "cert_ec_min"):
+        _worker_get("worker-a", "/cert-scan")   # 改門檻 → 立刻重掃刷新報表(避免時間差)
     _CACHE["ts"] = 0
     return {"ok": ok, "msg": f"{k} 已更新" if ok else "更新失敗(端點未回 ok)"}
 
 def do_cert_policy(params):
     # 憑證政策:每設備覆寫 / 自訂 cipher 家族 → 推兩台 + 觸發重掃
-    b64 = base64.b64encode(json.dumps(params).encode()).decode()  # ('"', '\\"')
-    ok = False
-    for frag in ("my-assistant", "openclaw-2"):
-        c = ct(frag)
-        if not c:
-            continue
-        out = sh(f"docker exec {c} sh -c \"echo {b64} | base64 -d | curl -s -m6 -H 'X-Bridge-Token: {TOKEN}' "
-                 f"-H 'Content-Type: application/json' -X POST --data-binary @- http://127.0.0.1:9099/cert-policy\"", 10)
-        if '"ok":true' in out.replace(" ", ""):
-            ok = True
+    ok, _ = _worker_post("/cert-policy", params)
     if ok:
-        cta = ct("my-assistant")
-        if cta:
-            sh(f"docker exec {cta} sh -c \"curl -s -m12 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/cert-scan\"", 16)
+        _worker_get("worker-a", "/cert-scan")
     _CACHE["ts"] = 0
     return {"ok": ok, "msg": "憑證政策已更新" if ok else "更新失敗"}
 
 def do_recipient(op, name, telegram, email):
-    # 通知對象增刪:推到兩台 endpoint /recipients;新增且有 email → 寄歡迎信進 GreenMail(可驗證)
+    # 通知對象增刪:推到兩台 endpoint /recipients;新增且有 email → 寄歡迎信(真實 SMTP,可驗證)
     if op == "test":   # 一鍵試送:對該對象現有通道送測試通知(不受 notify_channels gate)
         msgs = []
         try:
@@ -582,18 +656,11 @@ def do_recipient(op, name, telegram, email):
         except Exception as e:
             return {"ok": False, "msg": f"測試送出失敗:{e}"}
         return {"ok": bool(msgs), "msg": ("已送出測試(" + " + ".join(msgs) + ")") if msgs else "此對象未設任何通道"}
-    b64 = base64.b64encode(json.dumps({"op": op, "name": name, "telegram": telegram, "email": email}).encode()).decode()  # ('"', '\\"')
-    last = {"ok": False, "msg": "更新失敗"}
-    for frag in ("my-assistant", "openclaw-2"):
-        c = ct(frag)
-        if not c:
-            continue
-        out = sh(f"docker exec {c} sh -c \"echo {b64} | base64 -d | curl -s -m6 -H 'X-Bridge-Token: {TOKEN}' "
-                 f"-H 'Content-Type: application/json' -X POST --data-binary @- http://127.0.0.1:9099/recipients\"", 10)
-        try:
-            last = json.loads(out)
-        except Exception:
-            pass
+    ok, last_text = _worker_post("/recipients", {"op": op, "name": name, "telegram": telegram, "email": email})
+    try:
+        last = json.loads(last_text)
+    except Exception:
+        last = {"ok": ok, "msg": "更新成功" if ok else "更新失敗"}
     if op == "add" and last.get("ok") and email:
         try:
             subj = "NemoClaw 通知對象啟用"
@@ -606,7 +673,7 @@ def do_recipient(op, name, telegram, email):
     return last
 
 NOTIFIED_FILE = f"{BRIDGE}/notified.json"
-NOTIFY_SENDER = "tony@demo.local"   # Hermes email 白名單授權寄件者(觸發 Telegram 推播)
+NOTIFY_SENDER = os.environ.get("NOTIFY_SENDER", "tony@demo.local")   # Hermes email 白名單授權寄件者(觸發 Telegram 推播)
 def _load_notified():
     try:
         return set(json.load(open(NOTIFIED_FILE, encoding="utf-8")))
@@ -614,7 +681,7 @@ def _load_notified():
         return set()
 def _save_notified(x):
     try:
-        json.dump(sorted(x), open(NOTIFIED_FILE, "w", encoding="utf-8"))
+        _json_write(NOTIFIED_FILE, sorted(x))
     except Exception:
         pass
 _DLP_RULES = [
@@ -641,7 +708,7 @@ def _alert_telegram(chat_id, text):
             f"內容為「{text}」。不要只在回信說明,要真的呼叫工具發送。")
     sh(f"bash {MAIL}/send-mail-as.sh {shlex.quote(NOTIFY_SENDER)} {shlex.quote('NemoClaw 告警轉發')} {shlex.quote(body)}", 25)
 def notify_loop():
-    """新工單 → 通知每位收件人(Email 直送 GreenMail;Telegram 經 Hermes)。首啟以現有工單為基線、不補發歷史。"""
+    """新工單 → 通知每位收件人(Email 直送真實 SMTP;Telegram 經 Hermes)。首啟以現有工單為基線、不補發歷史。"""
     time.sleep(10)
     notified = _load_notified()
     seeded = os.path.exists(NOTIFIED_FILE)
@@ -727,30 +794,60 @@ def notify_loop():
             print("[notify loop]", e, flush=True)
         time.sleep(20)
 
+FLOW_LOG = f"{DIR}/data/flow-log.jsonl"
+def _flow_append(node, peer, task, status, detail=""):
+    try:
+        os.makedirs(os.path.dirname(FLOW_LOG), exist_ok=True)
+        ev = {"ts": time.strftime("%H:%M:%S"), "node": str(node)[:20], "peer": str(peer)[:20],
+              "task": str(task)[:40], "status": str(status)[:16], "detail": str(detail)[:100]}
+        try:
+            lines = [l for l in open(FLOW_LOG, encoding="utf-8") if l.strip()][-59:]
+        except Exception:
+            lines = []
+        lines.append(json.dumps(ev, ensure_ascii=False))
+        with open(FLOW_LOG, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
 def do_action(do):
-    ct2 = ct("openclaw-2")
+    ct2 = ct("worker-b")
+    if do == "patrol":
+        try:
+            open(f"{DIR}/data/proactive-trigger", "w").close()
+        except Exception:
+            pass
+        _flow_append("team-lead", "human", "patrol (GUI)", "working")
+        return {"ok": True, "msg": "已請求立即巡邏(≤20s 生效)"}
+    if do in ("snooze30", "snooze120", "snooze_off"):
+        until = 0 if do == "snooze_off" else int(time.time()) + (1800 if do == "snooze30" else 7200)
+        do_config("proactive_snooze_until", until)
+        _CACHE["ts"] = 0
+        return {"ok": True, "msg": ("已靜音 critical 主動告警至 " + time.strftime("%H:%M", time.localtime(until))) if until else "已取消靜音"}
     if do == "refresh":
         _CACHE["ts"] = 0; return {"ok": True, "msg": "已重新整理"}
     if do == "cve" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m20 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/cve\"", 25)
+        _flow_append("worker-b", "human", "CVE rescan (GUI)", "working")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重掃設備 CVE"}
     if do == "source" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m25 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/source-cve\"", 30)
+        _flow_append("worker-b", "human", "source scan (GUI)", "working")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重跑原始碼分析(SBOM/SAST)"}
-    if do == "jira_reset":
-        sh(f"bash {DIR}/demo/jira-reset.sh", 30); _CACHE["ts"] = 0
-        return {"ok": True, "msg": "工單佇列已重置"}
+    if do == "nuclei" and ct2:
+        sh(f"docker exec {ct2} sh -c \"curl -s -m20 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/nuclei-scan\"", 25)
+        _flow_append("worker-b", "human", "nuclei scan (GUI)", "working")
+        _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)"}
     return {"ok": False, "msg": "未知動作"}
 
 AUDIT_FILE = os.path.expanduser("~/.config/nemoclaw/ebg19p-audit.jsonl")
 DEV_MSG = {"sync": "EBG19P 已強制同步", "harden": "EBG19P 已套用安全基準(關 UPnP/WPS、開 DoS)",
            "restart": "EBG19P 防火牆/無線服務已重啟", "block": "已送出未授權設備封鎖"}
 
-def do_snapshot(op, sel, sb="my-assistant"):
+def do_snapshot(op, sel, sb="worker-a"):
     # NemoClaw 快照 create / restore(逐沙箱)。localhost only · admin-gated · 白名單 + shlex.quote
     # 注意:restore CLI 即使「Restore failed」也回 rc=0,故成功要看輸出文字,不能只看退出碼。
     sel = (sel or "").strip()
-    if sb not in ("hermes-demo", "my-assistant", "openclaw-2"):
+    if sb not in ("team-lead", "worker-a", "worker-b"):
         return {"ok": False, "msg": "sandbox 不合法"}
     if op == "delete":
         # 無 CLI delete;快照即 rebuild-backups/<sb>/<timestamp> 目錄 → 嚴格驗 timestamp 後 rmtree(防路徑穿越)
@@ -835,8 +932,8 @@ def _osh_settings(sb):
             res.append({"key": m.group(1), "value": m.group(2), "source": (m.group(3) or "")})
     return res
 
-_SB_LABELS = {"hermes-demo": "Hermes · 對人前台", "my-assistant": "OpenClaw A · IT 運維",
-              "openclaw-2": "OpenClaw B · 資安分析"}
+_SB_LABELS = {"team-lead": "Hermes · 對人前台", "worker-a": "worker-a · IT 運維",
+              "worker-b": "worker-b · 資安分析"}
 def _list_agent_sandboxes():
     """枚舉實際存在的 agent 沙箱(供 GUI 政策編輯器切換)。讀 openshell sandbox list,附友善標籤。"""
     out, names = sh("openshell sandbox list 2>/dev/null", 12), []
@@ -845,12 +942,12 @@ def _list_agent_sandboxes():
         if m:
             names.append(m.group(1))
     # 維持 Hermes→A→B 的順序;只回已知 agent 沙箱
-    order = ["hermes-demo", "my-assistant", "openclaw-2"]
+    order = ["team-lead", "worker-a", "worker-b"]
     ordered = [n for n in order if n in names] + [n for n in names if n not in order]
     return [{"name": n, "label": _SB_LABELS.get(n, n)} for n in ordered]
 
 def do_policy_get(sb):
-    if not _policy_sb_ok(sb): sb = "hermes-demo"
+    if not _policy_sb_ok(sb): sb = "team-lead"
     full = sh(f"openshell policy get {shlex.quote(sb)} --full 2>/dev/null", 12)
     parts = re.split(r"\n-{3,}\n", full, maxsplit=1)
     raw = (parts[1] if len(parts) > 1 else full).strip()
@@ -863,7 +960,7 @@ def do_policy_get(sb):
 
 def do_policy_ro(sb):
     # 唯讀:解析任一 agent 的 live 政策(供治理頁唯讀卡的 agent 選單即時切換)
-    if not _policy_sb_ok(sb): sb = "hermes-demo"
+    if not _policy_sb_ok(sb): sb = "team-lead"
     full = sh(f"openshell policy get {shlex.quote(sb)} --full 2>/dev/null", 12)
     return {"ok": True, "policy": parse_policy(full, sb), "sandboxes": _list_agent_sandboxes()}
 
@@ -903,7 +1000,7 @@ def _sysinfo():
     info["credentials"] = creds
     # 支援的 messaging 通道(查一次)
     chans = []
-    for ln in _strip_ansi(sh("nemoclaw hermes-demo channels list 2>/dev/null", 12)).splitlines():
+    for ln in _strip_ansi(sh("nemoclaw team-lead channels list 2>/dev/null", 12)).splitlines():
         m = re.match(r"\s{2,}([a-z]+)\s+—", ln)
         if m: chans.append(m.group(1))
     info["channels"] = chans
@@ -949,7 +1046,7 @@ def do_sys(do, sb="", tail="200", provider="", model="", chan="", a1="", a2=""):
         out = _strip_ansi(sh("nemoclaw gc --yes 2>&1", 120))
         return {"ok": True, "title": "GC 執行(已清孤兒映像)", "out": out[-6000:] or "(無輸出 / 逾時)"}
     if do in ("chanstart", "chanstop"):   # nemoclaw <sb> channels start|stop <channel>(保留憑證,重建沙箱)
-        sbn = sb or "hermes-demo"
+        sbn = sb or "team-lead"
         if not _policy_sb_ok(sbn): return {"ok": False, "out": "sandbox 不合法"}
         if not re.match(r"^[a-z]{2,20}$", chan): return {"ok": False, "out": "channel 名稱不正確"}
         verb = "start" if do == "chanstart" else "stop"
@@ -999,7 +1096,7 @@ def do_sys(do, sb="", tail="200", provider="", model="", chan="", a1="", a2=""):
 
 def do_policy(op, body):
     # OpenShell policy 編輯:preset 開關 / prove / prove-gated apply。localhost · admin · 差異式證明把關
-    sb = body.get("sb") or "hermes-demo"
+    sb = body.get("sb") or "team-lead"
     if not _policy_sb_ok(sb): return {"ok": False, "msg": "sandbox 不合法"}
     if op == "setting":
         key = body.get("key", ""); val = str(body.get("value", ""))
@@ -1121,7 +1218,7 @@ def do_device_action(do):
         return {"ok": False, "msg": "不允許的設備動作"}
     arg = ""
     if do == "block":  # 取目前未授權 MAC(node A /assets);無對象則略過
-        cto = ct("my-assistant")
+        cto = ct("worker-a")
         if cto:
             try:
                 a = json.loads(sh(f"docker exec {cto} sh -c \"curl -s -m6 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/assets\"", 8))
@@ -1508,41 +1605,41 @@ const I18N={
 zh:{refresh:'↻ 重新整理',kiosk:'⛶ 全螢幕',logout:'登出',logout_c:'確定要登出嗎?',nav_reset:'還原預設順序',running:'執行中…',live_ok:'即時連線',live_lag:'資料延遲',live_down:'連線中斷 ',live_manual:'手動更新',updated:'更新 ',upd_fail:'更新失敗,重試…',loading:'載入即時狀態…',
 t_overview:'總覽',t_fleet:'設備監控',t_cve:'資安 / CVE',t_gov:'治理事件',t_ops:'工單 / 巡檢',t_stack:'系統堆疊',t_timeline:'活動時間軸',t_settings:'設定',
 s_overview:'四大元件 · 關鍵指標 · 一頁綜覽',s_fleet:'設備狀態 · 安全偏離 · 待審變更 · 修復場景',s_cve:'設備弱點分級 · SBOM · SAST · 設計符合性',s_gov:'OCSF 事件流 · ALLOWED / DENIED · 趨勢',s_ops:'Jira 人在迴路 · 巡檢歷史 · 快照 · 跨 agent 通道',s_stack:'容器健康 · 服務端點 · 主機服務',s_timeline:'治理 · 工單 · 處置 · 巡檢 · 全棧事件合一',s_settings:'主題 · 語言 · 自動刷新 · 顯示密度 · 節點篩選',
-t_arch:'線上架構',s_arch:'即時拓撲 · 資料流 · 兩大治理面',a_tg:'Telegram',a_email:'Email · GreenMail',a_report:'一句話報修 · 僅授權寄件者',a_bridge:'scoped /32 + X-Bridge-Token · 唯一互通面',a_nemo:'NemoClaw · 管理層',a_nemo_d:'生命週期 · 快照 · 復原 · 管理節點 A / B',a_shell:'OpenShell · 強制層',a_shell_d:'OPA(host/path/binary 三層)+ L7 MITM · 所有 egress 必經',a_mon:'監控 / 報修(/monitor · /fix)',a_sec:'資安(/cve · /source)· egress 受治理',a_fleet:'受管設備',a_egress:'受治理 egress',a_egress_d:'Jira :3690 · mail :3993 · 推理',a_legend:'● 在線　● 離線　· 點任一方塊跳對應分頁',a_manages:'治理 / 管理下方整個 agent stack',a_t_mgmt:'管理面',a_t_enf:'強制面 · 所有 egress 必經',a_denydef:'deny-by-default',a_encl_d:'每個 agent 各自沙箱 · 各自 OPA 政策 · 僅能經 openclaw_bridge 互通 · 所有 egress 必經此層',arch_view:'視圖',arch_flow:'精簡',arch_topo:'詳細',arch_events:'重大事件',arch_noevt:'無重大事件 · 全部正常',arch_sankey:'流量圖',sk_title:'治理流量總覽(近 2 小時)',sk_sub:'每一筆網路動作都先經 OpenShell 逐筆審核;下面看「哪種動作、各幾次、放行還是擋下」。',sk_h_src:'來源 · 全部動作',sk_h_gate:'OpenShell 逐筆把關',sk_h_out:'動作類型 · 結果',sk_times:'次',sk_allow:'綠 = 放行',sk_deny:'紅 = 越權擋下',sk_via:'藍 = 全部先過 OpenShell',sk_width:'帶子越粗代表次數越多',sk_allow2:'放行',sk_deny2:'擋下',sk_denied:'越權擋下',sk_n_mail:'郵件 Email',sk_n_bridge:'Agent 互通',sk_n_ai:'AI 推理',arch_explain:'解說',xp_intro:'這個系統怎麼運作 · 一步一步看',x1_t:'使用者提需求',x1_d:'用 Telegram 或 Email 跟系統說「幫我看設備 / 修問題」',x2_t:'Hermes 前台接收',x2_d:'聽懂需求、轉給後台處理,但它本身碰不到任何設備',x3_t:'OpenShell 安全審核',x3_d:'每一個動作都逐筆檢查,沒被授權的一律擋下(預設全擋)',x4_t:'OpenClaw 維運執行',x4_d:'實際去巡檢、修設備,只能做被政策允許的事',x5_t:'結果回報 / 開工單',x5_d:'修好就回報;修不了或需人核准 → 自動開 Jira 工單通知管理者',x_ok:'正常',x_online:'線上',x_offline:'離線',x_guard:'把關中',x_gate_off:'閘道離線',x_blocked:'今天擋下',x_times:'次',x_hosts:'台在線',x_pending:'張待辦工單',x_clear:'無待辦',tl_entry:'入口通道 · Entry',tl_inter:'互通面 · scoped',tl_enf:'強制面 · 所有 egress',tl_egress:'受治理 egress',tl_fleet:'受管設備',governed:'受治理',pol_title:'OpenShell 政策',pol_ro:'唯讀',pol_allowlist:'egress 白名單 · deny-by-default(僅列允許的出站目的地)',pol_fsrw:'可寫路徑',pol_edit:'唯讀檢視。改設定請用 openshell policy / nemoclaw policy-* CLI(認證 + 可稽核 + 可形式化證明)。',pol_more:'其他出站 preset',pol_edit_btn:'⚙ 編輯(prove 把關)',pol_edit_title:'政策編輯',pol_loading:'載入政策 + 形式化證明中…',pol_load_fail:'載入失敗',pol_sb:'沙箱',pol_pick_agent:'選擇 agent(設定該 agent 的 OpenShell 權限)',pol_rules:'egress 規則明細(逐條)',pol_rules_d:'每條 = 一個網路規則(host:port + 可用 binary)。可單獨移除,或在下方新增 endpoint。改動先 dry-run 預覽再確認。',pol_rule_rm:'移除',pol_add_ep:'＋ 新增',pol_pick_agent_d:'每個 agent 各自獨立沙箱政策(deny-by-default)。選了之後,下面的 Presets / 設定 / 原始 YAML 都套用到該 agent。',pol_gaps:'critical/high 缺口(現行)',pol_gate_d:'套用前一律跑 openshell policy prove;只要改動讓缺口數增加就拒絕套用(差異式把關)。',pol_presets:'出站白名單 Presets',pol_presets_d:'每個 preset = 對某服務的「出站允許清單」。🟢 已開放(允許 agent 連線到它);⚪ 未開放(deny-by-default 擋著)。按「開放」=加白名單放行,「收回」=移除擋回。改動會先 dry-run 預覽再確認。',osh_settings:'OpenShell 設定',osh_settings_d:'沙箱層級的 OpenShell 開關(true / false / 預設=unset 繼承全域)。即時生效、可稽核。',osh_unset:'預設',pol_on:'開放',pol_off:'收回',pol_raw:'原始政策 YAML(進階)',pol_prove_btn:'驗證 prove',pol_apply_btn:'套用(prove 通過才送)',pol_revert:'還原編輯',pol_history:'政策版本歷史',pol_confirm_apply:'確定套用此變更?',pol_apply_c:'確定把編輯後的原始政策套用到 live 沙箱?\nprove 通過(未變差)才會真的送出。',
-banner_ok:'✓ 全系統正常 · 兩節點各司其職 · 無告警',sec_kpi:'關鍵指標 · 點擊深入',sec_comp:'四大元件',sec_nodes:'兩 OpenClaw 節點 · 職責分工(點看詳情)',
-kpi_nodes:'OpenClaw 節點在線',managed_dev:'受管設備',dev_allok:'全 ok',kpi_denied:'越權擋下 DENIED',kpi_cve:'CVE affected',kpi_mttr:'修復 MTTR',kpi_snap:'NemoClaw 快照',kpi_containers:'容器運行',
-comp_nemo:'管理層',comp_shell:'強制層',comp_hermes:'對人前台',comp_oc:'IT 設備群',herm_role:'對人前台 Human front desk',herm_about:'使用者唯一的對話入口:接 Telegram / Email 需求,用 OpenAI 相容 API 理解後委派給 OpenClaw 執行。本身不直接碰任何設備——所有動作都要過 OpenShell 治理。',herm_status:'即時狀態',herm_tg:'Telegram 輪詢',herm_mail:'Email 入口',herm_sandbox:'沙箱 / 治理',herm_flow:'在架構中的角色',herm_flow_d:'使用者 → Hermes(前台,聽懂並轉派)→ OpenShell(逐筆審核 · deny-by-default)→ OpenClaw(實際巡檢 / 修復)→ 回報 / 自動開 Jira。Hermes 僅經 scoped /32 + X-Bridge-Token 與 OpenClaw 互通。',nemo_role:'管理層 Management plane',nemo_about:'整個 agent stack 的生命週期管理:建立 / 快照 / 復原沙箱,管理 OpenClaw A、B 與 Hermes。出事可重建回已知良好狀態。',nemo_snaps:'快照 / 還原點',a_total:'合計',nemo_manages:'管理的沙箱',nemo_recovery:'復原能力',nemo_recovery_d:'每個 agent 各自快照鏈;boot-stack 用 snapshot restore --to 重建沙箱(如 openclaw-2 即由 A 的快照建出)。重開機由 cron @reboot 自癒拉起。',osh_role:'強制層 Enforcement plane',osh_about:'所有 agent 的網路 / 檔案動作都先經此逐筆審核:OPA(host/path/binary 三層)+ L7 MITM,deny-by-default,所有 egress 必經。',osh_endpoints:'個端點',osh_enf:'強制機制',osh_enf_d:'政策即 code、可形式化證明(openshell policy prove)。非白名單目的地一律 DENIED;白名單內可見可管。政策可在「治理事件 → ⚙ 編輯」以 prove 把關後修改。',c_lifecycle:'生命週期 / 復原',snap_unit:'快照',c_restore:'最新還原點',c_deny:'越權擋下',c_tg:'Telegram 輪詢',alive:'存活',stopped:'停',online:'在線',offline:'離線',c_nodes_online:'節點在線',unit_host:'台',fleet_unit:'台',c_bridge:'跨 agent 通道',
+t_arch:'線上架構',s_arch:'即時拓撲 · 資料流 · 兩大治理面',a_tg:'Telegram',a_email:'Email · SMTP',a_report:'一句話報修 · 僅授權寄件者',a_bridge:'scoped /32 + X-Bridge-Token · 唯一互通面',a_nemo:'NemoClaw · 管理層',a_nemo_d:'生命週期 · 快照 · 復原 · 管理節點 A / B',a_shell:'OpenShell · 強制層',a_shell_d:'OPA(host/path/binary 三層)+ L7 MITM · 所有 egress 必經',a_mon:'監控 / 報修(/monitor · /fix)',a_sec:'資安(/cve · /source)· egress 受治理',a_fleet:'受管設備',a_egress:'受治理 egress',a_egress_d:'Jira · SMTP · 推理',a_legend:'● 在線　● 離線　· 點任一方塊跳對應分頁',a_manages:'治理 / 管理下方整個 agent stack',a_t_mgmt:'管理面',a_t_enf:'強制面 · 所有 egress 必經',a_denydef:'deny-by-default',a_encl_d:'每個 agent 各自沙箱 · 各自 OPA 政策 · 僅能經 worker_bridge 互通 · 所有 egress 必經此層',arch_view:'視圖',arch_flow:'精簡',arch_topo:'詳細',arch_events:'重大事件',arch_noevt:'無重大事件 · 全部正常',arch_sankey:'流量圖',sk_title:'治理流量總覽(近 2 小時)',sk_sub:'每一筆網路動作都先經 OpenShell 逐筆審核;下面看「哪種動作、各幾次、放行還是擋下」。',sk_h_src:'來源 · 全部動作',sk_h_gate:'OpenShell 逐筆把關',sk_h_out:'動作類型 · 結果',sk_times:'次',sk_allow:'綠 = 放行',sk_deny:'紅 = 越權擋下',sk_via:'藍 = 全部先過 OpenShell',sk_width:'帶子越粗代表次數越多',sk_allow2:'放行',sk_deny2:'擋下',sk_denied:'越權擋下',sk_n_mail:'郵件 Email',sk_n_bridge:'Agent 互通',sk_n_ai:'AI 推理',arch_explain:'解說',xp_intro:'這個系統怎麼運作 · 一步一步看',x1_t:'使用者提需求',x1_d:'用 Telegram 或 Email 跟系統說「幫我看設備 / 修問題」',x2_t:'Hermes 前台接收',x2_d:'聽懂需求、轉給後台處理,但它本身碰不到任何設備',x3_t:'OpenShell 安全審核',x3_d:'每一個動作都逐筆檢查,沒被授權的一律擋下(預設全擋)',x4_t:'worker 維運執行',x4_d:'實際去巡檢、修設備,只能做被政策允許的事',x5_t:'結果回報 / 開工單',x5_d:'修好就回報;修不了或需人核准 → 自動開 Jira 工單通知管理者',x_ok:'正常',x_online:'線上',x_offline:'離線',x_guard:'把關中',x_gate_off:'閘道離線',x_blocked:'今天擋下',x_times:'次',x_hosts:'台在線',x_pending:'張待辦工單',x_clear:'無待辦',tl_entry:'入口通道 · Entry',tl_inter:'互通面 · scoped',tl_enf:'強制面 · 所有 egress',tl_egress:'受治理 egress',tl_fleet:'受管設備',governed:'受治理',pol_title:'OpenShell 政策',pol_ro:'唯讀',pol_allowlist:'egress 白名單 · deny-by-default(僅列允許的出站目的地)',pol_fsrw:'可寫路徑',pol_edit:'唯讀檢視。改設定請用 openshell policy / nemoclaw policy-* CLI(認證 + 可稽核 + 可形式化證明)。',pol_more:'其他出站 preset',pol_edit_btn:'⚙ 編輯(prove 把關)',pol_edit_title:'政策編輯',pol_loading:'載入政策 + 形式化證明中…',pol_load_fail:'載入失敗',pol_sb:'沙箱',pol_pick_agent:'選擇 agent(設定該 agent 的 OpenShell 權限)',pol_rules:'egress 規則明細(逐條)',pol_rules_d:'每條 = 一個網路規則(host:port + 可用 binary)。可單獨移除,或在下方新增 endpoint。改動先 dry-run 預覽再確認。',pol_rule_rm:'移除',pol_add_ep:'＋ 新增',pol_pick_agent_d:'每個 agent 各自獨立沙箱政策(deny-by-default)。選了之後,下面的 Presets / 設定 / 原始 YAML 都套用到該 agent。',pol_gaps:'critical/high 缺口(現行)',pol_gate_d:'套用前一律跑 openshell policy prove;只要改動讓缺口數增加就拒絕套用(差異式把關)。',pol_presets:'出站白名單 Presets',pol_presets_d:'每個 preset = 對某服務的「出站允許清單」。🟢 已開放(允許 agent 連線到它);⚪ 未開放(deny-by-default 擋著)。按「開放」=加白名單放行,「收回」=移除擋回。改動會先 dry-run 預覽再確認。',osh_settings:'OpenShell 設定',osh_settings_d:'沙箱層級的 OpenShell 開關(true / false / 預設=unset 繼承全域)。即時生效、可稽核。',osh_unset:'預設',pol_on:'開放',pol_off:'收回',pol_raw:'原始政策 YAML(進階)',pol_prove_btn:'驗證 prove',pol_apply_btn:'套用(prove 通過才送)',pol_revert:'還原編輯',pol_history:'政策版本歷史',pol_confirm_apply:'確定套用此變更?',pol_apply_c:'確定把編輯後的原始政策套用到 live 沙箱?\nprove 通過(未變差)才會真的送出。',
+banner_ok:'✓ 全系統正常 · 兩節點各司其職 · 無告警',sec_kpi:'關鍵指標 · 點擊深入',sec_comp:'四大元件',sec_nodes:'兩 worker 節點 · 職責分工(點看詳情)',
+kpi_nodes:'worker 節點在線',managed_dev:'受管設備',dev_allok:'全 ok',kpi_denied:'越權擋下 DENIED',kpi_cve:'CVE affected',kpi_mttr:'修復 MTTR',kpi_snap:'NemoClaw 快照',kpi_containers:'容器運行',
+comp_nemo:'管理層',comp_shell:'強制層',comp_hermes:'對人前台',comp_oc:'IT 設備群',herm_role:'對人前台 Human front desk',herm_about:'使用者唯一的對話入口:接 Telegram / Email 需求,用 OpenAI 相容 API 理解後委派給 worker 執行。本身不直接碰任何設備——所有動作都要過 OpenShell 治理。',herm_status:'即時狀態',herm_tg:'Telegram 輪詢',herm_mail:'Email 入口',herm_sandbox:'沙箱 / 治理',herm_flow:'在架構中的角色',herm_flow_d:'使用者 → Hermes(前台,聽懂並轉派)→ OpenShell(逐筆審核 · deny-by-default)→ worker(實際巡檢 / 修復)→ 回報 / 自動開 Jira。Hermes 僅經 scoped /32 + X-Bridge-Token 與 worker 互通。',nemo_role:'管理層 Management plane',nemo_about:'整個 agent stack 的生命週期管理:建立 / 快照 / 復原沙箱,管理 worker-a、B 與 Hermes。出事可重建回已知良好狀態。',nemo_snaps:'快照 / 還原點',a_total:'合計',nemo_manages:'管理的沙箱',nemo_recovery:'復原能力',nemo_recovery_d:'每個 agent 各自快照鏈;boot-stack 用 snapshot restore --to 重建沙箱(如 worker-b 即由 A 的快照建出)。重開機由 cron @reboot 自癒拉起。',osh_role:'強制層 Enforcement plane',osh_about:'所有 agent 的網路 / 檔案動作都先經此逐筆審核:OPA(host/path/binary 三層)+ L7 MITM,deny-by-default,所有 egress 必經。',osh_endpoints:'個端點',osh_enf:'強制機制',osh_enf_d:'政策即 code、可形式化證明(openshell policy prove)。非白名單目的地一律 DENIED;白名單內可見可管。政策可在「治理事件 → ⚙ 編輯」以 prove 把關後修改。',c_lifecycle:'生命週期 / 復原',snap_unit:'快照',c_restore:'最新還原點',c_deny:'越權擋下',c_tg:'Telegram 輪詢',alive:'存活',stopped:'停',online:'在線',offline:'離線',c_nodes_online:'節點在線',unit_host:'台',fleet_unit:'台',c_bridge:'跨 agent 通道',
 node_word:'節點',node_net_health:'網路設備健康',node_cve_health:'設備弱點',node_detail:'查看完整詳情 →',dev_ok:'設備 ok',dev_drift:'安全偏離',benign:'良性',pol_ph_host:'host(例 api.example.com)',pol_ph_bin:'binary(選填,逗號分隔)',scanned:'掃',
 filter_node:'節點篩選',f_all:'全部',f_a:'運維 A',f_b:'資安 B',
 assets_title:'已連線資產',assets_unit:'台',assets_unknown:'未授權',assets_none:'無連線資產',asset_known:'已核准',
 tr_title:'LAN 流量(WIRED)',tr_now:'目前',tr_avg:'基線均值',tr_peak:'峰值',h_temp:'溫度',h_ports:'網口',h_health:'即時健康',tr_anom:'流量突增異常',tr_norm:'流量正常 · 在基線範圍內',
 drw_managed:'NemoClaw 受管',drw_identity:'設備身分',drw_compliance:'安全合規基準',drw_clean:'與基準一致 · 無偏離',di_model:'型號',di_fw:'韌體',di_mac:'MAC',di_wan:'WAN',di_ssid:'SSID',di_remote:'遠端管理',drw_hint:'點看設備細節 →',
 act_title:'快速處置',act_sync:'強制同步',act_harden:'套用安全基準',act_restart:'重啟服務',act_block:'封鎖未授權',audit_title:'處置稽核',audit_none:'尚無處置紀錄',act_done:'處置已送出',act_warn_harden:'將套用安全基準到 EBG19P 實機(關 UPnP/WPS、開 DoS)並重啟防火牆/無線。確定執行?',act_warn_restart:'將重啟 EBG19P 防火牆/無線服務,WiFi 會短暫斷線。確定執行?',act_warn_block:'將封鎖未授權設備的無線連線。確定執行?',nodrift:'無變更 · 與核准基準一致',reg:'安全偏離',pend:'待審變更',nomon:'無監控資料',scen:'修復場景待命',scen_unit:'種',nonode:'此篩選下無節點',
-cve_grade:'設備 CVE 分級',aff_title:'Affected 弱點',aff_jira:'已開 Jira 工單',th_cve:'CVE',th_asset:'資產',th_comp:'元件',th_ver:'版本',th_sev:'嚴重度',noaff:'無 affected',src_title:'原始碼 · 設計符合性',src_feed:'即時 CVE 情資',src_adv:'上游 advisory 校正',src_fixed:'已修',src_recon:'校正 backport 假陽性',src_sbom:'SBOM 套件',src_prov:'基準:RT-AX89X 韌體線(非 EBG19P)',src_sast:'SAST 命中',sast_code:'漏洞程式碼',sast_patch:'建議修補(diff)',sast_verified:'patch 驗證',sast_ok:'已驗證:套用後樣式消失',src_design:'設計違反',src_reqs:'設計符合性 · 機器可驗條款',st_violated:'違反',st_compliant:'符合',st_na:'未評估',src_view:'上游原始碼',src_evid:'現況證據',sast_fix:'修補建議',fix_risk:'風險',fix_how:'建議修法',patch_sugg:'逐行建議(需依資料流確認)',th_cwe:'CWE',th_file:'檔案',th_line:'行',btn_rescan:'↻ 重掃 CVE',btn_source:'↻ 原始碼分析',sec_source:'原始碼 / SBOM / SAST · 設計文件符合性',cve_off:'節點 B(資安)離線或尚無 CVE 報告。',
+cve_grade:'設備 CVE 分級',aff_title:'Affected 弱點',aff_jira:'已開 Jira 工單',th_cve:'CVE',th_asset:'資產',th_comp:'元件',th_ver:'版本',th_sev:'嚴重度',noaff:'無 affected',src_title:'原始碼 · 設計符合性',src_feed:'即時 CVE 情資',src_adv:'上游 advisory 校正',src_fixed:'已修',src_recon:'校正 backport 假陽性',src_sbom:'SBOM 套件',src_prov:'基準:asuswrt-merlin 上游韌體',src_sast:'SAST 命中',sast_code:'漏洞程式碼',sast_patch:'建議修補(diff)',sast_verified:'patch 驗證',sast_ok:'已驗證:套用後樣式消失',src_design:'設計違反',src_reqs:'設計符合性 · 機器可驗條款',st_violated:'違反',st_compliant:'符合',st_na:'未評估',src_view:'上游原始碼',src_evid:'現況證據',sast_fix:'修補建議',fix_risk:'風險',fix_how:'建議修法',patch_sugg:'逐行建議(需依資料流確認)',th_cwe:'CWE',th_file:'檔案',th_line:'行',btn_rescan:'↻ 重掃 CVE',btn_source:'↻ 原始碼分析',sec_source:'原始碼 / SBOM / SAST · 設計文件符合性',cve_off:'節點 B(資安)離線或尚無 CVE 報告。',
 dl_title:'EBG19P 設備日誌',dl_sub:'真機 syslog 集中 · OCSF 分類',dl_total:'行',dl_sec:'安全關注',dl_none:'無安全關注事件(設備日誌正常)',dl_cats:'分類',
-ev_title:'即時治理事件流',ev_sub:'OCSF · 濾心跳',e_all:'全部',e_allow:'放行',e_deny:'擋下',ev_none:'無符合事件',ev_hint:'點任一列看完整資訊',ev_action:'動作',ev_process:'發起程式',ev_target:'目標',ev_engine:'判定引擎',ev_sev:'嚴重度',ev_policy:'套用政策',ev_reason:'原因',act_net:'嘗試開啟網路連線',act_proc:'嘗試執行程式',act_file:'嘗試存取檔案',act_other:'受治理動作',deny_nopol:'(無放行政策 → 拒絕)',gov_title:'治理覆蓋',gov_2h:'近2h',gov_denytot:'越權擋下 DENIED(實質)',gov_benign:'推理心跳握手失敗(良性 · 不計)',gov_benign_t:'良性',gov_benign_why:'良性事件:這是 OpenClaw 定期對推理後端 inference.local:443(LLM 大腦)的心跳連線。TLS 握手是被「上游 Azure 限流(429)」中斷,不是被本地政策擋下,也不是外部攻擊或越權 egress——因此不計入「越權擋下」。要消除這類雜訊,可設 NEMOCLAW_AGENT_HEARTBEAT_EVERY=0 關閉心跳。',collecting:'收集中…',trend:'趨勢',tr_actions:'治理動作量',tr_recent:'最近取樣 · 確切時間點',tr_act_u:'動作',tr_deny_u:'擋下',tr_hb_u:'心跳',tr_tg:'Telegram 心跳',tr_samples:'取樣點',accruing:'累積中…',sec_gov_trend:'治理覆蓋 · 趨勢',
-jira_title:'Jira 工單',jira_hil:'人在迴路',jira_reset:'重置工單佇列',jira_empty:'佇列空',guard_title:'巡檢歷史',guard_legend:'綠pass · 紅fail · 框主鏈',guard_recent:'最近巡檢',mttr_row:'修復 MTTR',mttr_base:'基準值',sec_snap_bridge:'快照 · 跨 agent 通道',snap_title:'NemoClaw 快照',snap_restore:'還原點',snap_create_btn:'＋ 建立快照',snap_restore_btn:'復原',snap_name_p:'快照名稱(留空自動命名):',snap_per_agent_d:'每個 agent 沙箱各自一份快照鏈;在各區塊按「＋ 建立快照」為該 agent 留還原點。還原(in-place)需走重建流程,不在此即時操作。',snap_del_btn:'刪除快照',snap_del_c1:'確定刪除快照 %s?此操作不可復原。',snap_del_c2:'再次確認:此操作不可復原。請輸入版本「%s」以確認刪除:',snap_del_cancel:'已取消(輸入不符)',snap_del_sel:'刪除選取',snap_del_sel_c:'確定刪除選取的 %s 個快照?此操作不可復原。',snap_del_sel_done:'已刪除 %s 個快照',snap_restore_c:'確定把 my-assistant 沙箱「復原」到 %s?\n這會回滾目前 agent 的工作狀態(具破壞性)。',bridge_title:'跨 agent 通道 · scoped /32',bridge_auth:'授權',bridge_note:'每節點各一條 /32 + X-Bridge-Token,唯一互通面',
+ev_title:'即時治理事件流',ev_sub:'OCSF · 濾心跳',e_all:'全部',e_allow:'放行',e_deny:'擋下',ev_none:'無符合事件',ev_hint:'點任一列看完整資訊',ev_action:'動作',ev_process:'發起程式',ev_target:'目標',ev_engine:'判定引擎',ev_sev:'嚴重度',ev_policy:'套用政策',ev_reason:'原因',act_net:'嘗試開啟網路連線',act_proc:'嘗試執行程式',act_file:'嘗試存取檔案',act_other:'受治理動作',deny_nopol:'(無放行政策 → 拒絕)',gov_title:'治理覆蓋',gov_2h:'近2h',gov_denytot:'越權擋下 DENIED(實質)',gov_benign:'推理心跳握手失敗(良性 · 不計)',gov_benign_t:'良性',gov_benign_why:'良性事件:這是 worker 定期對推理後端 inference.local:443(LLM 大腦)的心跳連線。TLS 握手是被「上游推理後端限流」中斷,不是被本地政策擋下,也不是外部攻擊或越權 egress——因此不計入「越權擋下」。要消除這類雜訊,可設 NEMOCLAW_AGENT_HEARTBEAT_EVERY=0 關閉心跳。',collecting:'收集中…',trend:'趨勢',tr_actions:'治理動作量',tr_recent:'最近取樣 · 確切時間點',tr_act_u:'動作',tr_deny_u:'擋下',tr_hb_u:'心跳',tr_tg:'Telegram 心跳',tr_samples:'取樣點',accruing:'累積中…',sec_gov_trend:'治理覆蓋 · 趨勢',
+jira_title:'Jira 工單',jira_hil:'人在迴路',jira_reset:'重置工單佇列',jira_empty:'佇列空',guard_title:'巡檢歷史',guard_legend:'綠pass · 紅fail · 框主鏈',guard_recent:'最近巡檢',mttr_row:'修復 MTTR',mttr_base:'基準值',sec_snap_bridge:'快照 · 跨 agent 通道',snap_title:'NemoClaw 快照',snap_restore:'還原點',snap_create_btn:'＋ 建立快照',snap_restore_btn:'復原',snap_name_p:'快照名稱(留空自動命名):',snap_per_agent_d:'每個 agent 沙箱各自一份快照鏈;在各區塊按「＋ 建立快照」為該 agent 留還原點。還原(in-place)需走重建流程,不在此即時操作。',snap_del_btn:'刪除快照',snap_del_c1:'確定刪除快照 %s?此操作不可復原。',snap_del_c2:'再次確認:此操作不可復原。請輸入版本「%s」以確認刪除:',snap_del_cancel:'已取消(輸入不符)',snap_del_sel:'刪除選取',snap_del_sel_c:'確定刪除選取的 %s 個快照?此操作不可復原。',snap_del_sel_done:'已刪除 %s 個快照',snap_restore_c:'確定把 worker-a 沙箱「復原」到 %s?\n這會回滾目前 agent 的工作狀態(具破壞性)。',bridge_title:'跨 agent 通道 · scoped /32',bridge_auth:'授權',bridge_note:'每節點各一條 /32 + X-Bridge-Token,唯一互通面',
 set_appearance:'外觀',set_theme:'主題',set_theme_d:'淺色商務 / 純黑深色',th_light:'淺色',th_dark:'深色',set_lang:'語言 Language',set_lang_d:'介面顯示語言',set_density:'顯示密度',set_density_d:'10 級:1 最寬鬆 ↔ 10 最緊湊',acl_section:'存取控制(管理員)',aud_title:'管理稽核(防竄改)',aud_d:'每筆管理動作以 hash 串鏈記錄;改動任一筆都會斷鏈被偵測。',aud_intact:'鏈完整',aud_broken:'鏈遭竄改 斷於',aud_verify:'重新驗證',anom_sec:'資安異常偵測',anom_title:'異常偵測',anom_found:'項異常',anom_clear:'正常',anom_none:'目前無異常',mc_prompt:'偵測到使用預設密碼,請設定新密碼(至少 6 碼):',mc_skip:'未變更;下次登入仍會提醒',acl_accounts:'帳號管理',acl_policy:'Session / 安全政策',acl_you:'你',acl_pw:'改密碼',acl_online:'在線 session',acl_maxs:'每帳號 session 上限',acl_maxs_d:'超過上限自動踢最舊;∞=不限',acl_timeout:'閒置逾時',acl_timeout_d:'閒置超過此時間需重新登入;∞=不限',acl_ipwl:'IP 白名單',acl_ipwl_d:'留空=不限;逗號分隔,支援 CIDR(loopback 一律放行防自鎖)',acl_del_c:'確定刪除此帳號?',acl_pw_p:'輸入新密碼:',den_comfort:'舒適',den_compact:'緊湊',den_loose:'寬鬆',den_tight:'緊湊',apply:'套用',set_data:'資料',set_refresh:'自動刷新',set_refresh_d:'背景輪詢 /api/status 間隔',rf_off:'關',set_defnode:'預設節點篩選',set_defnode_d:'設備監控預設顯示',set_manual:'手動重新整理',set_manual_d:'立即清快取重取',btn_now:'↻ 立即重整',set_about:'關於',ab_fmt:'事件格式',ab_cred:'憑證安全',ab_cred_v:'Token 僅 server 端',ab_nature:'資料性質',ab_nature_v:'唯讀彙整 · 快取 8s',ab_keys:'鍵盤快捷',ab_k_tabs:'切換分頁',ab_k_r:'重整',ab_k_d:'深淺主題',ab_k_f:'全螢幕',
-toast_refresh:'已重新整理',toast_cve:'節點 B 已重掃設備 CVE',toast_source:'節點 B 已重跑原始碼分析(SBOM/SAST)',toast_jira:'工單佇列已重置',toast_done:'完成',toast_fail:'動作失敗',role_a:'IT 運維 / 網路管理',role_b:'資安 / 原始碼分析',stk_services:'主機服務',sys_section:'系統資訊 · nemoclaw / openshell',sys_inf:'推理路由',sys_inf_model:'模型',sys_reach:'可達',sys_unreach:'不可達',sys_gw:'OpenShell Gateway',sys_gw_status:'狀態',sys_fwd:'埠轉發(各 agent)',sys_meta:'供應商 / 通道',sys_creds:'憑證供應商',sys_chan:'支援通道',sys_tools:'診斷工具(即時執行)',sys_tools_d:'按下即時跑 nemoclaw/openshell 診斷,結果顯示於抽屜(較重,不進自動輪詢)。',sys_doctor:'健康診斷',sys_logs:'日誌',sys_global:'全域',sys_stale:'檢查過期沙箱',sys_gsettings:'全域設定',sys_recover:'復原',sys_recover_c:'確定要對此 sandbox 執行 recover?會重啟其 gateway 與 dashboard 轉發(短暫中斷、冪等)。',sys_gwhealth:'Gateway 健康',sys_inf_set:'切換推理模型',sys_inf_set_btn:'切換…',sys_inf_prov_p:'OpenShell provider 名稱(例:compatible-endpoint):',sys_inf_model_p:'模型 id(例:Kimi-K2.5):',sys_gc:'GC 預覽',sys_gcrun:'GC 清除',sys_gc_c:'nemoclaw gc 會刪除孤兒 docker 映像(已停用的舊 sandbox image),確定執行?',sys_chan_stop:'停用',sys_chan_start:'啟用',sys_chan_stop_c:'停用此通道?會重建 sandbox(短暫中斷),但保留憑證。',sys_chan_start_c:'重新啟用此通道?會重建 sandbox。',sys_maint:'維護 / 升級(admin)',sys_maint_d:'較重的生命週期動作:備份、升級、重建、診斷包、host 別名、埠轉發。',sys_backup:'全量備份',sys_backup_c:'執行 nemoclaw backup-all 備份所有沙箱狀態?可能要數十秒。',sys_upgrade:'升級過時沙箱',sys_upgrade_c:'對所有「過時且運行中」的沙箱跑 rebuild 升級?較耗時、會短暫中斷。',sys_debug:'診斷包',sys_rebuild:'重建',sys_rebuild_p:'重建會把沙箱升到當前 agent 版(較久、會中斷)。請輸入 sandbox 名稱以確認:',sys_rebuild_mismatch:'名稱不符,已取消',sys_hosts_list:'hosts',sys_hosts_add:'＋別名',sys_hosts_rm:'－別名',sys_hosts_name_p:'host 別名(hostname):',sys_hosts_ip_p:'IP 位址(IPv4):',sys_hosts_rm_c:'移除此 host 別名?',sys_fwd_start:'開埠轉發',sys_fwd_stop:'停埠轉發',sys_fwd_port_p:'本機 port(例:8080 或 0.0.0.0:8080):',sys_fwd_sb_p:'sandbox 名稱(留空=last-used):',sys_fwd_stop_c:'停止此埠轉發?',stk_containers:'容器',stk_running:'運行',stk_stopped:'已停止',stk_svc_gateway:'OpenShell 閘道 :18080',stk_svc_hermes:'Hermes API :8642',stk_svc_tg:'Telegram 輪詢',stk_healthy:'全部容器運行中',stk_none:'無容器資料',stk_grp_core:'核心治理',stk_grp_agent:'Agent 節點',stk_grp_infra:'周邊服務',stk_uptime:'狀態',ctr_detail:'容器詳情',ctr_name:'名稱',ctr_state:'狀態',ctr_status:'完整狀態',ctr_group:'分組',ctr_image:'映像',ctr_ports:'埠',ctr_uptime:'運行時間',svc_detail:'服務詳情',svc_endpoint:'端點',svc_about:'說明',svc_gateway_d:'OpenShell 強制層閘道:所有 sandbox 經此抓政策、所有受治理 egress 必經(deny-by-default + L7 MITM)。',svc_hermes_d:'Hermes 對人前台的 OpenAI 相容 API:接 Telegram / Email 需求,經 scoped bridge 委派 OpenClaw。',svc_tg_d:'Hermes 對 Telegram Bot API 的輪詢(getUpdates);近期有次數代表存活。',tl_all:'全部',tl_gov:'治理',tl_jira:'工單',tl_audit:'處置',tl_guard:'巡檢',tl_dev:'設備日誌',la_title:'syslog 智慧分析',la_sub:'異常 · 根因收斂 · 跨訊號融合',la_root:'重複事件根因',la_evidence:'log 證據(最近幾筆)',la_clean:'無異常發現',tl_none:'無活動事件',jira_id:'工單',jira_pri:'優先',jira_asset:'資產',jira_sum:'摘要',jira_tickets:'工單明細',kpi_cert:'憑證/弱加密告警',cert_title:'憑證 / 弱加密與協定',cert_sub:'主動提醒 · 不受信任 / 弱演算法 / 將過期 / 弱協定',cert_high:'高風險',cert_med:'中風險',cert_service:'服務',cert_issue:'問題',cert_detail:'說明',cert_clean:'無憑證/加密問題',ce_untrusted:'不受信任',ce_weakalg:'弱演算法',ce_expired:'已過期',ce_expiring:'即將過期',ce_weakproto:'弱協定',ce_weakcipher:'弱加密套件',ce_weakssh:'弱 SSH 演算法',set_mgmt_scan:'管理 · 掃描排程',set_mgmt_thresh:'管理 · 告警門檻',set_mgmt_notify:'管理 · 通知 / 開單',set_cve_iv:'CVE 掃描間隔',set_cve_iv_d:'資安節點 B 定期掃設備 CVE 的頻率',set_cert_iv:'憑證掃描間隔',set_cert_iv_d:'運維節點 A 定期盤點憑證/弱加密的頻率',set_warn_days:'憑證過期提前提醒',set_warn_days_d:'剩餘天數低於此值就提醒(將過期)',set_rsa_min:'RSA 金鑰最低位元',set_rsa_min_d:'低於此值判定弱演算法',set_cert_thr:'憑證 / 加密門檻',set_dev_thr:'設備健康告警門檻(跟隨上方 scope:全域或各設備)',set_cpu_hi:'CPU 高負載門檻',set_cpu_hi_d:'設備 CPU 超過此值即告警(≥95% 高risk)',set_ram_hi:'記憶體高用量門檻',set_ram_hi_d:'設備 RAM 超過此值即告警',set_temp_hi:'溫度告警門檻',set_temp_hi_d:'設備溫度超過此值即告警',set_sig:'簽章演算法門檻',set_sig_d:'低於此強度的簽章判為弱(建議 SHA-256)',set_ec_min:'ECDSA 曲線最低強度',set_ec_min_d:'EC 金鑰曲線低於此值判定弱演算法(P-256<P-384<P-521)',set_cipher:'加密套件政策',set_cipher_d:'要標出哪些弱加密套件(寬鬆→嚴格)',cipher_detail:'<b>寬鬆</b>:RC4 · NULL · EXPORT · 匿名(anon)<br><b>標準</b>(預設):寬鬆 + 3DES · DES · MD5-MAC<br><b>嚴格</b>:標準 + SHA1-MAC · IDEA · SEED · CAMELLIA(只留現代 AES-GCM / ChaCha20)<br><b>自訂</b>:自選下方家族<br><span style="color:var(--tx3)">這是告警門檻,只決定標不標弱,不改設備實際 cipher</span>',ci_lax:'寬鬆',ci_std:'標準',ci_strict:'嚴格',ci_custom:'自訂',cp_global:'全域預設',cp_inherit:'繼承',cp_custom_fams:'自訂:要標為弱的套件',cp_custom_d:'點亮(紅)= 會被標為弱',cur_state:'目前狀態 · openssl 解析',set_escalate:'自動開 Jira 工單',set_escalate_d:'掃到高風險是否自動開單(關=只在儀表板提醒)',set_quiet:'靜音時段',set_quiet_d:'選定的星期 + 時段內不自動開單',q_from:'從',q_to:'到',d_mon:'一',d_tue:'二',d_wed:'三',d_thu:'四',d_fri:'五',d_sat:'六',d_sun:'日',set_channels:'通知管道',set_channels_d:'告警/工單去向(Jira 一律保留)',on_:'開',off_:'關',ch_base:'Jira+儀表板',ch_email:'+Email',ch_tg:'+Telegram',ch_dash:'僅儀表板',set_mgmt_rec:'管理 · 通知對象',rec_hint:'告警/工單會通知這些管理者',rec_none:'尚無通知對象',rec_name:'姓名',rec_tg:'Telegram chat id',rec_email:'Email',rec_add:'＋ 新增',rec_del:'刪除',rec_need_name:'請先填姓名',ch_all:'+Email+TG',rec_test:'測試',rec_del_confirm:'確定刪除此通知對象?'},
+toast_refresh:'已重新整理',toast_cve:'節點 B 已重掃設備 CVE',toast_source:'節點 B 已重跑原始碼分析(SBOM/SAST)',toast_jira:'工單佇列已重置',toast_done:'完成',toast_fail:'動作失敗',role_a:'IT 運維 / 網路管理',role_b:'資安 / 原始碼分析',stk_services:'主機服務',sys_section:'系統資訊 · nemoclaw / openshell',sys_inf:'推理路由',sys_inf_model:'模型',sys_reach:'可達',sys_unreach:'不可達',sys_gw:'OpenShell Gateway',sys_gw_status:'狀態',sys_fwd:'埠轉發(各 agent)',sys_meta:'供應商 / 通道',sys_creds:'憑證供應商',sys_chan:'支援通道',sys_tools:'診斷工具(即時執行)',sys_tools_d:'按下即時跑 nemoclaw/openshell 診斷,結果顯示於抽屜(較重,不進自動輪詢)。',sys_doctor:'健康診斷',sys_logs:'日誌',sys_global:'全域',sys_stale:'檢查過期沙箱',sys_gsettings:'全域設定',sys_recover:'復原',sys_recover_c:'確定要對此 sandbox 執行 recover?會重啟其 gateway 與 dashboard 轉發(短暫中斷、冪等)。',sys_gwhealth:'Gateway 健康',sys_inf_set:'切換推理模型',sys_inf_set_btn:'切換…',sys_inf_prov_p:'OpenShell provider 名稱(例:compatible-endpoint):',sys_inf_model_p:'模型 id(例:nemotron-3-super-120b-a12b):',sys_gc:'GC 預覽',sys_gcrun:'GC 清除',sys_gc_c:'nemoclaw gc 會刪除孤兒 docker 映像(已停用的舊 sandbox image),確定執行?',sys_chan_stop:'停用',sys_chan_start:'啟用',sys_chan_stop_c:'停用此通道?會重建 sandbox(短暫中斷),但保留憑證。',sys_chan_start_c:'重新啟用此通道?會重建 sandbox。',sys_maint:'維護 / 升級(admin)',sys_maint_d:'較重的生命週期動作:備份、升級、重建、診斷包、host 別名、埠轉發。',sys_backup:'全量備份',sys_backup_c:'執行 nemoclaw backup-all 備份所有沙箱狀態?可能要數十秒。',sys_upgrade:'升級過時沙箱',sys_upgrade_c:'對所有「過時且運行中」的沙箱跑 rebuild 升級?較耗時、會短暫中斷。',sys_debug:'診斷包',sys_rebuild:'重建',sys_rebuild_p:'重建會把沙箱升到當前 agent 版(較久、會中斷)。請輸入 sandbox 名稱以確認:',sys_rebuild_mismatch:'名稱不符,已取消',sys_hosts_list:'hosts',sys_hosts_add:'＋別名',sys_hosts_rm:'－別名',sys_hosts_name_p:'host 別名(hostname):',sys_hosts_ip_p:'IP 位址(IPv4):',sys_hosts_rm_c:'移除此 host 別名?',sys_fwd_start:'開埠轉發',sys_fwd_stop:'停埠轉發',sys_fwd_port_p:'本機 port(例:8080 或 0.0.0.0:8080):',sys_fwd_sb_p:'sandbox 名稱(留空=last-used):',sys_fwd_stop_c:'停止此埠轉發?',stk_containers:'容器',stk_running:'運行',stk_stopped:'已停止',stk_svc_gateway:'OpenShell 閘道 :18080',stk_svc_hermes:'Hermes API :8642',stk_svc_tg:'Telegram 輪詢',stk_healthy:'全部容器運行中',stk_none:'無容器資料',stk_grp_core:'核心治理',stk_grp_agent:'Agent 節點',stk_grp_infra:'周邊服務',stk_uptime:'狀態',ctr_detail:'容器詳情',ctr_name:'名稱',ctr_state:'狀態',ctr_status:'完整狀態',ctr_group:'分組',ctr_image:'映像',ctr_ports:'埠',ctr_uptime:'運行時間',svc_detail:'服務詳情',svc_endpoint:'端點',svc_about:'說明',svc_gateway_d:'OpenShell 強制層閘道:所有 sandbox 經此抓政策、所有受治理 egress 必經(deny-by-default + L7 MITM)。',svc_hermes_d:'Hermes 對人前台的 OpenAI 相容 API:接 Telegram / Email 需求,經 scoped bridge 委派 worker。',svc_tg_d:'Hermes 對 Telegram Bot API 的輪詢(getUpdates);近期有次數代表存活。',tl_all:'全部',tl_gov:'治理',tl_jira:'工單',tl_audit:'處置',tl_guard:'巡檢',tl_dev:'設備日誌',la_title:'syslog 智慧分析',la_sub:'異常 · 根因收斂 · 跨訊號融合',la_root:'重複事件根因',la_evidence:'log 證據(最近幾筆)',la_clean:'無異常發現',tl_none:'無活動事件',jira_id:'工單',jira_pri:'優先',jira_asset:'資產',jira_sum:'摘要',jira_tickets:'工單明細',kpi_cert:'憑證/弱加密告警',cert_title:'憑證 / 弱加密與協定',cert_sub:'主動提醒 · 不受信任 / 弱演算法 / 將過期 / 弱協定',cert_high:'高風險',cert_med:'中風險',cert_service:'服務',cert_issue:'問題',cert_detail:'說明',cert_clean:'無憑證/加密問題',ce_untrusted:'不受信任',ce_weakalg:'弱演算法',ce_expired:'已過期',ce_expiring:'即將過期',ce_weakproto:'弱協定',ce_weakcipher:'弱加密套件',ce_weakssh:'弱 SSH 演算法',set_mgmt_scan:'管理 · 掃描排程',set_mgmt_thresh:'管理 · 告警門檻',set_mgmt_notify:'管理 · 通知 / 開單',set_cve_iv:'CVE 掃描間隔',set_cve_iv_d:'資安節點 B 定期掃設備 CVE 的頻率',set_cert_iv:'憑證掃描間隔',set_cert_iv_d:'運維節點 A 定期盤點憑證/弱加密的頻率',set_warn_days:'憑證過期提前提醒',set_warn_days_d:'剩餘天數低於此值就提醒(將過期)',set_rsa_min:'RSA 金鑰最低位元',set_rsa_min_d:'低於此值判定弱演算法',set_cert_thr:'憑證 / 加密門檻',set_dev_thr:'設備健康告警門檻(跟隨上方 scope:全域或各設備)',set_cpu_hi:'CPU 高負載門檻',set_cpu_hi_d:'設備 CPU 超過此值即告警(≥95% 高risk)',set_ram_hi:'記憶體高用量門檻',set_ram_hi_d:'設備 RAM 超過此值即告警',set_temp_hi:'溫度告警門檻',set_temp_hi_d:'設備溫度超過此值即告警',set_sig:'簽章演算法門檻',set_sig_d:'低於此強度的簽章判為弱(建議 SHA-256)',set_ec_min:'ECDSA 曲線最低強度',set_ec_min_d:'EC 金鑰曲線低於此值判定弱演算法(P-256<P-384<P-521)',set_cipher:'加密套件政策',set_cipher_d:'要標出哪些弱加密套件(寬鬆→嚴格)',cipher_detail:'<b>寬鬆</b>:RC4 · NULL · EXPORT · 匿名(anon)<br><b>標準</b>(預設):寬鬆 + 3DES · DES · MD5-MAC<br><b>嚴格</b>:標準 + SHA1-MAC · IDEA · SEED · CAMELLIA(只留現代 AES-GCM / ChaCha20)<br><b>自訂</b>:自選下方家族<br><span style="color:var(--tx3)">這是告警門檻,只決定標不標弱,不改設備實際 cipher</span>',ci_lax:'寬鬆',ci_std:'標準',ci_strict:'嚴格',ci_custom:'自訂',cp_global:'全域預設',cp_inherit:'繼承',cp_custom_fams:'自訂:要標為弱的套件',cp_custom_d:'點亮(紅)= 會被標為弱',cur_state:'目前狀態 · openssl 解析',set_escalate:'自動開 Jira 工單',set_escalate_d:'掃到高風險是否自動開單(關=只在儀表板提醒)',set_quiet:'靜音時段',set_quiet_d:'選定的星期 + 時段內不自動開單',q_from:'從',q_to:'到',d_mon:'一',d_tue:'二',d_wed:'三',d_thu:'四',d_fri:'五',d_sat:'六',d_sun:'日',set_channels:'通知管道',set_channels_d:'告警/工單去向(Jira 一律保留)',on_:'開',off_:'關',ch_base:'Jira+儀表板',ch_email:'+Email',ch_tg:'+Telegram',ch_dash:'僅儀表板',set_mgmt_rec:'管理 · 通知對象',rec_hint:'告警/工單會通知這些管理者',rec_none:'尚無通知對象',rec_name:'姓名',rec_tg:'Telegram chat id',rec_email:'Email',rec_add:'＋ 新增',rec_del:'刪除',rec_need_name:'請先填姓名',ch_all:'+Email+TG',rec_test:'測試',rec_del_confirm:'確定刪除此通知對象?'},
 en:{refresh:'↻ Refresh',kiosk:'⛶ Fullscreen',logout:'Log out',logout_c:'Log out?',nav_reset:'Reset order',running:'Running…',live_ok:'Live',live_lag:'Data delayed',live_down:'Disconnected ',live_manual:'Manual',updated:'Updated ',upd_fail:'Update failed, retrying…',loading:'Loading live status…',
 t_overview:'Overview',t_fleet:'Fleet Monitor',t_cve:'Security / CVE',t_gov:'Governance',t_ops:'Escalation / Guard',t_stack:'Stack',t_timeline:'Activity Timeline',t_settings:'Settings',
 s_overview:'Four components · key metrics · one-page summary',s_fleet:'Device status · regressions · pending drift · remediation',s_cve:'Fleet CVE triage · SBOM · SAST · design compliance',s_gov:'OCSF event stream · ALLOWED / DENIED · trend',s_ops:'Jira human-in-the-loop · guard history · snapshots · cross-agent',s_stack:'Container health · service endpoints · host services',s_timeline:'Governance · tickets · actions · guard · unified stack feed',s_settings:'Theme · language · auto refresh · density · node filter',
-t_arch:'Live Architecture',s_arch:'Live topology · data flow · two governance planes',a_tg:'Telegram',a_email:'Email · GreenMail',a_report:'one-line ticket · authorized senders only',a_bridge:'scoped /32 + X-Bridge-Token · sole interconnect',a_nemo:'NemoClaw · Management plane',a_nemo_d:'lifecycle · snapshots · recovery · manages node A / B',a_shell:'OpenShell · Enforcement plane',a_shell_d:'OPA (host/path/binary) + L7 MITM · all egress crosses here',a_mon:'monitor / fix (/monitor · /fix)',a_sec:'security (/cve · /source) · governed egress',a_fleet:'Managed fleet',a_egress:'Governed egress',a_egress_d:'Jira :3690 · mail :3993 · inference',a_legend:'● online　● offline　· click any box → its tab',a_manages:'governs / manages the whole agent stack below',a_t_mgmt:'MANAGEMENT PLANE',a_t_enf:'ENFORCEMENT PLANE · all egress',a_denydef:'deny-by-default',a_encl_d:'each agent its own sandbox · own OPA policy · interconnect only via openclaw_bridge · all egress crosses here',arch_view:'View',arch_flow:'Simple',arch_topo:'Detailed',arch_events:'Major events',arch_noevt:'No major events · all clear',arch_sankey:'Flow map',sk_title:'Governance flow (last 2h)',sk_sub:'Every network action is checked one-by-one by OpenShell. Below: which action, how many times, allowed or denied.',sk_h_src:'Source · all actions',sk_h_gate:'OpenShell checks each',sk_h_out:'Action type · result',sk_times:'×',sk_allow:'Green = allowed',sk_deny:'Red = denied',sk_via:'Blue = all via OpenShell',sk_width:'thicker = more times',sk_allow2:'allowed',sk_deny2:'denied',sk_denied:'Denied',sk_n_mail:'Email',sk_n_bridge:'Agent bridge',sk_n_ai:'AI inference',arch_explain:'Guide',xp_intro:'How this system works · step by step',x1_t:'User makes a request',x1_d:'Ask via Telegram or Email: check or fix my device',x2_t:'Hermes front desk',x2_d:'Understands the request and hands it to the back end — but cannot touch any device itself',x3_t:'OpenShell security check',x3_d:'Every action is checked one-by-one; anything not authorized is blocked (deny-by-default)',x4_t:'OpenClaw operations',x4_d:'Actually inspects and fixes devices — only what policy allows',x5_t:'Report back / open ticket',x5_d:'Reports when done; if it cannot fix or needs approval, auto-opens a Jira ticket to admins',x_ok:'OK',x_online:'online',x_offline:'offline',x_guard:'guarding',x_gate_off:'gateway offline',x_blocked:'blocked today',x_times:'',x_hosts:'hosts up',x_pending:'open tickets',x_clear:'all clear',tl_entry:'Entry channels',tl_inter:'Interconnect · scoped',tl_enf:'Enforcement · all egress',tl_egress:'Governed egress',tl_fleet:'Fleet',governed:'governed',pol_title:'OpenShell policy',pol_ro:'read-only',pol_allowlist:'egress allowlist · deny-by-default (only listed destinations permitted)',pol_fsrw:'writable paths',pol_edit:'Read-only view. Edit via openshell policy / nemoclaw policy-* CLI (authenticated · auditable · formally provable).',pol_more:'other egress presets',pol_edit_btn:'⚙ Edit (prove-gated)',pol_edit_title:'Policy editor',pol_loading:'Loading policy + formal proof…',pol_load_fail:'Load failed',pol_sb:'Sandbox',pol_pick_agent:'Select agent (edit its OpenShell policy)',pol_rules:'Egress rules (per-rule)',pol_rules_d:'Each = one network rule (host:port + allowed binaries). Remove individually, or add an endpoint below. Changes are dry-run previewed, then confirmed.',pol_rule_rm:'Remove',pol_add_ep:'＋ Add',pol_pick_agent_d:'Each agent has its own sandbox policy (deny-by-default). Presets / settings / raw YAML below apply to the selected agent.',pol_gaps:'critical/high gaps (current)',pol_gate_d:'Every apply runs openshell policy prove; a change is rejected if it raises the gap count (differential gate).',pol_presets:'Egress allowlist presets',pol_presets_d:'Each preset = an egress allow-list for a service. 🟢 open (agent may connect); ⚪ closed (deny-by-default blocks it). "Open" allows, "Revoke" blocks. Changes are dry-run previewed, then confirmed.',osh_settings:'OpenShell settings',osh_settings_d:'Sandbox-level OpenShell toggles (true / false / default=unset inherits global). Applied live, auditable.',osh_unset:'default',pol_on:'Open',pol_off:'Revoke',pol_raw:'Raw policy YAML (advanced)',pol_prove_btn:'Prove',pol_apply_btn:'Apply (only if prove passes)',pol_revert:'Revert edits',pol_history:'Policy version history',pol_confirm_apply:'Apply this change?',pol_apply_c:'Apply the edited raw policy to the live sandbox?\nSent only if prove passes (not worse).',
-banner_ok:'✓ All systems normal · both nodes on duty · no alerts',sec_kpi:'Key metrics · click to drill in',sec_comp:'Four components',sec_nodes:'Two OpenClaw nodes · roles (click for detail)',
-kpi_nodes:'OpenClaw nodes online',managed_dev:'Managed devices',dev_allok:'all ok',kpi_denied:'Blocked DENIED',kpi_cve:'CVE affected',kpi_mttr:'Remediation MTTR',kpi_snap:'NemoClaw snapshots',kpi_containers:'Containers up',
-comp_nemo:'Control plane',comp_shell:'Enforcement',comp_hermes:'Human frontend',comp_oc:'IT fleet',herm_role:'Human front desk',herm_about:'The single conversational entry point for users: takes Telegram / Email requests, understands them via an OpenAI-compatible API, and delegates to OpenClaw. It never touches devices directly — every action goes through OpenShell governance.',herm_status:'Live status',herm_tg:'Telegram polling',herm_mail:'Email entry',herm_sandbox:'Sandbox / governance',herm_flow:'Role in the architecture',herm_flow_d:'User → Hermes (front desk, understands & delegates) → OpenShell (per-action deny-by-default review) → OpenClaw (actual inspect / fix) → report / auto Jira. Hermes interconnects with OpenClaw only via a scoped /32 + X-Bridge-Token.',nemo_role:'Management plane',nemo_about:'Lifecycle management for the whole agent stack: create / snapshot / restore sandboxes, manage OpenClaw A, B and Hermes. Rebuild to a known-good state when things break.',nemo_snaps:'Snapshots / restore points',a_total:'total',nemo_manages:'Managed sandboxes',nemo_recovery:'Recovery',nemo_recovery_d:'Each agent has its own snapshot chain; boot-stack uses snapshot restore --to to rebuild sandboxes (e.g. openclaw-2 built from an A snapshot). Boot self-heal via cron @reboot.',osh_role:'Enforcement plane',osh_about:'Every agent network / file action is reviewed here one-by-one: OPA (host/path/binary) + L7 MITM, deny-by-default, all egress crosses here.',osh_endpoints:'endpoints',osh_enf:'Enforcement',osh_enf_d:'Policy as code, formally provable (openshell policy prove). Non-allowlisted destinations are DENIED; allowlisted are visible & managed. Edit policy via Governance → ⚙ Edit, prove-gated.',c_lifecycle:'Lifecycle / recovery',snap_unit:'snapshots',c_restore:'Latest restore point',c_deny:'Blocked',c_tg:'Telegram polling',alive:'alive',stopped:'stopped',online:'online',offline:'offline',c_nodes_online:'Nodes online',unit_host:'',fleet_unit:'hosts',c_bridge:'Cross-agent channel',
+t_arch:'Live Architecture',s_arch:'Live topology · data flow · two governance planes',a_tg:'Telegram',a_email:'Email · SMTP',a_report:'one-line ticket · authorized senders only',a_bridge:'scoped /32 + X-Bridge-Token · sole interconnect',a_nemo:'NemoClaw · Management plane',a_nemo_d:'lifecycle · snapshots · recovery · manages node A / B',a_shell:'OpenShell · Enforcement plane',a_shell_d:'OPA (host/path/binary) + L7 MITM · all egress crosses here',a_mon:'monitor / fix (/monitor · /fix)',a_sec:'security (/cve · /source) · governed egress',a_fleet:'Managed fleet',a_egress:'Governed egress',a_egress_d:'Jira · SMTP · inference',a_legend:'● online　● offline　· click any box → its tab',a_manages:'governs / manages the whole agent stack below',a_t_mgmt:'MANAGEMENT PLANE',a_t_enf:'ENFORCEMENT PLANE · all egress',a_denydef:'deny-by-default',a_encl_d:'each agent its own sandbox · own OPA policy · interconnect only via worker_bridge · all egress crosses here',arch_view:'View',arch_flow:'Simple',arch_topo:'Detailed',arch_events:'Major events',arch_noevt:'No major events · all clear',arch_sankey:'Flow map',sk_title:'Governance flow (last 2h)',sk_sub:'Every network action is checked one-by-one by OpenShell. Below: which action, how many times, allowed or denied.',sk_h_src:'Source · all actions',sk_h_gate:'OpenShell checks each',sk_h_out:'Action type · result',sk_times:'×',sk_allow:'Green = allowed',sk_deny:'Red = denied',sk_via:'Blue = all via OpenShell',sk_width:'thicker = more times',sk_allow2:'allowed',sk_deny2:'denied',sk_denied:'Denied',sk_n_mail:'Email',sk_n_bridge:'Agent bridge',sk_n_ai:'AI inference',arch_explain:'Guide',xp_intro:'How this system works · step by step',x1_t:'User makes a request',x1_d:'Ask via Telegram or Email: check or fix my device',x2_t:'Hermes front desk',x2_d:'Understands the request and hands it to the back end — but cannot touch any device itself',x3_t:'OpenShell security check',x3_d:'Every action is checked one-by-one; anything not authorized is blocked (deny-by-default)',x4_t:'worker operations',x4_d:'Actually inspects and fixes devices — only what policy allows',x5_t:'Report back / open ticket',x5_d:'Reports when done; if it cannot fix or needs approval, auto-opens a Jira ticket to admins',x_ok:'OK',x_online:'online',x_offline:'offline',x_guard:'guarding',x_gate_off:'gateway offline',x_blocked:'blocked today',x_times:'',x_hosts:'hosts up',x_pending:'open tickets',x_clear:'all clear',tl_entry:'Entry channels',tl_inter:'Interconnect · scoped',tl_enf:'Enforcement · all egress',tl_egress:'Governed egress',tl_fleet:'Fleet',governed:'governed',pol_title:'OpenShell policy',pol_ro:'read-only',pol_allowlist:'egress allowlist · deny-by-default (only listed destinations permitted)',pol_fsrw:'writable paths',pol_edit:'Read-only view. Edit via openshell policy / nemoclaw policy-* CLI (authenticated · auditable · formally provable).',pol_more:'other egress presets',pol_edit_btn:'⚙ Edit (prove-gated)',pol_edit_title:'Policy editor',pol_loading:'Loading policy + formal proof…',pol_load_fail:'Load failed',pol_sb:'Sandbox',pol_pick_agent:'Select agent (edit its OpenShell policy)',pol_rules:'Egress rules (per-rule)',pol_rules_d:'Each = one network rule (host:port + allowed binaries). Remove individually, or add an endpoint below. Changes are dry-run previewed, then confirmed.',pol_rule_rm:'Remove',pol_add_ep:'＋ Add',pol_pick_agent_d:'Each agent has its own sandbox policy (deny-by-default). Presets / settings / raw YAML below apply to the selected agent.',pol_gaps:'critical/high gaps (current)',pol_gate_d:'Every apply runs openshell policy prove; a change is rejected if it raises the gap count (differential gate).',pol_presets:'Egress allowlist presets',pol_presets_d:'Each preset = an egress allow-list for a service. 🟢 open (agent may connect); ⚪ closed (deny-by-default blocks it). "Open" allows, "Revoke" blocks. Changes are dry-run previewed, then confirmed.',osh_settings:'OpenShell settings',osh_settings_d:'Sandbox-level OpenShell toggles (true / false / default=unset inherits global). Applied live, auditable.',osh_unset:'default',pol_on:'Open',pol_off:'Revoke',pol_raw:'Raw policy YAML (advanced)',pol_prove_btn:'Prove',pol_apply_btn:'Apply (only if prove passes)',pol_revert:'Revert edits',pol_history:'Policy version history',pol_confirm_apply:'Apply this change?',pol_apply_c:'Apply the edited raw policy to the live sandbox?\nSent only if prove passes (not worse).',
+banner_ok:'✓ All systems normal · both nodes on duty · no alerts',sec_kpi:'Key metrics · click to drill in',sec_comp:'Four components',sec_nodes:'Two worker nodes · roles (click for detail)',
+kpi_nodes:'worker nodes online',managed_dev:'Managed devices',dev_allok:'all ok',kpi_denied:'Blocked DENIED',kpi_cve:'CVE affected',kpi_mttr:'Remediation MTTR',kpi_snap:'NemoClaw snapshots',kpi_containers:'Containers up',
+comp_nemo:'Control plane',comp_shell:'Enforcement',comp_hermes:'Human frontend',comp_oc:'IT fleet',herm_role:'Human front desk',herm_about:'The single conversational entry point for users: takes Telegram / Email requests, understands them via an OpenAI-compatible API, and delegates to worker. It never touches devices directly — every action goes through OpenShell governance.',herm_status:'Live status',herm_tg:'Telegram polling',herm_mail:'Email entry',herm_sandbox:'Sandbox / governance',herm_flow:'Role in the architecture',herm_flow_d:'User → Hermes (front desk, understands & delegates) → OpenShell (per-action deny-by-default review) → worker (actual inspect / fix) → report / auto Jira. Hermes interconnects with worker only via a scoped /32 + X-Bridge-Token.',nemo_role:'Management plane',nemo_about:'Lifecycle management for the whole agent stack: create / snapshot / restore sandboxes, manage worker-a, B and Hermes. Rebuild to a known-good state when things break.',nemo_snaps:'Snapshots / restore points',a_total:'total',nemo_manages:'Managed sandboxes',nemo_recovery:'Recovery',nemo_recovery_d:'Each agent has its own snapshot chain; boot-stack uses snapshot restore --to to rebuild sandboxes (e.g. worker-b built from an A snapshot). Boot self-heal via cron @reboot.',osh_role:'Enforcement plane',osh_about:'Every agent network / file action is reviewed here one-by-one: OPA (host/path/binary) + L7 MITM, deny-by-default, all egress crosses here.',osh_endpoints:'endpoints',osh_enf:'Enforcement',osh_enf_d:'Policy as code, formally provable (openshell policy prove). Non-allowlisted destinations are DENIED; allowlisted are visible & managed. Edit policy via Governance → ⚙ Edit, prove-gated.',c_lifecycle:'Lifecycle / recovery',snap_unit:'snapshots',c_restore:'Latest restore point',c_deny:'Blocked',c_tg:'Telegram polling',alive:'alive',stopped:'stopped',online:'online',offline:'offline',c_nodes_online:'Nodes online',unit_host:'',fleet_unit:'hosts',c_bridge:'Cross-agent channel',
 node_word:'Node',node_net_health:'Network device health',node_cve_health:'Fleet vulnerabilities',node_detail:'View full detail →',dev_ok:'devices ok',dev_drift:'security drift(s)',benign:'benign',pol_ph_host:'host (e.g. api.example.com)',pol_ph_bin:'binary (optional, comma-separated)',scanned:'scanned',
 filter_node:'Node filter',f_all:'All',f_a:'Ops A',f_b:'Sec B',
 assets_title:'Connected assets',assets_unit:'',assets_unknown:'unauthorized',assets_none:'no connected assets',asset_known:'approved',
 tr_title:'LAN traffic (WIRED)',tr_now:'now',tr_avg:'baseline avg',tr_peak:'peak',h_temp:'Temp',h_ports:'Ports',h_health:'Live health',tr_anom:'traffic spike anomaly',tr_norm:'normal · within baseline',
 drw_managed:'NemoClaw-managed',drw_identity:'Identity',drw_compliance:'Security baseline',drw_clean:'matches baseline · no regression',di_model:'Model',di_fw:'Firmware',di_mac:'MAC',di_wan:'WAN',di_ssid:'SSID',di_remote:'Remote mgmt',drw_hint:'click for device detail →',
 act_title:'Quick actions',act_sync:'Force sync',act_harden:'Apply baseline',act_restart:'Restart services',act_block:'Block unauthorized',audit_title:'Action audit',audit_none:'No actions yet',act_done:'Action submitted',act_warn_harden:'Apply security baseline to the physical EBG19P (UPnP/WPS off, DoS on) and restart firewall/wireless. Proceed?',act_warn_restart:'Restart EBG19P firewall/wireless services; WiFi will briefly drop. Proceed?',act_warn_block:'Block the unauthorized device wireless access. Proceed?',nodrift:'No drift · matches approved baseline',reg:'Regressions',pend:'Pending review',nomon:'No monitoring data',scen:'Remediation scenarios ready',scen_unit:'',nonode:'No node under this filter',
-cve_grade:'Fleet CVE triage',aff_title:'Affected vulns',aff_jira:'Jira escalation opened',th_cve:'CVE',th_asset:'Asset',th_comp:'Component',th_ver:'Version',th_sev:'Severity',noaff:'No affected',src_title:'Source · design compliance',src_feed:'Live CVE feed',src_adv:'Upstream advisory reconcile',src_fixed:'fixed',src_recon:'backport false-positives corrected',src_sbom:'SBOM packages',src_prov:'baseline: RT-AX89X firmware line (not EBG19P)',src_sast:'SAST findings',sast_code:'Vulnerable code',sast_patch:'Suggested patch (diff)',sast_verified:'Patch verified',sast_ok:'verified',src_design:'Design violations',src_reqs:'Design conformance · machine-verifiable',st_violated:'Violated',st_compliant:'OK',st_na:'N/A',src_view:'Upstream source',src_evid:'Evidence',sast_fix:'Remediation',fix_risk:'Risk',fix_how:'Fix',patch_sugg:'line suggestion (verify data-flow)',th_cwe:'CWE',th_file:'File',th_line:'Line',btn_rescan:'↻ Rescan CVE',btn_source:'↻ Source analysis',sec_source:'Source / SBOM / SAST · design doc compliance',cve_off:'Node B (Security) offline or no CVE report yet.',
+cve_grade:'Fleet CVE triage',aff_title:'Affected vulns',aff_jira:'Jira escalation opened',th_cve:'CVE',th_asset:'Asset',th_comp:'Component',th_ver:'Version',th_sev:'Severity',noaff:'No affected',src_title:'Source · design compliance',src_feed:'Live CVE feed',src_adv:'Upstream advisory reconcile',src_fixed:'fixed',src_recon:'backport false-positives corrected',src_sbom:'SBOM packages',src_prov:'baseline: asuswrt-merlin upstream firmware',src_sast:'SAST findings',sast_code:'Vulnerable code',sast_patch:'Suggested patch (diff)',sast_verified:'Patch verified',sast_ok:'verified',src_design:'Design violations',src_reqs:'Design conformance · machine-verifiable',st_violated:'Violated',st_compliant:'OK',st_na:'N/A',src_view:'Upstream source',src_evid:'Evidence',sast_fix:'Remediation',fix_risk:'Risk',fix_how:'Fix',patch_sugg:'line suggestion (verify data-flow)',th_cwe:'CWE',th_file:'File',th_line:'Line',btn_rescan:'↻ Rescan CVE',btn_source:'↻ Source analysis',sec_source:'Source / SBOM / SAST · design doc compliance',cve_off:'Node B (Security) offline or no CVE report yet.',
 dl_title:'EBG19P device log',dl_sub:'live syslog aggregation · OCSF classified',dl_total:'lines',dl_sec:'security-relevant',dl_none:'no security-relevant events (device log clean)',dl_cats:'categories',
-ev_title:'Live governance events',ev_sub:'OCSF · heartbeat filtered',e_all:'All',e_allow:'Allowed',e_deny:'Denied',ev_none:'No matching events',ev_hint:'click any row for full detail',ev_action:'Action',ev_process:'Process',ev_target:'Target',ev_engine:'Engine',ev_sev:'Severity',ev_policy:'Policy',ev_reason:'Reason',act_net:'attempted network connection',act_proc:'attempted to execute',act_file:'attempted file access',act_other:'governed action',deny_nopol:'(no allow policy → denied)',gov_title:'Governance coverage',gov_2h:'last 2h',gov_denytot:'Blocked DENIED (real)',gov_benign:'inference heartbeat handshake (benign · excluded)',gov_benign_t:'benign',gov_benign_why:'Benign: OpenClaw\'s periodic heartbeat to the inference backend inference.local:443 (the LLM). The TLS handshake is cut by the upstream (Azure rate-limit 429), not blocked by local policy, and is neither an attack nor unauthorized egress — so it is excluded from the blocked-DENIED count. Set NEMOCLAW_AGENT_HEARTBEAT_EVERY=0 to silence it.',collecting:'Collecting…',trend:'Trend',tr_actions:'Governance actions',tr_recent:'Recent samples · timestamps',tr_act_u:'actions',tr_deny_u:'denied',tr_hb_u:'beats',tr_tg:'Telegram heartbeat',tr_samples:'Samples',accruing:'Accruing…',sec_gov_trend:'Governance coverage · trend',
-jira_title:'Jira escalation',jira_hil:'human-in-the-loop',jira_reset:'Reset ticket queue',jira_empty:'Queue empty',guard_title:'Guard history',guard_legend:'green pass · red fail · boxed = main chain',guard_recent:'Latest guard',mttr_row:'Remediation MTTR',mttr_base:'baseline',sec_snap_bridge:'Snapshots · cross-agent channel',snap_title:'NemoClaw snapshots',snap_restore:'restore points',snap_create_btn:'＋ Snapshot',snap_restore_btn:'Restore',snap_name_p:'Snapshot name (blank = auto):',snap_per_agent_d:'Each agent sandbox keeps its own snapshot chain; use ＋ Snapshot in each block to add a restore point. In-place restore needs the rebuild flow, not a live action here.',snap_del_btn:'Delete snapshot',snap_del_c1:'Delete snapshot %s? This cannot be undone.',snap_del_c2:'Confirm again: this cannot be undone. Type the version "%s" to delete:',snap_del_cancel:'Cancelled (input mismatch)',snap_del_sel:'Delete selected',snap_del_sel_c:'Delete %s selected snapshots? This cannot be undone.',snap_del_sel_done:'Deleted %s snapshots',snap_restore_c:'Restore the my-assistant sandbox to %s?\nThis rolls back the current agent working state (destructive).',bridge_title:'Cross-agent channel · scoped /32',bridge_auth:'authorized',bridge_note:'One /32 per node + X-Bridge-Token — the sole interconnect',
+ev_title:'Live governance events',ev_sub:'OCSF · heartbeat filtered',e_all:'All',e_allow:'Allowed',e_deny:'Denied',ev_none:'No matching events',ev_hint:'click any row for full detail',ev_action:'Action',ev_process:'Process',ev_target:'Target',ev_engine:'Engine',ev_sev:'Severity',ev_policy:'Policy',ev_reason:'Reason',act_net:'attempted network connection',act_proc:'attempted to execute',act_file:'attempted file access',act_other:'governed action',deny_nopol:'(no allow policy → denied)',gov_title:'Governance coverage',gov_2h:'last 2h',gov_denytot:'Blocked DENIED (real)',gov_benign:'inference heartbeat handshake (benign · excluded)',gov_benign_t:'benign',gov_benign_why:'Benign: worker\'s periodic heartbeat to the inference backend inference.local:443 (the LLM). The TLS handshake is cut by the upstream inference backend (rate-limited), not blocked by local policy, and is neither an attack nor unauthorized egress — so it is excluded from the blocked-DENIED count. Set NEMOCLAW_AGENT_HEARTBEAT_EVERY=0 to silence it.',collecting:'Collecting…',trend:'Trend',tr_actions:'Governance actions',tr_recent:'Recent samples · timestamps',tr_act_u:'actions',tr_deny_u:'denied',tr_hb_u:'beats',tr_tg:'Telegram heartbeat',tr_samples:'Samples',accruing:'Accruing…',sec_gov_trend:'Governance coverage · trend',
+jira_title:'Jira escalation',jira_hil:'human-in-the-loop',jira_reset:'Reset ticket queue',jira_empty:'Queue empty',guard_title:'Guard history',guard_legend:'green pass · red fail · boxed = main chain',guard_recent:'Latest guard',mttr_row:'Remediation MTTR',mttr_base:'baseline',sec_snap_bridge:'Snapshots · cross-agent channel',snap_title:'NemoClaw snapshots',snap_restore:'restore points',snap_create_btn:'＋ Snapshot',snap_restore_btn:'Restore',snap_name_p:'Snapshot name (blank = auto):',snap_per_agent_d:'Each agent sandbox keeps its own snapshot chain; use ＋ Snapshot in each block to add a restore point. In-place restore needs the rebuild flow, not a live action here.',snap_del_btn:'Delete snapshot',snap_del_c1:'Delete snapshot %s? This cannot be undone.',snap_del_c2:'Confirm again: this cannot be undone. Type the version "%s" to delete:',snap_del_cancel:'Cancelled (input mismatch)',snap_del_sel:'Delete selected',snap_del_sel_c:'Delete %s selected snapshots? This cannot be undone.',snap_del_sel_done:'Deleted %s snapshots',snap_restore_c:'Restore the worker-a sandbox to %s?\nThis rolls back the current agent working state (destructive).',bridge_title:'Cross-agent channel · scoped /32',bridge_auth:'authorized',bridge_note:'One /32 per node + X-Bridge-Token — the sole interconnect',
 set_appearance:'Appearance',set_theme:'Theme',set_theme_d:'Light business / true black',th_light:'Light',th_dark:'Dark',set_lang:'Language',set_lang_d:'Interface language',set_density:'Density',set_density_d:'10 levels: 1 spacious ↔ 10 dense',acl_section:'Access control (admin)',aud_title:'Admin audit (tamper-evident)',aud_d:'Every admin action is hash-chained; altering any entry breaks the chain and is detected.',aud_intact:'chain intact',aud_broken:'chain tampered at',aud_verify:'Re-verify',anom_sec:'Security anomaly detection',anom_title:'Anomalies',anom_found:'found',anom_clear:'clear',anom_none:'No anomalies',mc_prompt:'Default password detected. Set a new password (min 6 chars):',mc_skip:'Not changed; you will be reminded next login',acl_accounts:'Accounts',acl_policy:'Session / security policy',acl_you:'you',acl_pw:'Reset pw',acl_online:'online sessions',acl_maxs:'Max sessions / account',acl_maxs_d:'Oldest evicted when exceeded; ∞=unlimited',acl_timeout:'Idle timeout',acl_timeout_d:'Re-login required after idle; ∞=never',acl_ipwl:'IP whitelist',acl_ipwl_d:'Empty=any; comma-separated, CIDR ok (loopback always allowed)',acl_del_c:'Delete this account?',acl_pw_p:'New password:',den_comfort:'Comfortable',den_compact:'Compact',den_loose:'Spacious',den_tight:'Dense',apply:'Apply',set_data:'Data',set_refresh:'Auto refresh',set_refresh_d:'Background poll /api/status interval',rf_off:'Off',set_defnode:'Default node filter',set_defnode_d:'Default fleet view',set_manual:'Manual refresh',set_manual_d:'Clear cache & refetch now',btn_now:'↻ Refresh now',set_about:'About',ab_fmt:'Event format',ab_cred:'Credential safety',ab_cred_v:'Token server-side only',ab_nature:'Data nature',ab_nature_v:'Read-only aggregate · 8s cache',ab_keys:'Keyboard shortcuts',ab_k_tabs:'switch tabs',ab_k_r:'refresh',ab_k_d:'theme',ab_k_f:'fullscreen',
-toast_refresh:'Refreshed',toast_cve:'Node B rescanned fleet CVE',toast_source:'Node B re-ran source analysis (SBOM/SAST)',toast_jira:'Ticket queue reset',toast_done:'Done',toast_fail:'Action failed',role_a:'IT Ops / Network Mgmt',role_b:'Security / Source Analysis',stk_services:'Host services',sys_section:'System info · nemoclaw / openshell',sys_inf:'Inference route',sys_inf_model:'Model',sys_reach:'reachable',sys_unreach:'unreachable',sys_gw:'OpenShell Gateway',sys_gw_status:'Status',sys_fwd:'Port forwards (per agent)',sys_meta:'Providers / channels',sys_creds:'Credential providers',sys_chan:'Channels',sys_tools:'Diagnostics (on-demand)',sys_tools_d:'Run nemoclaw/openshell diagnostics live; results show in the drawer (heavier, not in the poll).',sys_doctor:'Doctor',sys_logs:'Logs',sys_global:'Global',sys_stale:'Check stale sandboxes',sys_gsettings:'Global settings',sys_recover:'Recover',sys_recover_c:'Run recover on this sandbox? Restarts its gateway + dashboard forward (brief disruption, idempotent).',sys_gwhealth:'Gateway health',sys_inf_set:'Switch inference model',sys_inf_set_btn:'Switch…',sys_inf_prov_p:'OpenShell provider name (e.g. compatible-endpoint):',sys_inf_model_p:'Model id (e.g. Kimi-K2.5):',sys_gc:'GC preview',sys_gcrun:'GC clean',sys_gc_c:'nemoclaw gc removes orphaned docker images (old disabled sandbox images). Proceed?',sys_chan_stop:'Stop',sys_chan_start:'Start',sys_chan_stop_c:'Disable this channel? Rebuilds the sandbox (brief disruption) but keeps credentials.',sys_chan_start_c:'Re-enable this channel? Rebuilds the sandbox.',sys_maint:'Maintenance / upgrade (admin)',sys_maint_d:'Heavier lifecycle actions: backup, upgrade, rebuild, debug bundle, host aliases, port forwards.',sys_backup:'Backup all',sys_backup_c:'Run nemoclaw backup-all to back up all sandbox state? May take tens of seconds.',sys_upgrade:'Upgrade stale',sys_upgrade_c:'Rebuild all running stale sandboxes to upgrade them? Slower, brief disruption.',sys_debug:'Debug bundle',sys_rebuild:'Rebuild',sys_rebuild_p:'Rebuild upgrades the sandbox to the current agent version (slow, disruptive). Type the sandbox name to confirm:',sys_rebuild_mismatch:'Name mismatch — cancelled',sys_hosts_list:'hosts',sys_hosts_add:'＋alias',sys_hosts_rm:'－alias',sys_hosts_name_p:'host alias (hostname):',sys_hosts_ip_p:'IP address (IPv4):',sys_hosts_rm_c:'Remove this host alias?',sys_fwd_start:'Start forward',sys_fwd_stop:'Stop forward',sys_fwd_port_p:'Local port (e.g. 8080 or 0.0.0.0:8080):',sys_fwd_sb_p:'Sandbox name (blank = last-used):',sys_fwd_stop_c:'Stop this port forward?',stk_containers:'Containers',stk_running:'up',stk_stopped:'stopped',stk_svc_gateway:'OpenShell gateway :18080',stk_svc_hermes:'Hermes API :8642',stk_svc_tg:'Telegram polling',stk_healthy:'All containers running',stk_none:'No container data',stk_grp_core:'Core governance',stk_grp_agent:'Agent nodes',stk_grp_infra:'Supporting services',stk_uptime:'status',ctr_detail:'Container detail',ctr_name:'Name',ctr_state:'State',ctr_status:'Status',ctr_group:'Group',ctr_image:'Image',ctr_ports:'Ports',ctr_uptime:'Uptime',svc_detail:'Service detail',svc_endpoint:'Endpoint',svc_about:'About',svc_gateway_d:'OpenShell enforcement gateway: every sandbox fetches policy here and all governed egress crosses it (deny-by-default + L7 MITM).',svc_hermes_d:'Hermes human-facing OpenAI-compatible API: takes Telegram/Email requests and delegates to OpenClaw via the scoped bridge.',svc_tg_d:'Hermes polling the Telegram Bot API (getUpdates); a recent count means it is alive.',tl_all:'All',tl_gov:'Governance',tl_jira:'Ticket',tl_audit:'Action',tl_guard:'Guard',tl_dev:'Device log',la_title:'Syslog analysis',la_sub:'anomaly · root-cause · cross-signal fusion',la_root:'Repeated-event root causes',la_evidence:'Log evidence (recent)',la_clean:'No anomalies',tl_none:'No activity events',jira_id:'Ticket',jira_pri:'Priority',jira_asset:'Asset',jira_sum:'Summary',jira_tickets:'Escalation tickets',kpi_cert:'Cert / weak-crypto alerts',cert_title:'Certificates / weak crypto & protocols',cert_sub:'proactive · untrusted / weak alg / expiring / weak protocol',cert_high:'high',cert_med:'medium',cert_service:'Service',cert_issue:'Issue',cert_detail:'Detail',cert_clean:'No cert/crypto issues',ce_untrusted:'Untrusted',ce_weakalg:'Weak algorithm',ce_expired:'Expired',ce_expiring:'Expiring',ce_weakproto:'Weak protocol',ce_weakcipher:'Weak cipher',ce_weakssh:'Weak SSH',set_mgmt_scan:'Mgmt · Scan schedule',set_mgmt_thresh:'Mgmt · Alert thresholds',set_mgmt_notify:'Mgmt · Notify / escalation',set_cve_iv:'CVE scan interval',set_cve_iv_d:'How often Sec node B scans fleet CVEs',set_cert_iv:'Cert scan interval',set_cert_iv_d:'How often Ops node A audits certs / weak crypto',set_warn_days:'Cert expiry lead time',set_warn_days_d:'Warn when days-left drops below this',set_rsa_min:'Min RSA key bits',set_rsa_min_d:'Below this = weak algorithm',set_cert_thr:'Cert / crypto thresholds',set_dev_thr:'Device health alert thresholds (follows scope above: global or per-device)',set_cpu_hi:'CPU high-load threshold',set_cpu_hi_d:'Alert when device CPU exceeds this (≥95% = high)',set_ram_hi:'RAM high-usage threshold',set_ram_hi_d:'Alert when device RAM exceeds this',set_temp_hi:'Temperature threshold',set_temp_hi_d:'Alert when device temperature exceeds this',set_sig:'Signature algorithm',set_sig_d:'Signatures weaker than this = weak (SHA-256 recommended)',set_ec_min:'Min ECDSA curve',set_ec_min_d:'EC keys below this curve = weak algorithm (P-256<P-384<P-521)',set_cipher:'Cipher policy',set_cipher_d:'Which weak ciphers to flag (lax→strict)',cipher_detail:'<b>lax</b>: RC4 · NULL · EXPORT · anonymous<br><b>standard</b> (default): lax + 3DES · DES · MD5-MAC<br><b>strict</b>: standard + SHA1-MAC · IDEA · SEED · CAMELLIA (modern AES-GCM / ChaCha20 only)<br><b>custom</b>: pick families below<br><span style="color:var(--tx3)">A flagging policy only — it does not change the device ciphers</span>',ci_lax:'Lax',ci_std:'Standard',ci_strict:'Strict',ci_custom:'Custom',cp_global:'Global',cp_inherit:'inherit',cp_custom_fams:'Custom: ciphers to flag as weak',cp_custom_d:'highlighted (red) = flagged weak',cur_state:'Current state · openssl-parsed',set_escalate:'Auto-open Jira',set_escalate_d:'Auto-ticket high-risk findings (off = dashboard only)',set_quiet:'Quiet hours',set_quiet_d:'No auto-tickets on selected days + hours',q_from:'From',q_to:'to',d_mon:'Mon',d_tue:'Tue',d_wed:'Wed',d_thu:'Thu',d_fri:'Fri',d_sat:'Sat',d_sun:'Sun',set_channels:'Notify channels',set_channels_d:'Where alerts/escalations go (Jira always kept)',on_:'On',off_:'Off',ch_base:'Jira+board',ch_email:'+Email',ch_tg:'+Telegram',ch_dash:'Board only',set_mgmt_rec:'Mgmt · Recipients',rec_hint:'These admins get alert/ticket notifications',rec_none:'No recipients yet',rec_name:'Name',rec_tg:'Telegram chat id',rec_email:'Email',rec_add:'＋ Add',rec_del:'Delete',rec_need_name:'Name required',ch_all:'+Email+TG',rec_test:'Test',rec_del_confirm:'Remove this recipient?'}};
+toast_refresh:'Refreshed',toast_cve:'Node B rescanned fleet CVE',toast_source:'Node B re-ran source analysis (SBOM/SAST)',toast_jira:'Ticket queue reset',toast_done:'Done',toast_fail:'Action failed',role_a:'IT Ops / Network Mgmt',role_b:'Security / Source Analysis',stk_services:'Host services',sys_section:'System info · nemoclaw / openshell',sys_inf:'Inference route',sys_inf_model:'Model',sys_reach:'reachable',sys_unreach:'unreachable',sys_gw:'OpenShell Gateway',sys_gw_status:'Status',sys_fwd:'Port forwards (per agent)',sys_meta:'Providers / channels',sys_creds:'Credential providers',sys_chan:'Channels',sys_tools:'Diagnostics (on-demand)',sys_tools_d:'Run nemoclaw/openshell diagnostics live; results show in the drawer (heavier, not in the poll).',sys_doctor:'Doctor',sys_logs:'Logs',sys_global:'Global',sys_stale:'Check stale sandboxes',sys_gsettings:'Global settings',sys_recover:'Recover',sys_recover_c:'Run recover on this sandbox? Restarts its gateway + dashboard forward (brief disruption, idempotent).',sys_gwhealth:'Gateway health',sys_inf_set:'Switch inference model',sys_inf_set_btn:'Switch…',sys_inf_prov_p:'OpenShell provider name (e.g. compatible-endpoint):',sys_inf_model_p:'Model id (e.g. nemotron-3-super-120b-a12b):',sys_gc:'GC preview',sys_gcrun:'GC clean',sys_gc_c:'nemoclaw gc removes orphaned docker images (old disabled sandbox images). Proceed?',sys_chan_stop:'Stop',sys_chan_start:'Start',sys_chan_stop_c:'Disable this channel? Rebuilds the sandbox (brief disruption) but keeps credentials.',sys_chan_start_c:'Re-enable this channel? Rebuilds the sandbox.',sys_maint:'Maintenance / upgrade (admin)',sys_maint_d:'Heavier lifecycle actions: backup, upgrade, rebuild, debug bundle, host aliases, port forwards.',sys_backup:'Backup all',sys_backup_c:'Run nemoclaw backup-all to back up all sandbox state? May take tens of seconds.',sys_upgrade:'Upgrade stale',sys_upgrade_c:'Rebuild all running stale sandboxes to upgrade them? Slower, brief disruption.',sys_debug:'Debug bundle',sys_rebuild:'Rebuild',sys_rebuild_p:'Rebuild upgrades the sandbox to the current agent version (slow, disruptive). Type the sandbox name to confirm:',sys_rebuild_mismatch:'Name mismatch — cancelled',sys_hosts_list:'hosts',sys_hosts_add:'＋alias',sys_hosts_rm:'－alias',sys_hosts_name_p:'host alias (hostname):',sys_hosts_ip_p:'IP address (IPv4):',sys_hosts_rm_c:'Remove this host alias?',sys_fwd_start:'Start forward',sys_fwd_stop:'Stop forward',sys_fwd_port_p:'Local port (e.g. 8080 or 0.0.0.0:8080):',sys_fwd_sb_p:'Sandbox name (blank = last-used):',sys_fwd_stop_c:'Stop this port forward?',stk_containers:'Containers',stk_running:'up',stk_stopped:'stopped',stk_svc_gateway:'OpenShell gateway :18080',stk_svc_hermes:'Hermes API :8642',stk_svc_tg:'Telegram polling',stk_healthy:'All containers running',stk_none:'No container data',stk_grp_core:'Core governance',stk_grp_agent:'Agent nodes',stk_grp_infra:'Supporting services',stk_uptime:'status',ctr_detail:'Container detail',ctr_name:'Name',ctr_state:'State',ctr_status:'Status',ctr_group:'Group',ctr_image:'Image',ctr_ports:'Ports',ctr_uptime:'Uptime',svc_detail:'Service detail',svc_endpoint:'Endpoint',svc_about:'About',svc_gateway_d:'OpenShell enforcement gateway: every sandbox fetches policy here and all governed egress crosses it (deny-by-default + L7 MITM).',svc_hermes_d:'Hermes human-facing OpenAI-compatible API: takes Telegram/Email requests and delegates to worker via the scoped bridge.',svc_tg_d:'Hermes polling the Telegram Bot API (getUpdates); a recent count means it is alive.',tl_all:'All',tl_gov:'Governance',tl_jira:'Ticket',tl_audit:'Action',tl_guard:'Guard',tl_dev:'Device log',la_title:'Syslog analysis',la_sub:'anomaly · root-cause · cross-signal fusion',la_root:'Repeated-event root causes',la_evidence:'Log evidence (recent)',la_clean:'No anomalies',tl_none:'No activity events',jira_id:'Ticket',jira_pri:'Priority',jira_asset:'Asset',jira_sum:'Summary',jira_tickets:'Escalation tickets',kpi_cert:'Cert / weak-crypto alerts',cert_title:'Certificates / weak crypto & protocols',cert_sub:'proactive · untrusted / weak alg / expiring / weak protocol',cert_high:'high',cert_med:'medium',cert_service:'Service',cert_issue:'Issue',cert_detail:'Detail',cert_clean:'No cert/crypto issues',ce_untrusted:'Untrusted',ce_weakalg:'Weak algorithm',ce_expired:'Expired',ce_expiring:'Expiring',ce_weakproto:'Weak protocol',ce_weakcipher:'Weak cipher',ce_weakssh:'Weak SSH',set_mgmt_scan:'Mgmt · Scan schedule',set_mgmt_thresh:'Mgmt · Alert thresholds',set_mgmt_notify:'Mgmt · Notify / escalation',set_cve_iv:'CVE scan interval',set_cve_iv_d:'How often Sec node B scans fleet CVEs',set_cert_iv:'Cert scan interval',set_cert_iv_d:'How often Ops node A audits certs / weak crypto',set_warn_days:'Cert expiry lead time',set_warn_days_d:'Warn when days-left drops below this',set_rsa_min:'Min RSA key bits',set_rsa_min_d:'Below this = weak algorithm',set_cert_thr:'Cert / crypto thresholds',set_dev_thr:'Device health alert thresholds (follows scope above: global or per-device)',set_cpu_hi:'CPU high-load threshold',set_cpu_hi_d:'Alert when device CPU exceeds this (≥95% = high)',set_ram_hi:'RAM high-usage threshold',set_ram_hi_d:'Alert when device RAM exceeds this',set_temp_hi:'Temperature threshold',set_temp_hi_d:'Alert when device temperature exceeds this',set_sig:'Signature algorithm',set_sig_d:'Signatures weaker than this = weak (SHA-256 recommended)',set_ec_min:'Min ECDSA curve',set_ec_min_d:'EC keys below this curve = weak algorithm (P-256<P-384<P-521)',set_cipher:'Cipher policy',set_cipher_d:'Which weak ciphers to flag (lax→strict)',cipher_detail:'<b>lax</b>: RC4 · NULL · EXPORT · anonymous<br><b>standard</b> (default): lax + 3DES · DES · MD5-MAC<br><b>strict</b>: standard + SHA1-MAC · IDEA · SEED · CAMELLIA (modern AES-GCM / ChaCha20 only)<br><b>custom</b>: pick families below<br><span style="color:var(--tx3)">A flagging policy only — it does not change the device ciphers</span>',ci_lax:'Lax',ci_std:'Standard',ci_strict:'Strict',ci_custom:'Custom',cp_global:'Global',cp_inherit:'inherit',cp_custom_fams:'Custom: ciphers to flag as weak',cp_custom_d:'highlighted (red) = flagged weak',cur_state:'Current state · openssl-parsed',set_escalate:'Auto-open Jira',set_escalate_d:'Auto-ticket high-risk findings (off = dashboard only)',set_quiet:'Quiet hours',set_quiet_d:'No auto-tickets on selected days + hours',q_from:'From',q_to:'to',d_mon:'Mon',d_tue:'Tue',d_wed:'Wed',d_thu:'Thu',d_fri:'Fri',d_sat:'Sat',d_sun:'Sun',set_channels:'Notify channels',set_channels_d:'Where alerts/escalations go (Jira always kept)',on_:'On',off_:'Off',ch_base:'Jira+board',ch_email:'+Email',ch_tg:'+Telegram',ch_dash:'Board only',set_mgmt_rec:'Mgmt · Recipients',rec_hint:'These admins get alert/ticket notifications',rec_none:'No recipients yet',rec_name:'Name',rec_tg:'Telegram chat id',rec_email:'Email',rec_add:'＋ Add',rec_del:'Delete',rec_need_name:'Name required',ch_all:'+Email+TG',rec_test:'Test',rec_del_confirm:'Remove this recipient?'}};
 function t(k){var o=I18N[CFG.lang]||I18N.zh;return (k in o)?o[k]:k}
 function L(o,f){if(!o)return '';return (CFG.lang==='en'&&o[f+'_en'])?o[f+'_en']:(o[f]||'')}  // 後端計算字串:英文模式優先用 _en 版
 function roleT(r){if(!r)return '—';if(r.indexOf('運維')>=0||r.indexOf('網路')>=0||/ops|network/i.test(r))return t('role_a');if(r.indexOf('資安')>=0||r.indexOf('原始')>=0||/sec|source/i.test(r))return t('role_b');return r}
@@ -1626,7 +1723,7 @@ function vOverview(d){const a=agg(d),al=d.alerts_list||[];const cs=d.containers|
   comp('var(--purple)','◆','NemoClaw',t('comp_nemo'),`<div class="kv"><span class="k">${t('c_lifecycle')}</span><span class="v">${(d.snapshots||[]).length} ${t('snap_unit')}</span></div><div class="kv"><span class="k">${t('c_restore')}</span><span class="v mono">${(d.snapshots||[]).slice(-1)[0]||'—'}</span></div>`)+
   comp('var(--accent)','▣','OpenShell',t('comp_shell'),`<div class="kv"><span class="k">gateway :18080</span><span class="v">${pill(d.gateway,d.gateway?t('online'):t('offline'))}</span></div><div class="kv"><span class="k">${t('c_deny')}</span><span class="v red">${a.den} DENIED</span></div>`)+
   comp('var(--ok)','✦','Hermes',t('comp_hermes'),`<div class="kv"><span class="k">API :8642</span><span class="v">${pill(d.hermes_api,d.hermes_api?t('online'):t('offline'))}</span></div><div class="kv"><span class="k">${t('c_tg')}</span><span class="v">${pill(d.telegram_recent>0,d.telegram_recent>0?t('alive'):t('stopped'))}</span></div>`)+
-  comp('var(--accent)','⬡','OpenClaw',t('comp_oc'),`<div class="kv"><span class="k">${t('c_nodes_online')}</span><span class="v">${a.up} ${t('unit_host')}</span></div><div class="kv"><span class="k">${t('c_bridge')}</span><span class="v mono">${(d.bridge_ips||[]).length} × /32</span></div>`)+`</div>`;
+  comp('var(--accent)','⬡','worker',t('comp_oc'),`<div class="kv"><span class="k">${t('c_nodes_online')}</span><span class="v">${a.up} ${t('unit_host')}</span></div><div class="kv"><span class="k">${t('c_bridge')}</span><span class="v mono">${(d.bridge_ips||[]).length} × /32</span></div>`)+`</div>`;
  const nodes=`<div class="sec">${t('sec_nodes')}</div><div class="grid g2">${nodeMini(a.nA,'fleet')}${nodeMini(a.nB,'cve')}</div>`;
  return banner+comps+kpis+nodes}
 function nodeMini(n,href){if(!n.label)return '';const ops=(n.caps||[]).includes('fix');
@@ -1663,18 +1760,18 @@ function vArchFlow(d,DET){const a=agg(d),nA=a.nA,nB=a.nB,tg=d.telegram_recent>0,
  const conn=l=>`<div class="conn"><span class="ln"></span>${l?`<span class="pill">${l}</span>`:''}<span class="tip"></span></div>`;
  const ocDesc=n=>((n.monitor||[]).map(x=>x.asset).join(' · ')||'—');
  const nemo=`<a class="aband nemo" data-drawer="nemo" style="cursor:pointer"><div class="aptag">${t('a_t_mgmt')}</div><div class="bt">${ico('p','◆')}${t('a_nemo')}<span style="margin-left:auto;font-weight:600;font-size:12.5px">${(d.snapshots||[]).length} ${t('snap_unit')}</span></div><div class="bd">${t('a_nemo_d')}</div></a>`;
- const entry=`<div class="atier"><a class="abox" href="#gov"><div class="bt">${dot(tg)}${ico('a','✈')}${t('a_tg')}</div><div class="bd">${tg?t('alive'):t('stopped')}${meta('HTTPS api.telegram.org:443','getUpdates ×'+(d.telegram_recent||0))}</div></a><a class="abox" href="#gov"><div class="bt">${dot(true)}${ico('w','✉')}${t('a_email')}</div><div class="bd">:3993${meta('IMAPS:3993 · SMTP:3587','ALLOWED ×'+(al.greenmail_mail||0))}</div></a></div>`;
+ const entry=`<div class="atier"><a class="abox" href="#gov"><div class="bt">${dot(tg)}${ico('a','✈')}${t('a_tg')}</div><div class="bd">${tg?t('alive'):t('stopped')}${meta('HTTPS api.telegram.org:443','getUpdates ×'+(d.telegram_recent||0))}</div></a><a class="abox" href="#gov"><div class="bt">${dot(true)}${ico('w','✉')}${t('a_email')}</div><div class="bd">:993${meta('IMAPS:993 · SMTP:587','ALLOWED ×'+(al.mail_egress||0))}</div></a></div>`;
  // OpenShell 強制層 = 把三個 agent 各自沙箱包起來,每個自有政策(deny-by-default)
  const sbox=(alive,c,g,name,sandbox,desc,pols,href,wide)=>`<a class="abox"${wide?' style="max-width:470px"':''} href="#${href}"><div class="bt">${dot(alive)}${ico(c,g)}${name}</div><div class="bd">${desc}</div><div class="sbpol"><span class="pc sb">⬡ ${sandbox}</span><span class="pc deny">${t('a_denydef')}</span>${(pols||[]).map(p=>`<span class="pc">policy:${p}</span>`).join('')}</div></a>`;
  const hpol=((d.policy||{}).networks||[]).slice(0,3).map(x=>x.name);
- const hsb=(d.policy||{}).sandbox||'hermes-demo';
- const hpols=(hpol.length?hpol:['greenmail_mail','telegram','openclaw_bridge']);
+ const hsb=(d.policy||{}).sandbox||'team-lead';
+ const hpols=(hpol.length?hpol:['mail_egress','telegram','worker_bridge']);
  const hermesBox=`<a class="abox" data-drawer="hermes" style="cursor:pointer;max-width:470px"><div class="bt">${dot(d.hermes_api)}${ico('g','✦')}Hermes · ${t('comp_hermes')}</div><div class="bd">API :8642 · ${d.hermes_api?t('online'):t('offline')} · Telegram ${tg?t('alive'):t('stopped')}</div><div class="sbpol"><span class="pc sb">⬡ ${hsb}</span><span class="pc deny">${t('a_denydef')}</span>${hpols.map(p=>`<span class="pc">policy:${p}</span>`).join('')}</div></a>`;
- const ocBox=(n,href,c,g,pols)=>sbox(!!n.alive,c,g,'OpenClaw '+(n.label||'—')+' · '+roleT(n.role),n.name||(n.label==='B'?'openclaw-2':'my-assistant'),ocDesc(n),pols,href);
- const bridgeConn=`<div class="conn"><span class="ln"></span><span class="pill">${t('a_bridge')}</span><span class="pill mono" style="margin-top:3px">${ips.join(' · ')||'172.18.0.2/32 · 172.18.0.4/32'}</span>${DET?`<span class="pill mono" style="margin-top:3px">:9099 · ALLOWED ×${al.openclaw_bridge||0}</span>`:''}<span class="tip"></span></div>`;
- const ocTier=`<div class="atier">${ocBox(nA,'fleet','g','🔧',['openclaw_bridge','jira'])}${ocBox(nB,'cve','a','🛡',['openclaw_bridge'])}</div>`;
+ const ocBox=(n,href,c,g,pols)=>sbox(!!n.alive,c,g,'worker '+(n.label||'—')+' · '+roleT(n.role),n.name||(n.label==='B'?'worker-b':'worker-a'),ocDesc(n),pols,href);
+ const bridgeConn=`<div class="conn"><span class="ln"></span><span class="pill">${t('a_bridge')}</span><span class="pill mono" style="margin-top:3px">${ips.join(' · ')||'172.18.0.2/32 · 172.18.0.4/32'}</span>${DET?`<span class="pill mono" style="margin-top:3px">:9099 · ALLOWED ×${al.worker_bridge||0}</span>`:''}<span class="tip"></span></div>`;
+ const ocTier=`<div class="atier">${ocBox(nA,'fleet','g','🔧',['worker_bridge','jira'])}${ocBox(nB,'cve','a','🛡',['worker_bridge'])}</div>`;
  const encl=`<div class="encl"><a class="enclh" data-drawer="openshell" style="cursor:pointer" title="${t('comp_shell')}">${ico('a','▣')}${t('a_shell')}<span class="encltag">${t('a_t_enf')}</span><span style="margin-left:auto">gateway :18080 · <b class="${a.den?'red':''}">${a.den} DENIED</b> →</span></a><div class="encld">${t('a_encl_d')}</div><div class="atier">${hermesBox}</div>${bridgeConn}${ocTier}</div>`;
- const leaf=`<div class="atier"><a class="abox" href="#fleet"><div class="bt">${ico('a','⬡')}${t('a_fleet')}<span style="margin-left:auto;font-weight:600;font-size:12.5px">${a.devs} ${t('fleet_unit')}</span></div><div class="bd">${a.alerts?`<span class="red">${a.alerts} ALERT</span>`:'全 ok / all ok'}${DET?`<div class="aflow"><span class="tproto">WAN ${T?T.latest+' Mbps':'\u2014'}</span><span class="tst ${T&&T.anomaly?'r':'g'}">${T&&T.anomaly?t('tr_anom'):t('tr_norm')}</span></div>`:''}</div></a><a class="abox" href="#ops"><div class="bt">${ico('w','🎫')}${t('a_egress')}</div><div class="bd">${t('a_egress_d')}${DET?`<div class="aflow"><span class="tproto">:3690</span><span class="tst g">Jira</span><span class="tproto">:3993</span><span class="tst g">mail</span><span class="tproto">:443</span><span class="tst g">${t('sk_n_ai')}</span></div>`:''}</div></a></div>`;
+ const leaf=`<div class="atier"><a class="abox" href="#fleet"><div class="bt">${ico('a','⬡')}${t('a_fleet')}<span style="margin-left:auto;font-weight:600;font-size:12.5px">${a.devs} ${t('fleet_unit')}</span></div><div class="bd">${a.alerts?`<span class="red">${a.alerts} ALERT</span>`:'全 ok / all ok'}${DET?`<div class="aflow"><span class="tproto">WAN ${T?T.latest+' Mbps':'\u2014'}</span><span class="tst ${T&&T.anomaly?'r':'g'}">${T&&T.anomaly?t('tr_anom'):t('tr_norm')}</span></div>`:''}</div></a><a class="abox" href="#ops"><div class="bt">${ico('w','🎫')}${t('a_egress')}</div><div class="bd">${t('a_egress_d')}${DET?`<div class="aflow"><span class="tproto">:443</span><span class="tst g">Jira</span><span class="tproto">:587</span><span class="tst g">mail</span><span class="tproto">:443</span><span class="tst g">${t('sk_n_ai')}</span></div>`:''}</div></a></div>`;
  return `<div class="arch">${evbar}${nemo}${conn(t('a_manages'))}${entry}${conn(t('a_report'))}${encl}${conn(t('a_egress'))}${leaf}<div class="aleg">${t('a_legend')}</div></div>`}
 function vFleet(d){const a=agg(d);let cards='';
  for(const n of [a.nA,a.nB]){if(!n.label)continue;if(CFG.node!=='all'&&n.label!==CFG.node)continue;
@@ -1718,7 +1815,7 @@ function vCve(d){const a=agg(d),n=a.nB;
  const aff=n.cve.affected_list||[];
  const afftb=`<div class="card" id="aff"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--danger)">⚠︎</span>${t('aff_title')} · <b>${t('aff_jira')}</b></div>${aff.length?`<table class="tb"><thead><tr><th>${t('th_cve')}</th><th>${t('th_asset')}</th><th>${t('th_comp')}</th><th>${t('th_ver')}</th><th>${t('th_sev')}</th></tr></thead><tbody>${aff.map(f=>`<tr><td class="mono">${f.cve?`<a href="https://nvd.nist.gov/vuln/detail/${f.cve}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${f.cve} ↗</a>`:'—'}</td><td>${f.asset||'—'}</td><td>${f.component||'—'}</td><td class="mono">${f.ver||'—'}</td><td><span class="sev ${sevc(f.sev)}">${f.sev||'—'}</span></td></tr>`).join('')}</tbody></table>`:`<div class="mut">${t('noaff')}</div>`}</div>`;
  const s=n.source;
- const src=s?`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--accent)">⌗</span>${t('src_title')} <span class="mut" style="font-weight:400">${esc(s.sbom_source||'openwrt')}</span>${(s.sbom_source&&s.sbom_source.indexOf('asuswrt-merlin')>=0)?` <span class="mut" style="font-weight:400;opacity:.7">· ${t('src_prov')}</span>`:''}</div>${s.analysis_by?`<div class="mut" style="font-size:11.5px;margin:-2px 0 6px">⚙ ${esc(s.analysis_by)}</div>`:''}${(s.cve_feed&&s.cve_feed!=='—')?`<div class="mut" style="font-size:11.5px;margin:-2px 0 6px">🛰 ${t('src_feed')} · ${esc(s.cve_feed)}</div>`:''}${s.advisories_source?`<div class="mut" style="font-size:11.5px;margin:-2px 0 8px">📜 ${t('src_adv')} · ${esc(s.advisories_source)}(${t('src_fixed')} ${s.advisories_fixed||0})${(s.cve_reconciled||0)>0?` · ${t('src_recon')} <b class="grn">${s.cve_reconciled}</b>`:''}</div>`:''}<div class="stat"><div class="s"><b>${s.sbom||0}</b><span>${t('src_sbom')}</span></div><div class="s"><b>${s.sast||0}</b><span>${t('src_sast')}</span></div><div class="s"><b class="red">${s.design_violated||0}</b><span>${t('src_design')}</span></div></div>${(s.sast_list||[]).length?`${s.sast_source?`<div class="mut" style="margin-top:13px;font-size:12px">SAST · ${esc(s.sast_source)}</div>`:''}<table class="tb" style="margin-top:8px"><thead><tr><th>${t('th_cwe')}</th><th>${t('th_file')}</th><th>${t('th_line')}</th></tr></thead><tbody>${s.sast_list.map((x,i)=>`<tr class="clickable" data-drawer="sast:${i}"><td class="mono">${x.cwe||'—'}</td><td class="mono" style="word-break:break-all">${esc(x.upstream_path||x.file||'—')}</td><td class="mono">${x.line||'—'} ›</td></tr>`).join('')}</tbody></table>`:''}${(s.design||[]).length?`<div class="mut" style="margin-top:14px;font-size:12px">${t('src_reqs')}</div><table class="tb" style="margin-top:6px"><tbody>${s.design.map(x=>`<tr><td class="mono" style="white-space:nowrap;vertical-align:top;${x.status==='violated'?'color:var(--danger);font-weight:600':''}">${esc(x.req)}</td><td>${esc(L(x,'desc'))}${(L(x,'evidence'))?`<div class="mut" style="font-size:11px;margin-top:2px">${esc(L(x,'evidence'))}</div>`:''}</td><td style="text-align:right;vertical-align:top">${x.status==='violated'?`<span class="pill bad">${t('st_violated')}</span>`:x.status==='compliant'?`<span class="pill ok">${t('st_compliant')}</span>`:`<span class="pill">${t('st_na')}</span>`}</td></tr>`).join('')}</tbody></table>`:''}<div class="acts"><button class="btn" data-act="do" data-v="source">${t('btn_source')}</button></div></div>`:'';
+ const src=s?`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--accent)">⌗</span>${t('src_title')} <span class="mut" style="font-weight:400">${esc(s.sbom_source||'asuswrt-merlin')}</span>${(s.sbom_source&&s.sbom_source.indexOf('asuswrt-merlin')>=0)?` <span class="mut" style="font-weight:400;opacity:.7">· ${t('src_prov')}</span>`:''}</div>${s.analysis_by?`<div class="mut" style="font-size:11.5px;margin:-2px 0 6px">⚙ ${esc(s.analysis_by)}</div>`:''}${(s.cve_feed&&s.cve_feed!=='—')?`<div class="mut" style="font-size:11.5px;margin:-2px 0 6px">🛰 ${t('src_feed')} · ${esc(s.cve_feed)}</div>`:''}${s.advisories_source?`<div class="mut" style="font-size:11.5px;margin:-2px 0 8px">📜 ${t('src_adv')} · ${esc(s.advisories_source)}(${t('src_fixed')} ${s.advisories_fixed||0})${(s.cve_reconciled||0)>0?` · ${t('src_recon')} <b class="grn">${s.cve_reconciled}</b>`:''}</div>`:''}<div class="stat"><div class="s"><b>${s.sbom||0}</b><span>${t('src_sbom')}</span></div><div class="s"><b>${s.sast||0}</b><span>${t('src_sast')}</span></div><div class="s"><b class="red">${s.design_violated||0}</b><span>${t('src_design')}</span></div></div>${(s.sast_list||[]).length?`${s.sast_source?`<div class="mut" style="margin-top:13px;font-size:12px">SAST · ${esc(s.sast_source)}</div>`:''}<table class="tb" style="margin-top:8px"><thead><tr><th>${t('th_cwe')}</th><th>${t('th_file')}</th><th>${t('th_line')}</th></tr></thead><tbody>${s.sast_list.map((x,i)=>`<tr class="clickable" data-drawer="sast:${i}"><td class="mono">${x.cwe||'—'}</td><td class="mono" style="word-break:break-all">${esc(x.upstream_path||x.file||'—')}</td><td class="mono">${x.line||'—'} ›</td></tr>`).join('')}</tbody></table>`:''}${(s.design||[]).length?`<div class="mut" style="margin-top:14px;font-size:12px">${t('src_reqs')}</div><table class="tb" style="margin-top:6px"><tbody>${s.design.map(x=>`<tr><td class="mono" style="white-space:nowrap;vertical-align:top;${x.status==='violated'?'color:var(--danger);font-weight:600':''}">${esc(x.req)}</td><td>${esc(L(x,'desc'))}${(L(x,'evidence'))?`<div class="mut" style="font-size:11px;margin-top:2px">${esc(L(x,'evidence'))}</div>`:''}</td><td style="text-align:right;vertical-align:top">${x.status==='violated'?`<span class="pill bad">${t('st_violated')}</span>`:x.status==='compliant'?`<span class="pill ok">${t('st_compliant')}</span>`:`<span class="pill">${t('st_na')}</span>`}</td></tr>`).join('')}</tbody></table>`:''}<div class="acts"><button class="btn" data-act="do" data-v="source">${t('btn_source')}</button></div></div>`:'';
  return `<div style="display:flex;flex-direction:column;gap:16px">${left}${afftb}${src}</div>`}
 function vGov(d){const a=agg(d);
  const fseg=`<div class="seg">${[['all',t('e_all')],['ALLOWED',t('e_allow')],['DENIED',t('e_deny')]].map(([v,l])=>`<button data-act="evf" data-v="${v}" class="${EVF===v?'on':''}">${l}</button>`).join('')}</div>`;
@@ -1745,7 +1842,7 @@ function vGov(d){const a=agg(d);
  const rsb=window.RO_SB||(d.policy||{}).sandbox;
  const p=((window.ROPOL&&window.ROPOL.sandbox===rsb)?window.ROPOL:(d.policy||{})),nets=p.networks||[];
  const rosel=allsb.length?`<div class="seg" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${allsb.map(s=>`<button class="${s.name===rsb?'on':''}" data-act="polro" data-sb="${esc(s.name)}">${esc(s.label)}</button>`).join('')}</div>`:'';
- const core=new Set(['greenmail_mail','telegram','telegram_bot','openclaw_bridge','nvidia']);
+ const core=new Set(['mail_egress','telegram','telegram_bot','worker_bridge','nvidia']);
  const cn=nets.filter(n=>core.has(n.name)),rest=nets.filter(n=>!core.has(n.name));
  const prow=n=>`<div class="kv" style="align-items:flex-start;gap:14px"><span class="k mono" style="color:var(--accent);flex:0 0 146px">${n.name}</span><span class="v mono" style="font-weight:400;text-align:right;word-break:break-all">${(n.eps||[]).join(', ')||(n.nbin?n.nbin+' bin':'—')}</span></div>`;
  const polrows=(cn.length?cn:nets).map(prow).join('')||`<div class="mut">${t('collecting')}</div>`;
@@ -1759,11 +1856,11 @@ function vGov(d){const a=agg(d);
  return `<div class="sec">${t('anom_sec')}</div>${anomCard}<div class="sec" style="display:flex;align-items:center;gap:10px">${t('pol_title')} · ${t('pol_ro')}${poledit}</div>${polcard}${evcard}<div class="sec">${t('sec_gov_trend')}</div><div style="display:flex;flex-direction:column;gap:16px">${govcard}${trend}</div>`}
 function vOps(d){const jk=d.jira||{};const jt=d.jira_tickets||[];
  const jtbl=jt.length?`<div class="mut" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin:13px 0 4px">${t('jira_tickets')}</div><table class="tb"><thead><tr><th>${t('jira_id')}</th><th>${t('jira_pri')}</th><th>${t('jira_asset')}</th><th>${t('jira_sum')}</th></tr></thead><tbody>${jt.map(k=>`<tr><td class="mono">${k.id||'—'}</td><td><span class="sev ${sevc(k.priority)}">${k.priority||'—'}</span></td><td>${k.asset||'—'}</td><td style="max-width:330px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(k.summary||'').replace(/"/g,'&quot;')}">${k.summary||''}</td></tr>`).join('')}</tbody></table>`:'';
- const jira=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--warn)">🎫</span>${t('jira_title')} · <b>${t('jira_hil')}</b></div>${Object.entries(jk).map(([k,v])=>`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')||`<div class="mut">${t('jira_empty')}</div>`}${jtbl}<div class="acts"><button class="btn" data-act="do" data-v="jira_reset">${t('jira_reset')}</button></div></div>`;
+ const jira=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--warn)">🎫</span>${t('jira_title')} · <b>${t('jira_hil')}</b></div>${Object.entries(jk).map(([k,v])=>`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')||`<div class="mut">${t('jira_empty')}</div>`}${jtbl}</div>`;
  const g=d.guard||[];
  const guard=`<div class="card" id="mttr"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--ok)">🛡</span>${t('guard_title')} <span class="mut" style="font-weight:400">${t('guard_legend')}</span></div><div class="gh">${g.map(x=>`<span class="gb ${x.fails>0?'f':''} ${x.bridge?'br':''}" title="${x.ts} fails=${x.fails}"></span>`).join('')||'<span class="mut">—</span>'}</div><div class="kv" style="margin-top:13px"><span class="k">${t('guard_recent')}</span><span class="v ok">${g.length?('fails='+g.slice(-1)[0].fails):'—'}</span></div><div class="kv"><span class="k">${t('mttr_row')}</span><span class="v">${mtt(d)}<small class="mut" style="font-weight:400"> · ${d.mttr_n?('n='+d.mttr_n):t('mttr_base')}</small></span></div></div>`;
  const isAdm=(d._me||{}).role==='admin';
- const agcolor={'hermes-demo':'var(--ok)','my-assistant':'var(--accent)','openclaw-2':'var(--purple)'};
+ const agcolor={'team-lead':'var(--ok)','worker-a':'var(--accent)','worker-b':'var(--purple)'};
  const snapTime=ts=>{const m=(''+(ts||'')).match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})/);return m?(m[1]+' '+m[2]+':'+m[3]):''};
  const agblock=(a)=>{const rows=(a.items||[]).slice().reverse();
    const ck=s=>a.sb+'|'+s.ts;
@@ -1832,7 +1929,7 @@ function vStack(d){const cs=d.containers||[];const up=c=>/^Up\b/.test(c.status||
  const upn=cs.filter(up).length,tot=cs.length;
  const svcrow=(key,lbl,ok,okt)=>`<div class="kv clickable" data-drawer="svc:${key}"><span class="k">${lbl}</span><span class="v">${pill(ok,okt)} ›</span></div>`;
  const svc=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--ok)">✦</span>${t('stk_services')}</div>${svcrow('gateway',t('stk_svc_gateway'),d.gateway,d.gateway?t('online'):t('offline'))}${svcrow('hermes',t('stk_svc_hermes'),d.hermes_api,d.hermes_api?t('online'):t('offline'))}${svcrow('telegram',t('stk_svc_tg'),d.telegram_recent>0,d.telegram_recent>0?t('alive'):t('stopped'))}</div>`;
- const cls=n=>{n=(n||'').toLowerCase();if(/nemoclaw|gateway|openshell|opa/.test(n))return 'core';if(/openclaw|assistant|hermes/.test(n))return 'agent';return 'infra'};
+ const cls=n=>{n=(n||'').toLowerCase();if(/nemoclaw|gateway|openshell|opa/.test(n))return 'core';if(/worker|assistant|hermes/.test(n))return 'agent';return 'infra'};
  const crow=c=>{const u=up(c);return `<div class="kv clickable" data-drawer="ctr:${c.name}"><span class="k mono">${sdot(u?'ok':'ALERT')}${c.name}</span><span class="v ${u?'ok':'red'}" style="font-weight:400">${c.status||'—'} ›</span></div>`};
  const G={core:[],agent:[],infra:[]};cs.forEach(c=>G[cls(c.name)].push(crow(c)));
  const grp=(title,rows)=>rows.length?`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--accent)">▦</span>${title}<span style="margin-left:auto">${rows.length}</span></div>${rows.join('')}</div>`:'';
@@ -1841,7 +1938,7 @@ function vStack(d){const cs=d.containers||[];const up=c=>/^Up\b/.test(c.status||
  // ── 系統資訊(nemoclaw / openshell)──
  const si=d.sysinfo||{},inf=si.inference||{},gw=si.gateway||{};
  const isadm=(d._me&&d._me.role==='admin');
- const agents=[['hermes-demo','Hermes'],['my-assistant','OpenClaw A'],['openclaw-2','OpenClaw B']];
+ const agents=[['team-lead','Hermes'],['worker-a','worker-a'],['worker-b','worker-b']];
  const infcard=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:${inf.reachable?'var(--ok)':'var(--danger)'}">🧠</span>${t('sys_inf')}</div><div class="kv"><span class="k">${t('sys_inf_model')}</span><span class="v mono">${esc(inf.model||'—')} <span class="mut">(${esc(inf.provider||'—')})</span></span></div><div class="kv"><span class="k">inference.local</span><span class="v">${inf.reachable?('<span class="ok">🟢 '+t('sys_reach')+'</span>'):('<span class="red">🔴 '+t('sys_unreach')+'</span>')} <span class="mut">HTTP ${esc(''+(inf.http||'—'))}</span></span></div>${(d._me&&d._me.role==='admin')?`<div class="kv"><span class="k">${t('sys_inf_set')}</span><span class="v"><button class="btn" data-act="infset">${t('sys_inf_set_btn')}</button></span></div>`:''}</div>`;
  const fwd=(si.forwards||[]).map(f=>`<div class="kv"><span class="k mono">${esc(f.sb)}</span><span class="v mono" style="font-weight:400">${esc(f.bind)}:${esc(f.port)} · ${esc(f.status)}</span></div>`).join('')||`<div class="mut">—</div>`;
  const gwcard=`<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--accent)">▣</span>${t('sys_gw')}</div><div class="kv"><span class="k">${t('sys_gw_status')}</span><span class="v">${pill(/connected/i.test(gw.status||''),esc(gw.status||'—'))} <span class="mut">v${esc(gw.version||'?')}</span></span></div><div class="kv"><span class="k">${t('svc_endpoint')}</span><span class="v mono" style="font-weight:400">${esc(gw.server||'—')}</span></div><div class="dsec" style="margin:11px 0 5px">${t('sys_fwd')}</div>${fwd}</div>`;
@@ -1917,7 +2014,7 @@ function sastDrawerHTML(d,idx){const nB=(d.nodes||[]).find(n=>n.label==='B')||{}
    h+=`<div class="dsec">${t('sast_fix')}</div><div class="card"><div class="kv" style="display:block"><span class="k">${t('fix_risk')}</span><div class="v" style="margin-top:3px;line-height:1.5">${esc(L(r,'risk'))}</div></div><div class="kv" style="display:block;margin-top:9px"><span class="k">${t('fix_how')}</span><div class="v" style="margin-top:3px;line-height:1.5">${esc(L(r,'fix'))}</div></div>${r.ref?`<div class="kv" style="margin-top:9px"><span class="k">CWE</span><span class="v" style="text-align:right">${lnk(r.ref,'mitre.org')}</span></div>`:''}</div>`;}
  return h;}
 function ctrDrawerHTML(d,name){const c=(d.containers||[]).find(x=>x.name===name)||{};const u=/^Up\b/.test(c.status||'');
- const nl=(name||'').toLowerCase();const grp=/nemoclaw|gateway|openshell|opa/.test(nl)?t('stk_grp_core'):(/openclaw|assistant|hermes/.test(nl)?t('stk_grp_agent'):t('stk_grp_infra'));
+ const nl=(name||'').toLowerCase();const grp=/nemoclaw|gateway|openshell|opa/.test(nl)?t('stk_grp_core'):(/worker|assistant|hermes/.test(nl)?t('stk_grp_agent'):t('stk_grp_infra'));
  const kv=(k,v)=>`<div class="kv"><span class="k">${k}</span><span class="v mono" style="word-break:break-all;text-align:right">${esc(v==null||v===''?'—':v)}</span></div>`;
  return `<div class="dsec">${t('ctr_detail')}</div><div class="card"><div class="kv"><span class="k">${t('ctr_state')}</span><span class="v">${u?'<span class="pill ok">'+t('online')+'</span>':'<span class="pill bad">'+t('offline')+'</span>'}</span></div>`
   +kv(t('ctr_name'),c.full||name)+kv(t('ctr_status'),c.status)+kv(t('ctr_group'),grp)+kv(t('ctr_image'),c.image)+kv(t('ctr_ports'),c.ports)+kv(t('ctr_uptime'),c.uptime)+kv('ID',c.id)+`</div>`;}
@@ -1931,25 +2028,25 @@ function svcDrawerHTML(d,key){
   +kv(t('svc_endpoint'),m[1])+(m[4]?kv(t('tr_actions'),m[4]):'')+`</div><div class="dsec">${t('svc_about')}</div><div class="card"><div class="mut" style="line-height:1.65">${m[3]}</div></div>`;}
 function flash(t2){if(t2){t2.classList.remove('flash');void t2.offsetWidth;t2.classList.add('flash')}}
 function hermesDrawerHTML(d){const p=d.policy||{};
- const hsnap=((d.snapshots_by_agent||[]).find(a=>a.sb==='hermes-demo')||{}).items||[];
+ const hsnap=((d.snapshots_by_agent||[]).find(a=>a.sb==='team-lead')||{}).items||[];
  const ctr=(d.containers||[]).find(c=>/hermes/.test(c.name||''))||{};
  const kv=(k,v)=>`<div class="kv"><span class="k">${k}</span><span class="v mono" style="text-align:right;word-break:break-all">${v==null||v===''?'—':v}</span></div>`;
  return `<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--ok)">✦</span><b>${t('comp_hermes')}</b> · ${t('herm_role')}</div><div class="mut" style="line-height:1.7">${t('herm_about')}</div></div>
-  <div class="dsec">${t('herm_status')}</div><div class="card">${kv('API :8642',d.hermes_api?('🟢 '+t('online')):('🔴 '+t('offline')))}${kv(t('herm_tg'),(d.telegram_recent>0?('🟢 '+t('alive')):('🔴 '+t('stopped')))+(d.telegram_recent?(' · ×'+d.telegram_recent):''))}${kv(t('herm_mail'),'GreenMail :3993')}${kv(t('ctr_status'),esc(ctr.status||'—'))}</div>
-  <div class="dsec">${t('herm_sandbox')}</div><div class="card">${kv('sandbox','hermes-demo')}${kv(t('pol_title'),'v'+(p.version||'?')+(p.hash?(' · '+p.hash):''))}${kv(t('snap_title'),hsnap.length+' '+t('snap_unit'))}${kv(t('a_bridge'),(d.bridge_ips||[]).join(', ')||'—')}</div>
+  <div class="dsec">${t('herm_status')}</div><div class="card">${kv('API :8642',d.hermes_api?('🟢 '+t('online')):('🔴 '+t('offline')))}${kv(t('herm_tg'),(d.telegram_recent>0?('🟢 '+t('alive')):('🔴 '+t('stopped')))+(d.telegram_recent?(' · ×'+d.telegram_recent):''))}${kv(t('herm_mail'),'SMTP relay')}${kv(t('ctr_status'),esc(ctr.status||'—'))}</div>
+  <div class="dsec">${t('herm_sandbox')}</div><div class="card">${kv('sandbox','team-lead')}${kv(t('pol_title'),'v'+(p.version||'?')+(p.hash?(' · '+p.hash):''))}${kv(t('snap_title'),hsnap.length+' '+t('snap_unit'))}${kv(t('a_bridge'),(d.bridge_ips||[]).join(', ')||'—')}</div>
   <div class="dsec">${t('herm_flow')}</div><div class="card"><div class="mut" style="line-height:1.8">${t('herm_flow_d')}</div></div>`}
 function nemoDrawerHTML(d){const kv=(k,v)=>`<div class="kv"><span class="k">${k}</span><span class="v mono" style="text-align:right;word-break:break-all">${v==null||v===''?'—':v}</span></div>`;
  const ag=(d.snapshots_by_agent||[]),tot=(d.snapshots||[]).length;
  const rows=ag.map(a=>{const it=a.items||[];return kv(esc(a.label)+' · '+esc(a.sb), it.length+' '+t('snap_unit')+(it.length?(' · '+t('c_restore')+' '+esc(it[it.length-1].ver)):''))}).join('');
  return `<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--purple)">◆</span><b>${t('comp_nemo')}</b> · ${t('nemo_role')}</div><div class="mut" style="line-height:1.7">${t('nemo_about')}</div></div>
   <div class="dsec">${t('nemo_snaps')}</div><div class="card">${kv(t('snap_title')+' · '+t('a_total'),tot)}${rows}</div>
-  <div class="dsec">${t('nemo_manages')}</div><div class="card">${kv('Hermes','hermes-demo')}${kv('OpenClaw A','my-assistant')}${kv('OpenClaw B','openclaw-2')}</div>
+  <div class="dsec">${t('nemo_manages')}</div><div class="card">${kv('Hermes','team-lead')}${kv('worker-a','worker-a')}${kv('worker-b','worker-b')}</div>
   <div class="dsec">${t('nemo_recovery')}</div><div class="card"><div class="mut" style="line-height:1.8">${t('nemo_recovery_d')}</div></div>`}
 function openshellDrawerHTML(d){const kv=(k,v)=>`<div class="kv"><span class="k">${k}</span><span class="v mono" style="text-align:right;word-break:break-all">${v==null||v===''?'—':v}</span></div>`;
  const g=d.governance||{},p=d.policy||{};const allowed=Object.values(g.allowed||{}).reduce((s,v)=>s+v,0);
  return `<div class="card"><div class="ct"><span class="ico" style="background:var(--card2);color:var(--accent)">▣</span><b>${t('comp_shell')}</b> · ${t('osh_role')}</div><div class="mut" style="line-height:1.7">${t('osh_about')}</div></div>
   <div class="dsec">${t('herm_status')}</div><div class="card">${kv('gateway :18080',d.gateway?('🟢 '+t('online')):('🔴 '+t('offline')))}${kv(t('sk_allow2'),allowed)}${kv(t('sk_denied'),'<span class="'+(g.denied?'red':'')+'">'+(g.denied||0)+'</span>')}${g.denied_benign?kv(t('sk_denied')+' ('+t('benign')+')',g.denied_benign):''}</div>
-  <div class="dsec">${t('pol_title')}</div><div class="card">${kv('sandbox',esc(p.sandbox||'hermes-demo'))}${kv('version','v'+(p.version||'?'))}${kv(t('pol_allowlist'),(p.networks||[]).length+' '+t('osh_endpoints'))}${kv(t('a_bridge'),(d.bridge_ips||[]).join(', ')||'—')}</div>
+  <div class="dsec">${t('pol_title')}</div><div class="card">${kv('sandbox',esc(p.sandbox||'team-lead'))}${kv('version','v'+(p.version||'?'))}${kv(t('pol_allowlist'),(p.networks||[]).length+' '+t('osh_endpoints'))}${kv(t('a_bridge'),(d.bridge_ips||[]).join(', ')||'—')}</div>
   <div class="dsec">${t('osh_enf')}</div><div class="card"><div class="mut" style="line-height:1.8">${t('osh_enf_d')}</div></div>`}
 function openDrawer(which,focus){const d=LAST;if(!d)return;which=which||'ebg';DRW=which;
  if(which.indexOf('cert:')===0){const asset=which.slice(5);el('drwTitle').textContent=asset;el('drwSub').textContent=t('cert_title');el('drwBody').innerHTML=certDrawerHTML(d,asset);}
@@ -1958,7 +2055,7 @@ function openDrawer(which,focus){const d=LAST;if(!d)return;which=which||'ebg';DR
  if(focus)setTimeout(()=>{const t2=[...el('drwBody').querySelectorAll('.cfind')].find(x=>x.dataset.fid===focus);if(t2){t2.scrollIntoView({block:'center'});flash(t2)}},130)}
 function closeDrawer(){el('ovl').classList.remove('on');el('drw').classList.remove('on')}
 function polOut(s){const o=el('polout');if(o)o.textContent=s}
-const polSB=()=>(POLICY_DATA||{}).sb||'hermes-demo';
+const polSB=()=>(POLICY_DATA||{}).sb||'team-lead';
 const polPost=o=>fetch('/api/policy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(r=>r.json());
 function policyDrawerHTML(){const pd=POLICY_DATA;if(!pd||!pd.ok)return '<div class="mut" style="padding:18px">'+((pd&&pd.msg)||t('pol_load_fail'))+'</div>';
  const presets=(pd.presets||[]).map(p=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-top:1px solid var(--line)"><span style="flex:0 0 auto">${p.active?'🟢':'⚪'}</span><span class="sk" style="flex:0 0 auto;font-size:13px">${esc(p.name)}</span><span class="sd2" style="flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.desc)}</span><button class="btn" style="flex:0 0 auto;min-width:62px" data-act="polpreset" data-nm="${esc(p.name)}" data-on="${p.active?0:1}">${p.active?t('pol_off'):t('pol_on')}</button></div>`).join('')||'<div class="mut">—</div>';
@@ -1982,7 +2079,7 @@ function policyDrawerHTML(){const pd=POLICY_DATA;if(!pd||!pd.ok)return '<div cla
   <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap"><button class="btn" data-act="polprove">${t('pol_prove_btn')}</button><button class="btn" data-act="polapply">${t('pol_apply_btn')}</button><button class="btn" data-act="polreload">${t('pol_revert')}</button></div>
   <div id="polout" class="mono" style="margin-top:10px;white-space:pre-wrap;word-break:break-word;font-size:11px;color:var(--tx2);max-height:240px;overflow:auto"></div></div>
  <div class="dsec">${t('pol_history')}</div><div class="card"><div class="mono" style="white-space:pre-wrap;font-size:10.5px;color:var(--tx2);max-height:200px;overflow:auto">${esc(pd.history||'—')}</div></div>`}
-let POL_SB='hermes-demo';
+let POL_SB='team-lead';
 async function openPolicyEditor(sb){if(sb)POL_SB=sb;DRW='policy';el('drwTitle').textContent=t('pol_edit_title');el('drwSub').textContent='OpenShell · prove-gated';
  el('drwBody').innerHTML='<div class="mut" style="padding:20px">'+t('pol_loading')+'</div>';el('ovl').classList.add('on');el('drw').classList.add('on');
  try{const r=await fetch('/api/policy-get?sb='+encodeURIComponent(POL_SB),{cache:'no-store'});POLICY_DATA=await r.json();POL_SB=(POLICY_DATA||{}).sb||POL_SB;el('drwBody').innerHTML=policyDrawerHTML()}catch(e){el('drwBody').innerHTML='<div class="mut" style="padding:20px">'+t('pol_load_fail')+'</div>'}}
@@ -2019,7 +2116,7 @@ function health(){const dot=el('liveDot'),txt=el('liveTxt');if(!dot)return;
  else if(age>lim){dot.style.background='var(--warn)';txt.textContent=t('live_lag');document.body.classList.add('stale')}
  else{dot.style.background='var(--ok)';txt.textContent=t('live_ok');document.body.classList.remove('stale')}}
 function kiosk(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen()}catch(e){}}
-const TOASTDO={refresh:'toast_refresh',cve:'toast_cve',source:'toast_source',jira_reset:'toast_jira'};
+const TOASTDO={refresh:'toast_refresh',cve:'toast_cve',source:'toast_source'};
 document.addEventListener('click',e=>{
  const dv=e.target.closest('[data-dev]');
  if(dv){const a=dv.dataset.dev,warn={harden:t('act_warn_harden'),restart:t('act_warn_restart'),block:t('act_warn_block')}[a];
@@ -2061,7 +2158,7 @@ document.addEventListener('click',e=>{
  else if(act==='recdel'){if(!confirm(t('rec_del_confirm')))return;if(LAST&&LAST.settings&&LAST.settings.recipients){LAST.settings.recipients=LAST.settings.recipients.filter(x=>x.email!==v);render(LAST);}fetch('/api/recipient?op=del&email='+encodeURIComponent(v),{method:'POST'}).then(r=>r.json()).then(r=>toast(r.msg||t('toast_done'))).catch(()=>toast(t('toast_fail'))).finally(()=>tick())}
  else if(act==='rectest'){const nm=b.dataset.nm||'',tg=b.dataset.tg||'',em=b.dataset.em||'';b.disabled=true;b.textContent=t('running');fetch('/api/recipient?op=test&name='+encodeURIComponent(nm)+'&telegram='+encodeURIComponent(tg)+'&email='+encodeURIComponent(em),{method:'POST'}).then(r=>r.json()).then(r=>toast(r.msg||t('toast_done'))).catch(()=>toast(t('toast_fail'))).finally(()=>{b.disabled=false;b.textContent=t('rec_test')})}
  else if(act==='kiosk'){kiosk()}
- else if(act==='snapcreate'){const sb=b.dataset.sb||'my-assistant';const nm=prompt(t('snap_name_p'));if(nm===null)return;const old=b.textContent;b.disabled=true;b.textContent=t('running');fetch('/api/snapshot?op=create&sb='+encodeURIComponent(sb)+'&sel='+encodeURIComponent(nm||''),{method:'POST'}).then(r=>r.json()).then(r=>toast(r.msg||t('toast_done'))).catch(()=>toast(t('toast_fail'))).finally(()=>{b.disabled=false;b.textContent=old;tick()})}
+ else if(act==='snapcreate'){const sb=b.dataset.sb||'worker-a';const nm=prompt(t('snap_name_p'));if(nm===null)return;const old=b.textContent;b.disabled=true;b.textContent=t('running');fetch('/api/snapshot?op=create&sb='+encodeURIComponent(sb)+'&sel='+encodeURIComponent(nm||''),{method:'POST'}).then(r=>r.json()).then(r=>toast(r.msg||t('toast_done'))).catch(()=>toast(t('toast_fail'))).finally(()=>{b.disabled=false;b.textContent=old;tick()})}
  else if(act==='snapsel'){const k=b.dataset.k;if(b.checked)SNAPSEL.add(k);else SNAPSEL.delete(k);if(LAST)render(LAST);return}
  else if(act==='snapdelsel'){const sb=b.dataset.sb;const keys=[...SNAPSEL].filter(k=>k.indexOf(sb+'|')===0);if(!keys.length)return;
    if(!confirm(t('snap_del_sel_c').replace('%s',keys.length)))return;
@@ -2113,7 +2210,7 @@ if(location.search.indexOf('drawer=ebg')>=0)setTimeout(()=>{if(LAST)openDrawer()
 setTimeout(()=>{if(location.search.indexOf('demoexpand')>=0&&LAST&&LAST.events){EVF='DENIED';LAST.events.filter(e=>e.verb==='DENIED').slice(0,2).forEach(e=>OPEN_EV.add(e.ts));if(tabId()==='gov')render(LAST)}},900);
 </script></body></html>"""
 
-ADMIN_AUDIT = os.path.expanduser("~/.config/nemoclaw/admin-audit.jsonl")
+ADMIN_AUDIT = os.environ.get("DASH_AUDIT_FILE") or os.path.expanduser("~/.config/nemoclaw/admin-audit.jsonl")
 _AUDIT_LOCK = threading.Lock()
 def _audit_canon(e):
     return json.dumps([e["seq"], e["ts"], e["actor"], e["action"], e["detail"], e["ip"], e["ok"]], ensure_ascii=False)
@@ -2178,8 +2275,8 @@ def detect_anomalies(d):
         for m in (n.get("monitor") or []):
             asset = m.get("asset", "?")
             if m.get("offline") or m.get("status") == "offline":
-                # 真實實機(ebg19p/rt-ax89x)離線屬環境常態 → info(中性 offline,不發紅色告警/Telegram);其餘維持 warn
-                _real_off = any(k in asset for k in ("ebg19p", "rt-ax89x"))
+                # 真實實機(ebg19p)離線屬環境常態 → info(中性 offline,不發紅色告警/Telegram);其餘維持 warn
+                _real_off = "ebg19p" in asset
                 out.append({"id": f"offline:{asset}", "sev": ("info" if _real_off else "warn"),
                             "kind": "device_offline", "msg": f"設備離線:{asset}(節點 {n.get('label')})",
                             "msg_en": f"Device offline: {asset} (node {n.get('label')})"})
@@ -2254,8 +2351,13 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             return ""
     def _cip(self):
-        xff = self.headers.get("X-Forwarded-For", "")
-        return xff.split(",")[0].strip() if xff else self.client_address[0]
+        # X-Forwarded-For 任何直連客戶端都能偽造(填 127.0.0.1 即繞過 IP 白名單與登入鎖),
+        # 僅 DASH_TRUST_XFF=1(前面確有可信 reverse proxy)才採用,且取最右值=可信 proxy 記錄的直連端。
+        if TRUST_XFF:
+            xff = self.headers.get("X-Forwarded-For", "")
+            if xff:
+                return xff.split(",")[-1].strip()
+        return self.client_address[0]
     def _sess(self):
         v = get_session(self._sid())
         return v if (v and _ip_ok(self._cip())) else None
@@ -2263,17 +2365,49 @@ class H(BaseHTTPRequestHandler):
         b = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code); self.send_header("Content-Type", "application/json; charset=utf-8")
         if sid is not None:
-            self.send_header("Set-Cookie", f"sid={sid}; HttpOnly; Path=/; SameSite=Strict")
+            self.send_header("Set-Cookie", f"sid={sid}; HttpOnly; Path=/; SameSite=Strict" + ("; Secure" if DASH_TLS_ON else ""))
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def _serve_web(self, p):
+        # static file server for the /app SPA under WEB_DIR (path-traversal guarded).
+        # ETag/304 + caching: vendored libs are immutable (long cache → browser never re-fetches
+        # React/Chart.js); app files revalidate cheaply. Keeps the dashboard light as the fleet grows.
+        rel = "index.html" if p in ("/app", "/app/") else p[len("/app/"):]
+        base = os.path.realpath(WEB_DIR)
+        target = os.path.realpath(os.path.join(base, rel))
+        if not (target == base or target.startswith(base + os.sep)) or not os.path.isfile(target):
+            return self._send(404, "not found", "text/plain")
+        st = os.stat(target)
+        etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304); self.send_header("ETag", etag); self.end_headers(); return
+        with open(target, "rb") as f:
+            body = f.read()
+        cache = "public, max-age=31536000, immutable" if "/vendor/" in p else "no-cache, must-revalidate"
+        self.send_response(200)
+        self.send_header("Content-Type", _WEB_CT.get(os.path.splitext(target)[1], "application/octet-stream"))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", cache)
+        self.end_headers(); self.wfile.write(body)
     def do_GET(self):
         p = urlparse(self.path).path
         if p == "/brand.svg":
             return self._send(200, BRAND_SVG, "image/svg+xml; charset=utf-8")
+        if p == "/app" or p.startswith("/app/"):   # React console (authed); coexists with the classic UI at /
+            if not self._sess():
+                if p in ("/app", "/app/"):
+                    self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
+                return self._send(401, "auth required", "text/plain")
+            return self._serve_web(p)
         if p == "/login":
             return self._send(200, LOGIN_HTML, "text/html; charset=utf-8")
         sess = self._sess()
         if p in ("/", "/index.html"):
             if not sess:
+                self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
+            self.send_response(302); self.send_header("Location", "/app"); self.end_headers(); return   # SPA is the default UI now
+        if p == "/classic":   # legacy inline UI — fallback until the SPA is live-verified, then this + HTML blob get deleted
+            if not self._sess():
                 self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
             return self._send(200, HTML, "text/html; charset=utf-8")
         if not sess:
@@ -2287,13 +2421,13 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/policy-get":
             if sess["role"] != "admin":
                 return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限"}), "application/json; charset=utf-8")
-            sb = parse_qs(urlparse(self.path).query).get("sb", ["hermes-demo"])[0]
+            sb = parse_qs(urlparse(self.path).query).get("sb", ["team-lead"])[0]
             try:
                 return self._send(200, json.dumps(do_policy_get(sb), ensure_ascii=False), "application/json; charset=utf-8")
             except Exception as e:
                 return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
         if p == "/api/policy-ro":   # 唯讀:任一 agent 的 live 政策(治理頁唯讀卡 agent 選單)
-            sb = parse_qs(urlparse(self.path).query).get("sb", ["hermes-demo"])[0]
+            sb = parse_qs(urlparse(self.path).query).get("sb", ["team-lead"])[0]
             try:
                 return self._send(200, json.dumps(do_policy_ro(sb), ensure_ascii=False), "application/json; charset=utf-8")
             except Exception as e:
@@ -2362,7 +2496,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
-            if do not in ("cve", "source", "jira_reset", "refresh"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作"}), "application/json; charset=utf-8")
             try:
                 self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")
@@ -2401,7 +2535,7 @@ class H(BaseHTTPRequestHandler):
                 self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
         elif self.path.startswith("/api/snapshot"):  # NemoClaw 快照 create/restore(localhost only;admin;前端二次確認)
             q = parse_qs(urlparse(self.path).query)
-            op = q.get("op", [""])[0]; sel = q.get("sel", [""])[0]; sb = q.get("sb", ["my-assistant"])[0]
+            op = q.get("op", [""])[0]; sel = q.get("sel", [""])[0]; sb = q.get("sb", ["worker-a"])[0]
             try:
                 self._send(200, json.dumps(do_snapshot(op, sel, sb), ensure_ascii=False), "application/json; charset=utf-8")
             except Exception as e:
@@ -2445,7 +2579,7 @@ if __name__ == "__main__":
             pass                       # 吞掉單一連線錯誤(如 TLS 握手失敗),不影響其他連線
     srv = _DashServer((BIND, PORT), H)
     _cert, _key = f"{BRIDGE}/dash-cert.pem", f"{BRIDGE}/dash-key.pem"
-    _tls = bool(os.environ.get("DASH_TLS") and os.path.exists(_cert) and os.path.exists(_key))
+    _tls = DASH_TLS_ON
     if _tls:
         import ssl
         _ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); _ctx.load_cert_chain(_cert, _key)
