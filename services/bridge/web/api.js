@@ -29,6 +29,7 @@ const NF = {
   snapshot: (op, sel, sb) => _post('/api/snapshot?' + qs({ op, sel, sb })),
   sys: (p) => _get('/api/sys?' + qs(p)),
   policy: (body) => _post('/api/policy', body),
+  policyRo: (sb) => _get('/api/policy-ro?' + qs({ sb })),
 
   // ── SCALING SEAM ──────────────────────────────────────────────────────────
   // Per-section paginated reads. Today they slice the /api/status aggregate; when the fleet

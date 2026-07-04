@@ -458,6 +458,7 @@ const GovernanceView = memo(function GovernanceView({ d }) {
         <div><div class="num" style=${{ color: 'var(--crit)' }}>${g.denied}</div><div class="lbl">Denied</div></div>
         <div><div class="num ink2">${g.benign.toLocaleString()}</div><div class="lbl">Heartbeats</div></div></div></${Panel}>`}
       ${html`<${GovActionsPanel} events=${g.events}/>`}
+      ${d.me && d.me.role === 'admin' ? html`<${PolicyEditor}/>` : null}
     </div></div>`;
 });
 const GovActionsPanel = memo(function GovActionsPanel({ events }) {
@@ -474,6 +475,43 @@ const GovActionsPanel = memo(function GovActionsPanel({ events }) {
           const dn = (r.verdict || r.cls || '').toLowerCase().includes('den');
           return html`<span class=${'sev ' + (dn ? 'hi' : 'in')}>${dn ? 'DENIED' : 'ALLOWED'}</span>`; } },
       ]}/></${Panel}>`;
+});
+const PolicyEditor = memo(function PolicyEditor() {
+  const [sb, setSb] = useState('team-lead');
+  const [pol, setPol] = useState(null);
+  const [preset, setPreset] = useState('');
+  useEffect(() => { let ok = true; setPol({ loading: true }); NF.policyRo(sb).then(r => ok && setPol(r)).catch(e => ok && setPol({ ok: false, msg: e.message })); return () => { ok = false; }; }, [sb]);
+  const p = (pol && pol.policy) || {};
+  const egress = p.egress || [];
+  return html`<${Panel} title="Policy editor" label="OpenShell egress · per sandbox">
+    <${Field} label="Sandbox"><${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/></${Field}>
+    ${!pol ? null : pol.loading ? html`<div class="muted">loading…</div>` : !pol.ok ? html`<div class="muted">${pol.msg || 'policy unavailable'}</div>` : html`<div>
+      <div class="muted mono" style=${{ fontSize: '11px', margin: '4px 0 9px' }}>version ${p.version || '?'} · ${(p.hash || '').slice(0, 12)}</div>
+      <div class="lbl" style=${{ marginBottom: '6px' }}>Egress hosts · ${egress.length}</div>
+      <div class="tblwrap" style=${{ maxHeight: '176px', overflow: 'auto', border: '1px solid var(--line)', borderRadius: '8px', padding: '4px 10px' }}>
+        ${egress.length ? egress.map((h, i) => html`<div key=${i} class="kv"><span class="kvv mono" style=${{ fontSize: '12px' }}>${typeof h === 'string' ? h : (h.host || JSON.stringify(h))}</span></div>`) : html`<div class="muted" style=${{ padding: '6px 0' }}>deny-by-default · no explicit egress</div>`}
+      </div>
+      <div class="addrow" style=${{ marginTop: '10px' }}>
+        <input class="inp" placeholder="preset (telegram / github / huggingface…)" value=${preset} onInput=${e => setPreset(e.target.value)}/>
+        <${ConfirmBtn} confirm=${'Apply preset \'' + preset + '\' to ' + sb + '?'} run=${() => NF.policy({ op: 'preset', name: preset, on: true, sb })} label="+ Preset" busyLabel="applying"/>
+        <${ConfirmBtn} danger=${true} confirm=${'Remove preset \'' + preset + '\' from ' + sb + '?'} run=${() => NF.policy({ op: 'preset', name: preset, on: false, sb })} label="− Preset" busyLabel="removing"/>
+      </div>
+      <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>Preset add/remove is prove-gated server-side; deny-by-default stays intact.</div>
+    </div>`}
+  </${Panel}>`;
+});
+const ChannelPanel = memo(function ChannelPanel() {
+  const [sb, setSb] = useState('team-lead');
+  const [chan, setChan] = useState('telegram');
+  return html`<${Panel} title="Messaging channels" label="start / stop per sandbox">
+    <div class="addrow" style=${{ flexWrap: 'wrap' }}>
+      <${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/>
+      <input class="inp" style=${{ maxWidth: '140px' }} value=${chan} onInput=${e => setChan(e.target.value)}/>
+      <${ConfirmBtn} confirm=${'Start ' + chan + ' on ' + sb + '?會 rebuild 沙箱。'} run=${() => NF.sys({ do: 'chanstart', sb, chan })} label="Start" busyLabel="starting"/>
+      <${ConfirmBtn} danger=${true} confirm=${'Stop ' + chan + ' on ' + sb + '?會 rebuild 沙箱(保留憑證)。'} run=${() => NF.sys({ do: 'chanstop', sb, chan })} label="Stop" busyLabel="stopping"/>
+    </div>
+    <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>Stop/Start 會 rebuild 沙箱;憑證保留。</div>
+  </${Panel}>`;
 });
 
 const AuditView = memo(function AuditView({ d }) {
@@ -571,6 +609,7 @@ const AdminView = memo(function AdminView({ d }) {
           <button class="btn" onClick=${() => run(NF.recipient('add', nr.name, nr.telegram, nr.email), 'Recipient added')}>+ Add</button>
         </div>
       </${Panel}>`}
+      ${html`<${ChannelPanel}/>`}
     </div></div>`;
 });
 
