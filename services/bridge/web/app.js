@@ -16,6 +16,32 @@ function useTheme() {
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('nf-theme', theme); }, [theme]);
   return [theme, set];
 }
+let LANG = localStorage.getItem('nf-lang') || 'zh';
+const I18N = {
+  'Overview': { en: 'Overview', zh: '總覽' }, 'Flow': { en: 'Flow', zh: '工作流' }, 'Fleet': { en: 'Fleet', zh: '機隊' },
+  'Security': { en: 'Security', zh: '資安' }, 'Governance': { en: 'Governance', zh: '治理' }, 'Proactive': { en: 'Proactive', zh: '主動' },
+  'Change ctrl': { en: 'Change ctrl', zh: '變更治理' }, 'Audit': { en: 'Audit', zh: '稽核' }, 'Admin': { en: 'Admin', zh: '管理' }, 'Settings': { en: 'Settings', zh: '設定' },
+  '↻ Refresh': { en: '↻ Refresh', zh: '↻ 重新整理' }, 'Retry': { en: 'Retry', zh: '重試' },
+  'Loading console…': { en: 'Loading console…', zh: '載入主控台…' }, 'Cannot reach the fleet API': { en: 'Cannot reach the fleet API', zh: '無法連上機隊 API' },
+  'Rescan': { en: 'Rescan', zh: '重掃' }, 'Scan now': { en: 'Scan now', zh: '立即掃描' }, 'Re-run': { en: 'Re-run', zh: '重跑' }, 'Backup now': { en: 'Backup now', zh: '立即備份' },
+  'Restore': { en: 'Restore', zh: '還原' }, 'Delete': { en: 'Delete', zh: '刪除' }, 'Apply': { en: 'Apply', zh: '套用' }, 'rebuild': { en: 'rebuild', zh: '重建' },
+  'Test': { en: 'Test', zh: '測試' }, 'Remove': { en: 'Remove', zh: '移除' }, '+ Add': { en: '+ Add', zh: '＋新增' }, '+ Create snapshot': { en: '+ Create snapshot', zh: '＋建立快照' },
+  'EBG19P security posture': { en: 'EBG19P security posture', zh: 'EBG19P 安全姿態' }, 'CVE findings': { en: 'CVE findings', zh: 'CVE 弱點' },
+  'Active scan (nuclei)': { en: 'Active scan (nuclei)', zh: '主動掃描 (nuclei)' }, 'Certificates / weak crypto': { en: 'Certificates / weak crypto', zh: '憑證 / 弱加密' },
+  'SAST findings': { en: 'SAST findings', zh: 'SAST 原始碼弱點' }, 'Cipher policy override': { en: 'Cipher policy override', zh: '加密套件政策覆寫' },
+  'Snapshots': { en: 'Snapshots', zh: '快照' }, 'Containers': { en: 'Containers', zh: '容器' }, 'Diagnostics': { en: 'Diagnostics', zh: '診斷' },
+  'Inference': { en: 'Inference', zh: '推理' }, 'Device ops · EBG19P': { en: 'Device ops · EBG19P', zh: '設備運維 · EBG19P' },
+  'Users & access': { en: 'Users & access', zh: '使用者與權限' }, 'Notification recipients': { en: 'Notification recipients', zh: '通知收件人' },
+  'Scan schedule': { en: 'Scan schedule', zh: '掃描排程' }, 'Certificate & crypto thresholds': { en: 'Certificate & crypto thresholds', zh: '憑證與加密門檻' },
+  'Device health thresholds': { en: 'Device health thresholds', zh: '設備健康門檻' }, 'Escalation & notifications': { en: 'Escalation & notifications', zh: '升級與通知' },
+  'Proactive team-lead': { en: 'Proactive team-lead', zh: '主動 team-lead' }, 'Quiet hours & scan tags': { en: 'Quiet hours & scan tags', zh: '靜音時段與掃描標籤' },
+  'Review gate': { en: 'Review gate', zh: '審查閘' }, 'Config backups': { en: 'Config backups', zh: '設定備份' }, 'Firmware': { en: 'Firmware', zh: '韌體' },
+  'Skills · curator (SkillOS)': { en: 'Skills · curator (SkillOS)', zh: '技能庫 · curator (SkillOS)' }, 'Change control': { en: 'Change control', zh: '變更治理' },
+  'Sandbox': { en: 'Sandbox', zh: '沙箱' }, 'Target': { en: 'Target', zh: '目標' }, 'Detail': { en: 'Detail', zh: '詳情' }, 'Details': { en: 'Details', zh: '詳情' },
+  'No data.': { en: 'No data.', zh: '無資料。' }, 'Auto-open Jira': { en: 'Auto-open Jira', zh: '自動開 Jira' }, 'Notify channels': { en: 'Notify channels', zh: '通知管道' },
+};
+function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
+function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nflang')); }
 
 function DrawerHost() {
   const [dw, setDw] = useState(null);
@@ -49,7 +75,7 @@ const ActionBtn = memo(function ActionBtn({ act, label, busyLabel, ghost }) {
     try { const r = await NF.action(act); toast(r && r.msg ? r.msg : (r && r.ok ? 'Done' : 'Action failed'), r && r.ok ? 'g' : 'c'); }
     catch (e) { toast('Action failed: ' + e.message, 'c'); }
     finally { setBusy(false); reloadNow(); }
-  }}>${busy ? html`<span class="mini"></span>${busyLabel || '…'}` : label}</button>`;
+  }}>${busy ? html`<span class="mini"></span>${t(busyLabel) || '…'}` : t(label)}</button>`;
 });
 const ConfirmBtn = memo(function ConfirmBtn({ run: doRun, label, busyLabel, confirm: confirmMsg, ghost, danger }) {
   const [busy, setBusy] = useState(false);
@@ -59,7 +85,7 @@ const ConfirmBtn = memo(function ConfirmBtn({ run: doRun, label, busyLabel, conf
     try { const r = await doRun(); const good = r && (r.ok || r.out); toast(r && r.msg ? r.msg : (good ? 'Done' : 'Failed'), good ? 'g' : 'c'); }
     catch (e) { toast('Failed: ' + e.message, 'c'); }
     finally { setBusy(false); reloadNow(); }
-  }}>${busy ? html`<span class="mini"></span>${busyLabel || '…'}` : label}</button>`;
+  }}>${busy ? html`<span class="mini"></span>${t(busyLabel) || '…'}` : t(label)}</button>`;
 });
 
 // form + control primitives ──────────────────────────────────────────────────
@@ -67,14 +93,14 @@ async function run(promise, okMsg) {
   try { const r = await promise; toast(r && r.msg ? r.msg : (r && r.ok !== false ? (okMsg || 'Saved') : 'Failed'), r && r.ok !== false ? 'g' : 'c'); }
   catch (e) { toast(e.message, 'c'); } finally { reloadNow(); }
 }
-const Field = ({ label, hint, children }) => html`<label class="field"><span class="flabel">${label}</span>${children}${hint ? html`<span class="fhint">${hint}</span>` : null}</label>`;
+const Field = ({ label, hint, children }) => html`<label class="field"><span class="flabel">${t(label)}</span>${children}${hint ? html`<span class="fhint">${t(hint)}</span>` : null}</label>`;
 const Segmented = ({ value, options, onChange }) => html`<div class="seg2">${options.map(o => { const v = typeof o === 'object' ? o.v : o, l = typeof o === 'object' ? o.l : o; return html`<button key=${v} class=${'segbtn ' + (String(value) === String(v) ? 'on' : '')} onClick=${() => onChange(v)}>${l}</button>`; })}</div>`;
 const Toggle = ({ on, onChange }) => html`<button class=${'toggle ' + (on ? 'on' : '')} role="switch" aria-checked=${!!on} onClick=${() => onChange(!on)}><span class="knob"></span></button>`;
 
 // VirtualList — windowed rendering for very large lists (only visible rows in the DOM)
 function VirtualList({ rows, rowH = 40, height = 320, render, empty }) {
   const [top, setTop] = useState(0);
-  if (!rows.length) return html`<div class="empty">${empty || 'No data.'}</div>`;
+  if (!rows.length) return html`<div class="empty">${t(empty || 'No data.')}</div>`;
   const start = Math.max(0, Math.floor(top / rowH) - 4);
   const slice = rows.slice(start, start + Math.ceil(height / rowH) + 8);
   return html`<div class="vlist" style=${{ height: height + 'px' }} onScroll=${e => setTop(e.target.scrollTop)}>
@@ -118,7 +144,7 @@ const Dot = ({ up, s }) => html`<span class=${'dot ' + (s || (up ? 'g' : 'c'))}>
 
 const Panel = memo(function Panel({ title, label, right, children, className }) {
   return html`<section class=${'panel ' + (className || '')}>
-    <div class="ph"><h3>${title}</h3>${label ? html`<span class="lbl">${label}</span>` : null}
+    <div class="ph"><h3>${t(title)}</h3>${label ? html`<span class="lbl">${t(label)}</span>` : null}
       ${right ? html`<div class="r">${right}</div>` : null}</div>
     <div class="pb">${children}</div></section>`;
 });
@@ -147,7 +173,7 @@ const DataTable = memo(function DataTable({ rows, cols, pageSize = 8, empty, fet
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const p = Math.min(page, pages - 1);
   const slice = fetchPage ? (srv ? srv.rows : []) : rows.slice(p * pageSize, p * pageSize + pageSize);
-  if (!total && !fetchPage) return html`<div class="empty">${empty || 'No data.'}</div>`;
+  if (!total && !fetchPage) return html`<div class="empty">${t(empty || 'No data.')}</div>`;
   if (!slice.length) return html`<div class="empty">${empty || 'No data.'}</div>`;
   return html`<div><div class="tblwrap"><table class="dt">
       <thead><tr>${cols.map(c => html`<th key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.label}</th>`)}</tr></thead>
@@ -657,7 +683,7 @@ const VIEWS = {
 function NavRail({ me, route, counts }) {
   return html`<aside class="rail">
     <div class="brand"><span class="mark"></span><div><b>nemofleet</b><div class="sub">GOVERNED FLEET</div></div></div>
-    <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => html`<a key=${k} class=${route === k ? 'on' : ''} href=${'#/' + k}>${v.label}
+    <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => html`<a key=${k} class=${route === k ? 'on' : ''} href=${'#/' + k}>${t(v.label)}
       ${counts[k] != null ? html`<span class="cnt">${counts[k]}</span>` : null}</a>`)}</nav>
     <div class="railfoot"><span class="avatar">${(me.email || 'op')[0].toUpperCase()}</span>
       <div style=${{ minWidth: 0 }}><div style=${{ fontSize: '12px', fontWeight: 600 }}>${me.email || 'operator'}</div>
@@ -670,11 +696,13 @@ function App() {
   const route = useHashRoute('overview');
   const clock = useClock();
   const [theme, setTheme] = useTheme();
+  const [, setLangN] = useState(0);
+  useEffect(() => { const h = () => setLangN(n => n + 1); addEventListener('nflang', h); return () => removeEventListener('nflang', h); }, []);
   const d = useMemo(() => (data ? normalize(data) : null), [data]);
   useEffect(() => { const h = () => reload(); addEventListener('nfreload', h); return () => removeEventListener('nfreload', h); }, [reload]);
 
-  if (err && !d) return html`<div class="errbox"><b>Cannot reach the fleet API</b><div class="ink2">${err}</div><button class="retry" onClick=${reload}>Retry</button></div>`;
-  if (loading || !d) return html`<div class="loading"><div class="spin"></div>Loading console…</div>`;
+  if (err && !d) return html`<div class="errbox"><b>${t('Cannot reach the fleet API')}</b><div class="ink2">${err}</div><button class="retry" onClick=${reload}>${t('Retry')}</button></div>`;
+  if (loading || !d) return html`<div class="loading"><div class="spin"></div>${t('Loading console…')}</div>`;
 
   const View = (VIEWS[route] || VIEWS.overview).comp;
   const counts = { security: (d.cve.findings.length + d.cert.findings.length) || null, governance: d.governance.denied || null };
@@ -682,9 +710,10 @@ function App() {
     <${NavRail} me=${d.me} route=${route} counts=${counts}/>
     <main class="main">
       <header class="top live">
-        <div><h1>${(VIEWS[route] || VIEWS.overview).label}</h1>
+        <div><h1>${t((VIEWS[route] || VIEWS.overview).label)}</h1>
           <div class="meta">${d.devices.length} managed device(s) · ${d.nodes.length} agent nodes · governance enforced by OPA / L7 policy</div></div>
         <div style=${{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button class="hdrbtn" title="Language / 語言" onClick=${() => setLang(LANG === 'zh' ? 'en' : 'zh')}>${LANG === 'zh' ? 'EN' : '中'}</button>
           <button class="hdrbtn" title=${theme === 'dark' ? 'Switch to light' : 'Switch to dark'} onClick=${() => setTheme(theme === 'dark' ? 'light' : 'dark')}>${theme === 'dark' ? '☀' : '🌙'}</button>
           <${ActionBtn} act="refresh" label="↻ Refresh" busyLabel="…" ghost=${true}/>
           <div class="fleetpill live">
