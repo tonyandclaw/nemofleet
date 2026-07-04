@@ -202,9 +202,9 @@ const GovChart = memo(function GovChart({ gov }) {
       data: { labels: data.map((_, i) => i === data.length - 1 ? 'now' : (i % 5 === 0 ? '−' + ((data.length - i) * 6) + 'm' : '')),
         datasets: [{ label: 'Allowed', data, borderColor: SERIES.allowed, backgroundColor: grad, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 }] },
       options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, interaction: { mode: 'index', intersect: false },
-        scales: { x: { grid: { color: '#20242f', drawTicks: false }, ticks: { color: '#5b6475', font: { family: 'ui-monospace', size: 10 }, maxRotation: 0, autoSkip: false } },
-          y: { grid: { color: '#20242f' }, ticks: { color: '#5b6475', font: { family: 'ui-monospace', size: 10 }, maxTicksLimit: 4 }, beginAtZero: true } },
-        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#0b0d13', borderColor: '#333949', borderWidth: 1, padding: 10, titleColor: '#9aa3b6', bodyColor: '#e7eaf2', displayColors: false } } },
+        scales: { x: { grid: { color: THEME === 'light' ? '#e4e8ee' : '#20242f', drawTicks: false }, ticks: { color: THEME === 'light' ? '#8b93a3' : '#5b6475', font: { family: 'ui-monospace', size: 10 }, maxRotation: 0, autoSkip: false } },
+          y: { grid: { color: THEME === 'light' ? '#e4e8ee' : '#20242f' }, ticks: { color: THEME === 'light' ? '#8b93a3' : '#5b6475', font: { family: 'ui-monospace', size: 10 }, maxTicksLimit: 4 }, beginAtZero: true } },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'var(--inset)', borderColor: '#333949', borderWidth: 1, padding: 10, titleColor: '#9aa3b6', bodyColor: '#e7eaf2', displayColors: false } } },
     });
     return () => chart.current && chart.current.destroy();
   }, []);
@@ -352,7 +352,7 @@ const FleetView = memo(function FleetView({ d }) {
         <div class="addrow">${['doctor', 'logs', 'recover', 'gwhealth', 'stale', 'gsettings'].map(x => html`<button key=${x} class="btn ghost" onClick=${() => runDiag(x)}>${x}</button>`)}
           <${ConfirmBtn} danger=${true} confirm=${'Rebuild ' + sb + '?會重建沙箱(數分鐘;自訂 policy 之後需 boot-stack 重補)。'} run=${() => NF.sys({ do: 'rebuild', sb })} label="rebuild" busyLabel="rebuilding"/></div>
         ${diag ? html`<div style=${{ marginTop: '12px' }}><div class="lbl" style=${{ marginBottom: '6px' }}>${diag.title}</div>
-          <pre class="mono" style=${{ background: '#0d1017', border: '1px solid var(--line)', borderRadius: '8px', padding: '10px', fontSize: '11px', color: 'var(--ink2)', maxHeight: '220px', overflow: 'auto', whiteSpace: 'pre-wrap' }}>${diag.out}</pre></div>` : null}
+          <pre class="mono" style=${{ background: 'var(--inset)', border: '1px solid var(--line)', borderRadius: '8px', padding: '10px', fontSize: '11px', color: 'var(--ink2)', maxHeight: '220px', overflow: 'auto', whiteSpace: 'pre-wrap' }}>${diag.out}</pre></div>` : null}
       </${Panel}>`}
       ${html`<${Panel} title="Inference" label="切換 provider / model(nemoclaw inference set)">
         <${Field} label="Sandbox"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>

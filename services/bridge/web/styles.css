@@ -6,6 +6,7 @@
     --good:#2fbf84; --good-bg:#10321f; --warn:#f0b23e; --warn-bg:#332510;
     --crit:#f0555f; --crit-bg:#331319; --info:#6e9bff;
     --s-blue:#3987e5; --s-red:#e66767; --s-aqua:#199e70; --s-violet:#9085e9; --s-yellow:#c98500;
+    --inset:#0d1017; --chip:#0e131d;
     --r:14px; --rs:9px;
     --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",monospace;
     --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
@@ -95,7 +96,7 @@
   .gline{stroke:var(--line);stroke-width:1}
   .axt{fill:var(--ink3);font:10px var(--mono)}
   .tip{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-115%);transition:opacity .1s;
-    background:#0b0d13;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:11.5px;white-space:nowrap;
+    background:var(--inset);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:11.5px;white-space:nowrap;
     box-shadow:0 10px 24px -8px #000;z-index:3}
   .tip b{font-family:var(--mono)}
   .crosshair{stroke:var(--line2);stroke-width:1;stroke-dasharray:3 3;opacity:0}
@@ -104,14 +105,14 @@
   .sevrow{display:grid;grid-template-columns:78px 1fr 40px;align-items:center;gap:12px;padding:9px 0}
   .sevrow+.sevrow{border-top:1px solid var(--line)}
   .sevname{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2)}
-  .track{height:9px;border-radius:5px;background:#0d1017;overflow:hidden}
+  .track{height:9px;border-radius:5px;background:var(--inset);overflow:hidden}
   .fill{height:100%;border-radius:5px}
   .sevrow .num{text-align:right;font-size:13px}
 
   /* node cards */
   .nodes{display:flex;flex-direction:column;gap:10px}
   .node{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:var(--rs);background:var(--panel2)}
-  .node .ico{width:36px;height:36px;border-radius:9px;flex:none;display:grid;place-items:center;background:#0e131d;border:1px solid var(--line2)}
+  .node .ico{width:36px;height:36px;border-radius:9px;flex:none;display:grid;place-items:center;background:var(--chip);border:1px solid var(--line2)}
   .node .ico svg{width:19px;height:19px;stroke:var(--accent);fill:none;stroke-width:1.7}
   .node .nm{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
   .node .role{font-size:11px;color:var(--ink3);margin-top:1px}
@@ -134,7 +135,7 @@
   .evt tr:hover td{background:var(--panel2)}
   .sev{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600}
   .sev.hi{color:var(--crit)}.sev.wa{color:var(--warn)}.sev.in{color:var(--ink2)}
-  .catpill{font-family:var(--mono);font-size:10.5px;color:var(--ink2);background:#0e121b;border:1px solid var(--line);padding:1px 7px;border-radius:6px}
+  .catpill{font-family:var(--mono);font-size:10.5px;color:var(--ink2);background:var(--chip);border:1px solid var(--line);padding:1px 7px;border-radius:6px}
 
   /* jira / escalations */
   .tick{display:flex;gap:12px;padding:11px 0;align-items:flex-start}
@@ -201,7 +202,7 @@
 
 /* ── toasts + action buttons ── */
 .toaster{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:9px;z-index:50}
-.toast{background:#0d1017;border:1px solid var(--line2);border-left-width:3px;border-radius:10px;padding:11px 15px;
+.toast{background:var(--panel);border:1px solid var(--line2);border-left-width:3px;border-radius:10px;padding:11px 15px;
   font-size:12.5px;color:var(--ink);box-shadow:0 14px 34px -12px #000;min-width:200px;max-width:340px;animation:tin .22s cubic-bezier(.2,.8,.2,1)}
 .toast.g{border-left-color:var(--good)}.toast.c{border-left-color:var(--crit)}.toast.i{border-left-color:var(--accent)}
 @keyframes tin{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
@@ -219,15 +220,15 @@
 .field{display:flex;flex-direction:column;gap:7px}
 .flabel{font-size:12px;color:var(--ink2);font-weight:560}
 .fhint{font-size:11px;color:var(--ink3)}
-.seg2{display:inline-flex;background:#0d1017;border:1px solid var(--line2);border-radius:9px;padding:2px;gap:2px;flex-wrap:wrap}
-.segbtn{background:transparent;border:0;color:var(--ink2);font:inherit;font-size:12px;padding:5px 11px;border-radius:7px;cursor:pointer;font-family:var(--mono)}
+.seg2{display:inline-grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--inset);border:1px solid var(--line2);border-radius:9px;padding:2px;gap:2px}
+.segbtn{background:transparent;border:0;color:var(--ink2);font:inherit;font-size:12px;padding:5px 11px;border-radius:7px;cursor:pointer;font-family:var(--mono);text-align:center;white-space:nowrap}
 .segbtn:hover{color:var(--ink)}
 .segbtn.on{background:var(--accent);color:#fff;font-weight:600}
 .toggle{width:38px;height:22px;border-radius:999px;background:#20242f;border:1px solid var(--line2);position:relative;cursor:pointer;padding:0}
 .toggle.on{background:var(--accent);border-color:var(--accent)}
 .toggle .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .16s}
 .toggle.on .knob{transform:translateX(16px)}
-.inp{background:#0d1017;border:1px solid var(--line2);border-radius:8px;color:var(--ink);font:inherit;font-size:13px;padding:8px 11px;width:100%}
+.inp{background:var(--inset);border:1px solid var(--line2);border-radius:8px;color:var(--ink);font:inherit;font-size:13px;padding:8px 11px;width:100%}
 .inp:focus{outline:2px solid var(--accent);border-color:transparent}
 .adminrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
 .adminrow:first-child{border-top:0}
@@ -248,7 +249,10 @@ html[data-theme="light"]{
   --good:#12915f; --good-bg:#e2f4ec; --warn:#a8720f; --warn-bg:#f8efd9;
   --crit:#d5343f; --crit-bg:#fbe4e6; --info:#3468cf;
   --sh:0 1px 0 rgba(0,0,0,.02) inset,0 12px 30px -14px rgba(20,30,60,.18);
+  --inset:#eef1f5; --chip:#eef1f5;
 }
+html[data-theme="light"] .rail{background:linear-gradient(180deg,#f8f9fb,#eef1f5)}
+html[data-theme="light"] .segbtn.on{color:#fff}
 html[data-theme="light"] body{ background:var(--bg); }
 html[data-theme="light"] pre.mono, html[data-theme="light"] .drawer-bd pre{ background:#f4f6f9 !important; color:var(--ink2) !important; }
 
