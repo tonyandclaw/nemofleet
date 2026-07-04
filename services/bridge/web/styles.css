@@ -274,3 +274,13 @@ tr.clickrow:hover{background:var(--panel2)}
 .hdrbtn{background:var(--panel2);border:1px solid var(--line);color:var(--ink2);border-radius:8px;height:30px;min-width:32px;padding:0 8px;cursor:pointer;font-size:13px}
 .hdrbtn:hover{color:var(--ink);border-color:var(--line2)}
 .hdrbtn.on{color:var(--accent);border-color:var(--accent-dim)}
+
+/* ── density (data-density on <html>; cozy = default, no override) ── */
+html[data-density="compact"] body{font-size:13.3px}
+html[data-density="compact"] .pb{padding:12px 14px}
+html[data-density="compact"] .grid,html[data-density="compact"] .grid1{gap:11px}
+html[data-density="compact"] .kpis{gap:11px}
+html[data-density="spacious"] body{font-size:15.8px}
+html[data-density="spacious"] .pb{padding:20px 22px}
+html[data-density="spacious"] .grid,html[data-density="spacious"] .grid1{gap:20px}
+html[data-density="spacious"] .kpis{gap:20px}

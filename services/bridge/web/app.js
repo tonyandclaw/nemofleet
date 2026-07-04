@@ -11,12 +11,12 @@ function reloadNow() { dispatchEvent(new CustomEvent('nfreload')); }
 function openDrawer(detail) { dispatchEvent(new CustomEvent('nfdrawer', { detail })); }
 function fmtVal(v) { if (v == null || v === '') return '—'; if (Array.isArray(v)) return v.length ? v.map(fmtVal).join(', ') : '—'; if (typeof v === 'object') return JSON.stringify(v); return String(v); }
 function rowDrawer(title, row) { openDrawer({ title, rows: Object.entries(row).filter(([k]) => k[0] !== '_').map(([k, v]) => ({ k, v: fmtVal(v), mono: true })) }); }
-function useTheme() {
-  const [theme, set] = useState(() => localStorage.getItem('nf-theme') || 'dark');
-  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('nf-theme', theme); }, [theme]);
-  return [theme, set];
-}
+let THEME = localStorage.getItem('nf-theme') || 'dark';
 let LANG = localStorage.getItem('nf-lang') || 'zh';
+let DENSITY = localStorage.getItem('nf-density') || 'cozy';
+function applyUI() { const e = document.documentElement; e.setAttribute('data-theme', THEME); e.setAttribute('data-density', DENSITY); }
+function setTheme(x) { THEME = x; localStorage.setItem('nf-theme', x); applyUI(); dispatchEvent(new CustomEvent('nfui')); }
+function setDensity(x) { DENSITY = x; localStorage.setItem('nf-density', x); applyUI(); dispatchEvent(new CustomEvent('nfui')); }
 const I18N = {
   'Overview': { en: 'Overview', zh: '總覽' }, 'Flow': { en: 'Flow', zh: '工作流' }, 'Fleet': { en: 'Fleet', zh: '機隊' },
   'Security': { en: 'Security', zh: '資安' }, 'Governance': { en: 'Governance', zh: '治理' }, 'Proactive': { en: 'Proactive', zh: '主動' },
@@ -41,7 +41,8 @@ const I18N = {
   'No data.': { en: 'No data.', zh: '無資料。' }, 'Auto-open Jira': { en: 'Auto-open Jira', zh: '自動開 Jira' }, 'Notify channels': { en: 'Notify channels', zh: '通知管道' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
-function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nflang')); }
+function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
+applyUI();
 
 function DrawerHost() {
   const [dw, setDw] = useState(null);
@@ -493,8 +494,13 @@ const SettingsView = memo(function SettingsView({ d }) {
   const seg = (k, hint) => html`<${Field} label=${k} hint=${hint}><${Segmented} value=${s[k]} options=${CFG[k]} onChange=${v => set(k, v)}/></${Field}>`;
   const chans = String(s.notify_channels || 'jira,dashboard').split(',');
   const toggleChan = c => { const next = chans.includes(c) ? chans.filter(x => x !== c) : [...chans, c]; set('notify_channels', next.join(',')); };
-  return html`<div class="viewfade"><div class="viewhd"><h2>Settings</h2><span class="lbl">writes to the live backend</span></div>
+  return html`<div class="viewfade"><div class="viewhd"><h2>${t('Settings')}</h2><span class="lbl">${t('writes to the live backend')}</span></div>
     <div class="grid1">
+      ${html`<${Panel} title="Appearance" label="theme · language · density"><div class="formgrid">
+        <${Field} label="Theme"><${Segmented} value=${THEME} options=${[{ v: 'light', l: t('Light') }, { v: 'dark', l: t('Dark') }]} onChange=${setTheme}/></${Field}>
+        <${Field} label="Language / 語言"><${Segmented} value=${LANG} options=${[{ v: 'zh', l: '中文' }, { v: 'en', l: 'English' }]} onChange=${setLang}/></${Field}>
+        <${Field} label="Density"><${Segmented} value=${DENSITY} options=${[{ v: 'compact', l: t('Compact') }, { v: 'cozy', l: t('Cozy') }, { v: 'spacious', l: t('Spacious') }]} onChange=${setDensity}/></${Field}>
+      </div></${Panel}>`}
       ${html`<${Panel} title="Scan schedule" label="worker cadence"><div class="formgrid">
         ${seg('cve_interval_sec', 'worker-b CVE scan cadence')}${seg('cert_interval_sec', 'worker-a cert/crypto cadence')}${seg('nuclei_interval_sec', 'worker-b nuclei 主動掃 (nuclei-templates)')}</div></${Panel}>`}
       ${html`<${Panel} title="Certificate & crypto thresholds" label="what counts as weak"><div class="formgrid">
@@ -695,9 +701,8 @@ function App() {
   const { data, err, loading, reload } = useStatus();
   const route = useHashRoute('overview');
   const clock = useClock();
-  const [theme, setTheme] = useTheme();
-  const [, setLangN] = useState(0);
-  useEffect(() => { const h = () => setLangN(n => n + 1); addEventListener('nflang', h); return () => removeEventListener('nflang', h); }, []);
+  const [, uiN] = useState(0);
+  useEffect(() => { const h = () => uiN(n => n + 1); addEventListener('nfui', h); return () => removeEventListener('nfui', h); }, []);
   const d = useMemo(() => (data ? normalize(data) : null), [data]);
   useEffect(() => { const h = () => reload(); addEventListener('nfreload', h); return () => removeEventListener('nfreload', h); }, [reload]);
 
@@ -714,7 +719,7 @@ function App() {
           <div class="meta">${d.devices.length} managed device(s) · ${d.nodes.length} agent nodes · governance enforced by OPA / L7 policy</div></div>
         <div style=${{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button class="hdrbtn" title="Language / 語言" onClick=${() => setLang(LANG === 'zh' ? 'en' : 'zh')}>${LANG === 'zh' ? 'EN' : '中'}</button>
-          <button class="hdrbtn" title=${theme === 'dark' ? 'Switch to light' : 'Switch to dark'} onClick=${() => setTheme(theme === 'dark' ? 'light' : 'dark')}>${theme === 'dark' ? '☀' : '🌙'}</button>
+          <button class="hdrbtn" title=${THEME === 'dark' ? 'Switch to light' : 'Switch to dark'} onClick=${() => setTheme(THEME === 'dark' ? 'light' : 'dark')}>${THEME === 'dark' ? '☀' : '🌙'}</button>
           <${ActionBtn} act="refresh" label="↻ Refresh" busyLabel="…" ghost=${true}/>
           <div class="fleetpill live">
             ${d.nodes.map(nd => html`<span key=${nd.name} class="seg"><${Dot} up=${nd.up}/>${nd.name}</span>`)}
