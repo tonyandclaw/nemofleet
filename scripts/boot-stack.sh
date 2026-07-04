@@ -29,6 +29,7 @@ step() { printf '\033[1m[%s]\033[0m %s\n' "$1" "$2"; }
 die()  { bad "$1"; echo "  log: $LOG"; tail -5 "$LOG" 2>/dev/null | sed 's/^/  | /'; exit 1; }
 
 port_up()      { ss -tln 2>/dev/null | grep -q ":$1 "; }
+ui_port()      { nemoclaw "$1" dashboard-url -q 2>/dev/null | grep -oE '[0-9]+' | tail -1; }   # 每台沙箱的 UI port 由 nemoclaw 配發(host 而異),動態查
 hermes_host()  { [ "$(curl -so /dev/null -w '%{http_code}' -m 3 http://127.0.0.1:8642/health 2>/dev/null)" = 200 ]; }
 
 # hermes 容器內、巢狀 netns 裡的 health(recover 的 probe 看的就是這個)
@@ -54,6 +55,7 @@ endpoint_up() { docker exec "$CT_WA" sh -c 'curl -s -m3 -o /dev/null -w "%{http_
 endpoint_health() { docker exec "$CT_WA" sh -c 'curl -s -m3 http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null; }
 oc_ip() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CT_WA" 2>/dev/null; }
 oc2_ip() { local ct; ct=$(docker ps --format '{{.Names}}' | grep -m1 worker-b || true); [ -n "$ct" ] && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$ct" 2>/dev/null; }
+oc3_ip() { local ct; ct=$(docker ps --format '{{.Names}}' | grep -m1 worker-c || true); [ -n "$ct" ] && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$ct" 2>/dev/null; }
 # 部署單台 worker zone 端點(冪等):$1=容器名 $2=zone(A/B)。health 對得上 zone+markers 才算當前版,否則重部署。
 deploy_oc_endpoint() {
   local ct="$1" zone="$2" h same=1
@@ -109,9 +111,8 @@ ensure_xagent() {
   CT_O2=$(docker ps --format '{{.Names}}' | grep -m1 worker-b || true)
   [ -n "$CT_O2" ] && { OC2IP=$(oc2_ip); deploy_oc_endpoint "$CT_O2" B; }
   # 節點 C=worker-c(zone C 變更治理:備份/韌體/rollback/review;備份/rollback 需 device cred)
-  local CT_O3=""; CT_O3=$(docker ps --format '{{.Names}}' | grep -m1 worker-c || true)
-  [ -n "$CT_O3" ] && deploy_oc_endpoint "$CT_O3" C
-  # NOTE: worker-c 上線後需:worker_bridge policy 加其 /32(team-lead→worker-c)+ worker-c→裝置/ASUS 韌體 egress
+  local CT_O3="" OC3IP=""; CT_O3=$(docker ps --format '{{.Names}}' | grep -m1 worker-c || true)
+  [ -n "$CT_O3" ] && { OC3IP=$(oc3_ip); deploy_oc_endpoint "$CT_O3" C; }
   # worker-b 自主抽 SBOM/SAST/上游 advisory 需經受治理 egress 連 github(scoped allow,非全開)。重建後重套。
   local ALLOW_GH="$(dirname "$BRIDGE")/scripts/worker-b-allow-github.sh"
   [ -n "$CT_O2" ] && [ -x "$ALLOW_GH" ] && \
@@ -123,31 +124,32 @@ ensure_xagent() {
   # policy:渲染兩節點 IP + /32 收斂(節點 A + 節點 B);兩個 /32 都在才算當前版(同名 preset 升級替換)
   if [ -f "$CONFIG_DIR/presets/worker-bridge-preset.yaml" ]; then
     local P; P=$(openshell policy get team-lead --full 2>/dev/null)
-    if echo "$P" | grep -q "$OCIP/32" && { [ -z "$OC2IP" ] || echo "$P" | grep -q "$OC2IP/32"; }; then
-      ok "worker_bridge policy 已在($OCIP/32${OC2IP:+ + $OC2IP/32})"
+    if echo "$P" | grep -q "$OCIP/32" && { [ -z "$OC2IP" ] || echo "$P" | grep -q "$OC2IP/32"; } && { [ -z "$OC3IP" ] || echo "$P" | grep -q "$OC3IP/32"; }; then
+      ok "worker_bridge policy 已在($OCIP/32${OC2IP:+ + $OC2IP/32}${OC3IP:+ + $OC3IP/32})"
     else
-      sed -e "s/172\.18\.0\.2/$OCIP/g" -e "s/172\.18\.0\.4/${OC2IP:-172.18.0.4}/g" \
-          -e "s#172\.16\.0\.0/12#$OCIP/32#g" -e "s#172\.17\.0\.0/12#${OC2IP:-172.18.0.4}/32#g" \
+      sed -e "s/%%WA_IP%%/$OCIP/g" -e "s/%%WB_IP%%/${OC2IP:-$OCIP}/g" -e "s/%%WC_IP%%/${OC3IP:-$OCIP}/g" \
         "$CONFIG_DIR/presets/worker-bridge-preset.yaml" > /tmp/worker-bridge-rendered.yaml
       nemoclaw team-lead policy-add --from-file /tmp/worker-bridge-rendered.yaml --yes >>"$LOG" 2>&1 \
-        && ok "worker_bridge policy 已套用($OCIP/32${OC2IP:+ + $OC2IP/32})" || bad "policy-add 失敗(看 $LOG)"
+        && ok "worker_bridge policy 已套用($OCIP/32${OC2IP:+ + $OC2IP/32}${OC3IP:+ + $OC3IP/32})" || bad "policy-add 失敗(看 $LOG)"
     fi
   fi
-  # Hermes 端 SKILL:渲染 IP+token,內容變了才重裝(docker cp + chown 998)
-  if [ -n "$CT_LEAD" ] && [ -f "$SKILLS_DIR/hermes/it-delegate-worker/SKILL.md" ]; then
-    local SK=/sandbox/.hermes/skills/devops/it-delegate-worker/SKILL.md
-    sed -e "s/172\.18\.0\.2/$OCIP/g" -e "s/172\.18\.0\.4/${OC2IP:-172.18.0.4}/g" -e "s/BRIDGETOKEN/$TOKEN/g" \
-      "$SKILLS_DIR/hermes/it-delegate-worker/SKILL.md" > /tmp/it-delegate-rendered.md
-    if docker exec "$CT_LEAD" sh -c "cat $SK 2>/dev/null" | cmp -s - /tmp/it-delegate-rendered.md; then
-      ok "it-delegate-worker SKILL 已是當前 IP/token"
+  # Hermes 端 SKILL(it-delegate-worker + review-gate):渲染 IP+token,內容變了才重裝
+  local skn
+  for skn in it-delegate-worker review-gate; do
+    [ -n "$CT_LEAD" ] && [ -f "$SKILLS_DIR/hermes/$skn/SKILL.md" ] || continue
+    local SK=/sandbox/.hermes/skills/devops/$skn/SKILL.md
+    sed -e "s/%%WA_IP%%/$OCIP/g" -e "s/%%WB_IP%%/${OC2IP:-$OCIP}/g" -e "s/%%WC_IP%%/${OC3IP:-$OCIP}/g" -e "s/BRIDGETOKEN/$TOKEN/g" \
+      "$SKILLS_DIR/hermes/$skn/SKILL.md" > "/tmp/$skn-rendered.md"
+    if docker exec "$CT_LEAD" sh -c "cat $SK 2>/dev/null" | cmp -s - "/tmp/$skn-rendered.md"; then
+      ok "$skn SKILL 已是當前 IP/token"
     else
       docker exec -u 0 "$CT_LEAD" sh -c "mkdir -p $(dirname $SK)" >>"$LOG" 2>&1
-      docker cp /tmp/it-delegate-rendered.md "$CT_LEAD:$SK" >>"$LOG" 2>&1
+      docker cp "/tmp/$skn-rendered.md" "$CT_LEAD:$SK" >>"$LOG" 2>&1
       docker exec -u 0 "$CT_LEAD" sh -c "chown -R 998:998 $(dirname $SK); chmod 644 $SK" >>"$LOG" 2>&1 \
-        && ok "it-delegate-worker SKILL 已渲染部署(IP/token)" || bad "SKILL 部署失敗(看 $LOG)"
+        && ok "$skn SKILL 已渲染部署(IP/token)" || bad "$skn SKILL 部署失敗(看 $LOG)"
     fi
-    rm -f /tmp/it-delegate-rendered.md
-  fi
+    rm -f "/tmp/$skn-rendered.md"
+  done
   ensure_jira "$OCIP"
 }
 
@@ -208,8 +210,8 @@ ensure_dashboard() {
 echo "== boot-stack $(date '+%F %H:%M %Z') =="
 
 # ── 0. 全綠就提前收工(仍確保跨 agent 端點/policy 在位)──────────────
-if port_up $GW_PORT && port_up 18789 && hermes_host; then
-  ok "核心已全部在線(gateway :$GW_PORT / worker UI :18789 / hermes API :8642)"
+if port_up $GW_PORT && hermes_host; then
+  ok "核心已全部在線(gateway :$GW_PORT / hermes API :8642)"
   ensure_xagent
   ensure_dashboard
   ensure_ebg_stream
@@ -225,8 +227,11 @@ NEMOCLAW_GATEWAY_PORT=$GW_PORT nemoclaw worker-a recover >"$LOG" 2>&1 \
   || die "worker-a recover 失敗"
 port_up $GW_PORT || die "gateway :$GW_PORT 沒起來"
 ok "gateway :$GW_PORT"
-for i in $(seq 60); do port_up 18789 && break; sleep 2; done
-port_up 18789 && ok "worker UI :18789" || die "worker UI :18789 沒起來"
+UIP_A="$(ui_port worker-a)"
+if [ -n "$UIP_A" ]; then
+  for i in $(seq 30); do port_up "$UIP_A" && break; sleep 2; done
+  port_up "$UIP_A" && ok "worker-a UI :$UIP_A" || bad "worker-a UI :$UIP_A 未起(非致命)"
+fi
 
 # ── 1b. worker-b(第二台機隊代理,06-13 以 snapshot restore --to 建;非致命—失敗不擋主 stack)──
 CT_O2_ANY="$(docker ps -a --format '{{.Names}}' | grep -m1 worker-b || true)"
@@ -234,14 +239,27 @@ if [ -n "$CT_O2_ANY" ]; then
   step "1b" "worker-b 第二台機隊代理 recover(UI :18790)"
   docker start "$CT_O2_ANY" >>"$LOG" 2>&1 || true; sleep 3
   if NEMOCLAW_GATEWAY_PORT=$GW_PORT nemoclaw worker-b recover >>"$LOG" 2>&1; then
-    for i in $(seq 30); do port_up 18790 && break; sleep 2; done
-    port_up 18790 && ok "worker-b UI :18790(第二台機隊)" || bad "worker-b UI :18790 未起(非致命)"
+    UIP_B="$(ui_port worker-b)"
+    [ -n "$UIP_B" ] && { for i in $(seq 30); do port_up "$UIP_B" && break; sleep 2; done; }
+    [ -n "$UIP_B" ] && port_up "$UIP_B" && ok "worker-b UI :$UIP_B(資安節點)" || bad "worker-b UI 未起(非致命)"
   else
     bad "worker-b recover 失敗(非致命,主 stack 不受影響)"
   fi
 fi
+# ── 1c. worker-c(治理節點;同 1b 非致命)──
+CT_O3_ANY="$(docker ps -a --format '{{.Names}}' | grep -m1 worker-c || true)"
+if [ -n "$CT_O3_ANY" ]; then
+  step "1c" "worker-c 治理節點 recover"
+  docker start "$CT_O3_ANY" >>"$LOG" 2>&1 || true; sleep 2
+  NEMOCLAW_GATEWAY_PORT=$GW_PORT nemoclaw worker-c recover >>"$LOG" 2>&1 \
+    && ok "worker-c recover" || bad "worker-c recover 失敗(非致命)"
+fi
 
 # ── 2. 等 hermes 容器穩定(policy fetch 成功後巢狀 netns 才會出現)──
+# 新版 nemoclaw onboard 原生把 hermes gateway 拉起(:8642 直接健康)→ 步驟 2-4 只在退化時走
+if hermes_host; then
+  ok "hermes API :8642 已健康(原生啟動)— 跳過 netns 復原(步驟 2-4)"
+else
 step 2/4 "等 team-lead 容器穩定"
 CT_LEAD="$(resolve_ct team-lead)"
 require_ct CT_LEAD team-lead || die "team-lead 容器不存在"
@@ -286,6 +304,7 @@ else
   fi
   hermes_host && ok "hermes API http://127.0.0.1:8642/v1" || die "host :8642 還是不通"
 fi
+fi   # ← hermes 原生健康時跳過的 2-4 區塊到此
 
 # ── 5. 跨 agent 通道:worker 入站修復端點 + scoped policy ──
 ensure_xagent

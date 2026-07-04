@@ -287,7 +287,7 @@ def _collect_impl():
             d["containers"].append({"name": short(p[0]), "full": p[0], "status": p[1],
                                     "image": p[2], "ports": p[3] or "—", "uptime": p[4], "id": p[5][:12]})
 
-    d["gateway"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:%s/ 2>/dev/null" % os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080"), 4).strip() not in ("", "000")
+    d["gateway"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:" + os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080") + "/ 2>/dev/null", 4).strip() not in ("", "000")
     d["hermes_api"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/v1/models 2>/dev/null", 4).strip() not in ("", "000")
     cth = ct("team-lead")
     d["telegram_recent"] = 0

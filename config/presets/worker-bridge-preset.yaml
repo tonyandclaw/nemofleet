@@ -1,5 +1,5 @@
-# 模板:172.18.0.2 與 172.16.0.0/12 是占位,boot-stack ensure_xagent 會以
-# docker inspect 取得 worker-a 當前 IP 渲染成 <IP> 與 <IP>/32 再 policy-add。
+# 模板:%%WA_IP%% / %%WB_IP%% / %%WC_IP%% 是占位,boot-stack ensure_xagent 以 docker inspect
+# 取得各 worker 當前 IP 渲染後 policy-add(token 占位 → sed 不會互相改寫)。
 preset:
   name: worker-bridge
   description: "Hermes -> worker inbound fix endpoint (scoped; the ONLY cross-agent channel)"
@@ -7,18 +7,24 @@ network_policies:
   worker_bridge:
     name: worker_bridge
     endpoints:
-      - host: 172.18.0.2          # 節點 A = worker-a(zone A 無線線);boot-stack 渲染當前 IP
+      - host: %%WA_IP%%          # 節點 A = worker-a(zone A);boot-stack 渲染當前 IP
         port: 9099
         access: full
         tls: skip
         allowed_ips:
-          - 172.16.0.0/12         # boot-stack 渲染成 <worker-a IP>/32(收斂)
-      - host: 172.18.0.4          # 節點 B = worker-b(zone B 基礎設施線);boot-stack 渲染當前 IP
+          - %%WA_IP%%/32
+      - host: %%WB_IP%%          # 節點 B = worker-b(zone B)
         port: 9099
         access: full
         tls: skip
         allowed_ips:
-          - 172.17.0.0/12         # boot-stack 渲染成 <worker-b IP>/32(不同占位避免 sed 撞)
+          - %%WB_IP%%/32
+      - host: %%WC_IP%%          # 節點 C = worker-c(zone C 治理)
+        port: 9099
+        access: full
+        tls: skip
+        allowed_ips:
+          - %%WC_IP%%/32
     binaries:
       - { path: /usr/local/bin/hermes }
       - { path: /opt/hermes/.venv/bin/python }

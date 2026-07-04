@@ -34,8 +34,9 @@ clock_check
 [ -n "$CT_WA" ] && ok "worker-a container: $CT_WA" || bad "worker-a container missing"
 [ -n "$CT_WB" ] && ok "worker-b container: $CT_WB" || warn "worker-b container 未見(資安節點;非致命)"
 [ -n "$CT_WC" ] && ok "worker-c container: $CT_WC" || warn "worker-c container 未見(治理節點;非致命)"
-curl -sS -m 6 "$HERMES_API/models" 2>/dev/null | grep -q hermes-agent && ok "hermes API alive ($HERMES_API)" || bad "hermes API down"
-[ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:18789/ 2>/dev/null)" = 200 ] && ok "worker UI :18789" || bad "worker UI not 200"
+curl -sS -m 6 "http://127.0.0.1:8642/health" 2>/dev/null | grep -q '"status": "ok"' && ok "hermes API alive (:8642/health)" || bad "hermes API down"
+UIP="$(nemoclaw worker-a dashboard-url -q 2>/dev/null | grep -oE '[0-9]+' | tail -1)"
+[ -n "$UIP" ] && { [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$UIP/" 2>/dev/null)" = 200 ] && ok "worker-a UI :$UIP" || warn "worker-a UI :$UIP 未起(非核心)"; }
 ss -ltn 2>/dev/null | grep -q ":${NEMOCLAW_GATEWAY_PORT:-8080}" && ok "openshell gateway :${NEMOCLAW_GATEWAY_PORT:-8080}" || bad "gateway :${NEMOCLAW_GATEWAY_PORT:-8080} down"
 # 06-11 起納管 bridge 與 mail 元件(否則 boot 後「全綠」不代表 demo 主線可跑)
 if [ -n "$CT_WA" ] && docker exec "$CT_WA" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200; then
@@ -49,7 +50,7 @@ if [ -n "$CT_WC" ]; then docker exec "$CT_WC" sh -c 'curl -s -m3 -o /dev/null -w
 if [ -n "${JIRA_URL:-}" ]; then
   [ "$(curl -s -m4 -o /dev/null -w '%{http_code}' "$JIRA_URL" 2>/dev/null)" != 000 ] && ok "真實 Jira 可達($JIRA_URL)" || warn "Jira 不可達($JIRA_URL)"
 else warn "JIRA_URL 未設定(.env;升級只在儀表板提醒)"; fi
-[ "$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8899/ 2>/dev/null)" = 200 ] && ok "Agent Dashboard :8899(web 即時狀態盤)" || warn "Agent Dashboard :8899 down(boot-stack 會拉起)"
+DC=$(curl -sk -o /dev/null -w '%{http_code}' -m5 "https://127.0.0.1:${DASHBOARD_PORT:-8899}/login" 2>/dev/null); [ "$DC" = 200 ] && ok "Agent Dashboard :${DASHBOARD_PORT:-8899}(https)" || warn "Agent Dashboard :${DASHBOARD_PORT:-8899} down(boot-stack 會拉起)"
 pgrep -f "scripts/teamlead-proactive.sh" >/dev/null 2>&1 && ok "team-lead 主動巡邏 loop(積極 agent)" || warn "team-lead 主動巡邏未跑(boot-stack 的 ensure_proactive 會拉起)"
 echo "  ﹒bus: inbox=$(ls "$BUS/inbox" 2>/dev/null|wc -l) outbox=$(ls "$BUS/outbox" 2>/dev/null|wc -l) xfer-leftovers=$(ls -d "$BUS"/skill-xfer-* 2>/dev/null|wc -l)"
 echo "  ﹒scripts=$(ls "$(dirname "$0")"/*.sh|wc -l) snapshots=$(nemoclaw team-lead snapshot list 2>/dev/null|grep -cE '^\s+v[0-9]')"
