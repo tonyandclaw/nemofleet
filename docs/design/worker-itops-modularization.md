@@ -43,3 +43,9 @@
 - **55 unit**(pure 邏輯)+ **28 integration**(18 條 authed route 皆 no-token→403 的 wired 檢查 + zone-specific 行為)。
 - 每抽一個模組:`make lint/test/itest` + `my-hermes` 沙箱部署路徑 smoke(curl 端點、查 import error)。
 - routes-wired 檢查專門擋「模組化把路由接線搞掉」的回歸。
+
+## §#13 — sync 腳本改用共享 client(同樣 device-gated)
+
+`scripts/ebg19p-*-sync.sh`(asset / crypto / monitor / syslog / traffic)各自用 bash(curl + base64 + `login.cgi` / `appGet.cgi`)對**真機** EBG19P 做唯讀 RPC。#13 要把這段 RPC 改走共享的 `ebg19p.py` client(去重跨語言的登入/取值邏輯)。
+
+**為何延後**:這是重寫(shell RPC → python client 呼叫),而每支 sync 的**逐 hook 輸出契約**(`get_clientlist` / `nvram_dump` / `netdev` … 的解析格式)只有對**實體 EBG19P** 才驗得了。無裝置就重寫 = 可能靜默改壞正在運作的 device sync,違反「只要真的東西、別弄壞」。與上面的掃描器叢集同一個閘:**與真機/實 fleet 一起做**,每改一支就對真機驗一次輸出。
