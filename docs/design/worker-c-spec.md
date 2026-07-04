@@ -58,18 +58,18 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 
 先跑**確定性 gate**(過不了直接 reject,零 LLM);全過再用 LLM 做細緻品質判斷。判準都錨定既有的共享知識層(baseline / 安全鍵)。
 
-**remediation(審 worker-a)**
-- ☑ `baseline-match`(確定性):被標記的安全鍵,修完的 after-config 是否等於**已核准 baseline**。
-- ☑ `verified`(確定性):worker-a 有無實跑重讀 + 帶 before/after(`LAST.ok` / nvram 值)。
-- ☑ `no-collateral`(確定性):其他安全鍵沒被連帶弄退化。
-- ◇ `root-cause`(LLM):修的是根因還是症狀。
-- ◇ `no-better-alt`(LLM):有無明顯更完整/更安全的作法被漏掉。
+**remediation(審 worker-a)** — 已實作 ☑ 四閘(`wi_review.review_remediation`):
+- ☑ `baseline-match`:被標記的安全鍵,修完的 after 等於**已核准 baseline**。
+- ☑ `verified`:worker-a 有實跑重讀 + 帶 `ok` / `after`(非空談)。
+- ☑ `success-consistent`:回報 `ok=true` 卻仍偏離 baseline = 擋。
+- ☑ `scope`:改動只該動宣告的 `target_key`;溢出到其他安全鍵 = 範圍外副作用,擋。
+- ◇ `root-cause` / `no-better-alt`(LLM 擴充):修的是根因嗎?有無更完整/更安全的作法被漏掉?
 
-**cve / source(審 worker-b)**
-- ☑ `evidence`(確定性):affected 判定有無 SBOM 套件 + 版本 + advisory 佐證。
-- ☑ `consistency`(確定性):verdict 與版本/advisory 邏輯一致。
-- ◇ `false-pos/neg`(LLM):backport 假陽性?不可達?漏元件假陰性?
-- ◇ `severity/escalation`(LLM):嚴重度與「該不該開單」是否得當(過度/不足)。
+**cve / source(審 worker-b)** — 已實作 ☑ 三閘(`wi_review.review_cve`):
+- ☑ `evidence`:affected 判定有元件 + 版本佐證。
+- ☑ `cve-id`:判 affected 有附 CVE id。
+- ☑ `version-consistent`:給了 `fixed_version` 時,`our_version < fixed`(否則 affected 疑假陽性)。
+- ◇ `false-pos/neg` / `severity`(LLM 擴充):backport 假陽性?嚴重度與升級是否得當?
 
 **health**:liveness、error rate、上次掃描是否過期。
 

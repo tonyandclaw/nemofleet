@@ -6,6 +6,10 @@
 import re
 
 
+def _vt(s):
+    return tuple(int(x) for x in re.findall(r"\d+", s or ""))
+
+
 def _conf_kv(text):
     d = {}
     for line in (text or "").splitlines():
@@ -47,6 +51,16 @@ def review_remediation(subject, baseline_text, security_keys):
     consistent = not (subject.get("ok") and mismatched)
     checks.append({"name": "success-consistent", "pass": consistent,
                    "detail": "回報成功且值一致" if consistent else "回報 ok=true 但值仍偏離 baseline"})
+    # gate 4 — scope:修改只該動宣告的目標鍵;before→after 若動到「其他」安全鍵 = 範圍外副作用,擋
+    before = subject.get("before") or {}
+    if isinstance(before, str):
+        before = _conf_kv(before)
+    target = subject.get("target_key")   # worker-a 該回報它改了哪個鍵;無則不查此閘
+    if before and target:
+        changed = [k for k in security_keys if k in before and k in after and before[k] != after[k] and k != target]
+        in_scope = not changed
+        checks.append({"name": "scope", "pass": in_scope,
+                       "detail": "只動了目標鍵" if in_scope else "改動溢出到範圍外的安全鍵:" + ", ".join(changed)})
     return _verdict("worker-a", "remediation", checks, subject.get("bug", ""))
 
 
@@ -60,6 +74,13 @@ def review_cve(subject):
     ok_cve = (not aff) or bool(subject.get("cve"))
     checks.append({"name": "cve-id", "pass": ok_cve,
                    "detail": "affected 附 CVE id" if ok_cve else "判 affected 卻無 CVE id"})
+    # version-consistency:判 affected 且有修復版本 → our_version 應 < fixed(否則 affected 判定可疑)
+    fixed = subject.get("fixed_version") or subject.get("fixed")
+    ver = subject.get("our_version")
+    if aff and fixed and ver:
+        vc = _vt(ver) < _vt(fixed)
+        checks.append({"name": "version-consistent", "pass": vc,
+                       "detail": "our_version < fixed,affected 判定一致" if vc else "our_version 已 >= fixed,affected 判定可疑(疑假陽性)"})
     return _verdict("worker-b", "cve", checks, subject.get("cve", ""))
 
 

@@ -26,6 +26,23 @@ class TestReviewRemediation(unittest.TestCase):
         v = wi_review.review_remediation({"bug": "ebg-wps"}, BASELINE, KEYS)   # no ok/after
         self.assertEqual(v["verdict"], "reject")
 
+    def test_reject_scope_creep(self):
+        # target is wps, but the change also flipped ssh (still compliant, yet out of declared scope)
+        v = wi_review.review_remediation(
+            {"bug": "ebg-wps", "ok": True, "target_key": "wps.enabled",
+             "before": {"wps.enabled": "true", "ssh.password_login": "true"},
+             "after": {"wps.enabled": "false", "ssh.password_login": "false"}}, BASELINE, KEYS)
+        self.assertEqual(v["verdict"], "reject")
+        self.assertTrue(any(c["name"] == "scope" and not c["pass"] for c in v["checks"]))
+
+    def test_approve_in_scope(self):
+        # only the target key changed → scope gate passes (ssh unchanged, still compliant)
+        v = wi_review.review_remediation(
+            {"bug": "ebg-wps", "ok": True, "target_key": "wps.enabled",
+             "before": {"wps.enabled": "true", "ssh.password_login": "false"},
+             "after": {"wps.enabled": "false", "ssh.password_login": "false"}}, BASELINE, KEYS)
+        self.assertEqual(v["verdict"], "approve")
+
 
 class TestReviewCve(unittest.TestCase):
     def test_reject_affected_without_evidence(self):
@@ -34,6 +51,18 @@ class TestReviewCve(unittest.TestCase):
 
     def test_approve_with_evidence(self):
         v = wi_review.review_cve({"cve": "CVE-2024-1", "verdict": "affected", "component": "openssl", "our_version": "3.0.1"})
+        self.assertEqual(v["verdict"], "approve")
+
+    def test_reject_affected_when_version_at_or_above_fixed(self):
+        # our_version already >= the fixed version → "affected" is suspicious (likely false positive)
+        v = wi_review.review_cve({"cve": "CVE-1", "verdict": "affected", "component": "openssl",
+                                  "our_version": "3.0.5", "fixed_version": "3.0.2"})
+        self.assertEqual(v["verdict"], "reject")
+        self.assertTrue(any(c["name"] == "version-consistent" and not c["pass"] for c in v["checks"]))
+
+    def test_approve_affected_when_version_below_fixed(self):
+        v = wi_review.review_cve({"cve": "CVE-1", "verdict": "affected", "component": "openssl",
+                                  "our_version": "3.0.1", "fixed_version": "3.0.2"})
         self.assertEqual(v["verdict"], "approve")
 
 
