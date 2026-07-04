@@ -8,6 +8,14 @@ const SERIES = { allowed: '#3987e5', denied: '#e66767' };
 // ── toasts + backend actions (decoupled via CustomEvents so any button can fire them) ────────
 function toast(msg, kind = 'i') { dispatchEvent(new CustomEvent('nftoast', { detail: { msg, kind, id: Date.now() + Math.random() } })); }
 function reloadNow() { dispatchEvent(new CustomEvent('nfreload')); }
+function openDrawer(detail) { dispatchEvent(new CustomEvent('nfdrawer', { detail })); }
+function fmtVal(v) { if (v == null || v === '') return '—'; if (Array.isArray(v)) return v.length ? v.map(fmtVal).join(', ') : '—'; if (typeof v === 'object') return JSON.stringify(v); return String(v); }
+function rowDrawer(title, row) { openDrawer({ title, rows: Object.entries(row).filter(([k]) => k[0] !== '_').map(([k, v]) => ({ k, v: fmtVal(v), mono: true })) }); }
+function useTheme() {
+  const [theme, set] = useState(() => localStorage.getItem('nf-theme') || 'dark');
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('nf-theme', theme); }, [theme]);
+  return [theme, set];
+}
 
 function DrawerHost() {
   const [dw, setDw] = useState(null);
@@ -131,7 +139,7 @@ const SevBar = ({ label, count, max, color, dotcls }) => {
 };
 
 // DataTable — client-side pagination (scale-ready: swap for server pagination via api.js later)
-const DataTable = memo(function DataTable({ rows, cols, pageSize = 8, empty, fetchPage }) {
+const DataTable = memo(function DataTable({ rows, cols, pageSize = 8, empty, fetchPage, onRow, drawerTitle }) {
   const [page, setPage] = useState(0);
   const [srv, setSrv] = useState(null);   // server-paginated result when fetchPage is given
   useEffect(() => { if (!fetchPage) return; let ok = true; fetchPage(page, pageSize).then(r => ok && setSrv(r)); return () => { ok = false; }; }, [fetchPage, page, pageSize]);
@@ -143,7 +151,7 @@ const DataTable = memo(function DataTable({ rows, cols, pageSize = 8, empty, fet
   if (!slice.length) return html`<div class="empty">${empty || 'No data.'}</div>`;
   return html`<div><div class="tblwrap"><table class="dt">
       <thead><tr>${cols.map(c => html`<th key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.label}</th>`)}</tr></thead>
-      <tbody>${slice.map((row, i) => html`<tr key=${i}>${cols.map(c => html`<td key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.render ? c.render(row) : row[c.k]}</td>`)}</tr>`)}</tbody>
+      <tbody>${slice.map((row, i) => html`<tr key=${i} class="clickrow" onClick=${() => (onRow ? onRow(row) : rowDrawer(drawerTitle || 'Detail', row))}>${cols.map(c => html`<td key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.render ? c.render(row) : row[c.k]}</td>`)}</tr>`)}</tbody>
     </table></div>
     ${pages > 1 ? html`<div class="pager">
       <span>${rows.length} rows</span>
