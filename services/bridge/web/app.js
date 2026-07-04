@@ -247,14 +247,18 @@ const OverviewView = memo(function OverviewView({ d }) {
 const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
   const dev = devices[0] || {};
   return html`<${Panel} title="Agent fleet" label=${'Hermes harness ×' + nodes.length}>
-    <div class="nodes">${nodes.map(n => html`<div key=${n.name} class="node">
+    <div class="nodes">${nodes.map(n => html`<div key=${n.name} class="node clickcard" onClick=${() => openDrawer({ title: t('Node detail'), sub: n.name, rows: [
+        { k: 'name', v: n.name, mono: true }, { k: 'role', v: n.role }, { k: 'zone', v: n.zone || '—' }, { k: 'port', v: ':' + n.port, mono: true },
+        { k: 'status', v: n.up ? '● up' : '○ down' }, { k: 'tag', v: n.tag }, { k: 'caps', v: (n.caps || []).join(', ') || '—' } ] })}>
       <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></span>
       <div><div class="nm">${n.name} <span class=${'tag ' + (n.tag === 'lead' ? 'a' : 'g')}>${n.tag}</span></div><div class="role">${n.role}</div></div>
       <div class="rt"><${Dot} up=${n.up}/> :${n.port}<br/><span class="muted">${n.zone || ''}</span></div>
     </div>`)}</div>
     <hr class="sep" style=${{ margin: '14px 0 12px' }}/>
     <div class="lbl" style=${{ marginBottom: '10px' }}>Managed device${devices.length > 1 ? 's · ' + devices.length : ''}</div>
-    <div class="device"><div class="metrics">
+    <div class="device clickcard" onClick=${() => openDrawer({ title: t('Device detail'), sub: dev.model || 'EBG19P', rows: [
+        { k: 'asset', v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: 'model', v: dev.model || 'EBG19P' }, { k: 'firmware', v: dev.firmware || '—', mono: true },
+        { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: dev.online !== false ? 'yes' : 'no' } ] })}><div class="metrics">
       ${[['CPU', dev.cpu, '%'], ['MEM', dev.mem, '%'], ['TEMP', dev.temp, '°C']].map(([k, v, u]) =>
     html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div></div>`)}
     </div></div>
@@ -296,8 +300,12 @@ const EscalationsPanel = memo(function EscalationsPanel({ jira }) {
 });
 
 const EventsPanel = memo(function EventsPanel({ events }) {
-  return html`<${Panel} title="Recent device events" label="EBG19P syslog · classified">
-    <${DataTable} rows=${events} pageSize=${6} empty="No recent events — worker-a syslog sync idle."
+  const [cat, setCat] = useState('all');
+  const cats = ['all', ...Array.from(new Set((events || []).map(e => e.cat || 'service')))];
+  const rows = cat === 'all' ? events : (events || []).filter(e => (e.cat || 'service') === cat);
+  return html`<${Panel} title="Recent device events" label="EBG19P syslog · classified"
+    right=${html`<div class="seg2 filt">${cats.slice(0, 6).map(c => html`<button key=${c} class=${'segbtn ' + (cat === c ? 'on' : '')} onClick=${() => setCat(c)}>${c}</button>`)}</div>`}>
+    <${DataTable} rows=${rows} pageSize=${6} empty="No recent events — worker-a syslog sync idle."
       cols=${[
         { k: 't', label: 'Time', render: r => html`<span class="mono">${r.t || ''}</span>` },
         { k: 'cat', label: 'Category', render: r => html`<span class="catpill">${r.cat || 'service'}</span>` },
@@ -449,17 +457,23 @@ const GovernanceView = memo(function GovernanceView({ d }) {
         <div class="gstat"><div><div class="num" style=${{ color: SERIES.allowed }}>${g.allowed.toLocaleString()}</div><div class="lbl">Allowed</div></div>
         <div><div class="num" style=${{ color: 'var(--crit)' }}>${g.denied}</div><div class="lbl">Denied</div></div>
         <div><div class="num ink2">${g.benign.toLocaleString()}</div><div class="lbl">Heartbeats</div></div></div></${Panel}>`}
-      ${html`<${Panel} title="Recent governed actions" label="engine · policy · verdict">
-        <${DataTable} rows=${g.events} pageSize=${10} empty="No governance events in window."
-          cols=${[
-            { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || r.t || ''}</span>` },
-            { k: 'target', label: 'Target', render: r => html`<span class="mono">${r.target || r.b || ''}</span>` },
-            { k: 'policy', label: 'Policy', render: r => html`<span class="catpill">${r.policy || r.a || '—'}</span>` },
-            { k: 'verdict', label: 'Verdict', align: 'right', render: r => {
-              const dn = (r.verdict || r.cls || '').toLowerCase().includes('den');
-              return html`<span class=${'sev ' + (dn ? 'hi' : 'in')}>${dn ? 'DENIED' : 'ALLOWED'}</span>`; } },
-          ]}/></${Panel}>`}
+      ${html`<${GovActionsPanel} events=${g.events}/>`}
     </div></div>`;
+});
+const GovActionsPanel = memo(function GovActionsPanel({ events }) {
+  const [vf, setVf] = useState('all');
+  const ev = vf === 'all' ? events : (events || []).filter(r => { const dn = (r.verdict || r.cls || '').toLowerCase().includes('den'); return vf === 'denied' ? dn : !dn; });
+  return html`<${Panel} title="Recent governed actions" label="engine · policy · verdict"
+    right=${html`<div class="seg2 filt">${['all', 'allowed', 'denied'].map(x => html`<button key=${x} class=${'segbtn ' + (vf === x ? 'on' : '')} onClick=${() => setVf(x)}>${t(x)}</button>`)}</div>`}>
+    <${DataTable} rows=${ev} pageSize=${10} empty="No governance events in window."
+      cols=${[
+        { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || r.t || ''}</span>` },
+        { k: 'target', label: 'Target', render: r => html`<span class="mono">${r.target || r.b || ''}</span>` },
+        { k: 'policy', label: 'Policy', render: r => html`<span class="catpill">${r.policy || r.a || '—'}</span>` },
+        { k: 'verdict', label: 'Verdict', align: 'right', render: r => {
+          const dn = (r.verdict || r.cls || '').toLowerCase().includes('den');
+          return html`<span class=${'sev ' + (dn ? 'hi' : 'in')}>${dn ? 'DENIED' : 'ALLOWED'}</span>`; } },
+      ]}/></${Panel}>`;
 });
 
 const AuditView = memo(function AuditView({ d }) {

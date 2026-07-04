@@ -284,3 +284,4 @@ html[data-density="spacious"] body{font-size:15.8px}
 html[data-density="spacious"] .pb{padding:20px 22px}
 html[data-density="spacious"] .grid,html[data-density="spacious"] .grid1{gap:20px}
 html[data-density="spacious"] .kpis{gap:20px}
+.seg2.filt{gap:2px} .seg2.filt .segbtn{padding:3px 8px;font-size:11px;text-transform:capitalize}
