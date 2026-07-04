@@ -9,6 +9,22 @@ const SERIES = { allowed: '#3987e5', denied: '#e66767' };
 function toast(msg, kind = 'i') { dispatchEvent(new CustomEvent('nftoast', { detail: { msg, kind, id: Date.now() + Math.random() } })); }
 function reloadNow() { dispatchEvent(new CustomEvent('nfreload')); }
 
+function DrawerHost() {
+  const [dw, setDw] = useState(null);
+  useEffect(() => {
+    const h = e => setDw(e.detail);
+    const esc = e => { if (e.key === 'Escape') setDw(null); };
+    addEventListener('nfdrawer', h); addEventListener('keydown', esc);
+    return () => { removeEventListener('nfdrawer', h); removeEventListener('keydown', esc); };
+  }, []);
+  if (!dw) return null;
+  return html`<div class="drawer-scrim" onClick=${() => setDw(null)}>
+    <aside class="drawer" onClick=${e => e.stopPropagation()}>
+      <div class="drawer-hd"><h3>${dw.title || 'Details'}</h3>${dw.sub ? html`<span class="dwsub">${dw.sub}</span>` : null}<button class="drawer-x" onClick=${() => setDw(null)}>✕</button></div>
+      <div class="drawer-bd">${dw.node ? dw.node : (dw.rows || []).map((r, i) => html`<div key=${i} class="kv"><span class="kvk">${r.k}</span><span class=${'kvv ' + (r.mono ? 'mono' : '')}>${r.v == null || r.v === '' ? '—' : r.v}</span></div>`)}</div>
+    </aside>
+  </div>`;
+}
 function Toaster() {
   const [items, setItems] = useState([]);
   useEffect(() => {
@@ -645,6 +661,7 @@ function App() {
   const { data, err, loading, reload } = useStatus();
   const route = useHashRoute('overview');
   const clock = useClock();
+  const [theme, setTheme] = useTheme();
   const d = useMemo(() => (data ? normalize(data) : null), [data]);
   useEffect(() => { const h = () => reload(); addEventListener('nfreload', h); return () => removeEventListener('nfreload', h); }, [reload]);
 
@@ -660,6 +677,7 @@ function App() {
         <div><h1>${(VIEWS[route] || VIEWS.overview).label}</h1>
           <div class="meta">${d.devices.length} managed device(s) · ${d.nodes.length} agent nodes · governance enforced by OPA / L7 policy</div></div>
         <div style=${{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button class="hdrbtn" title=${theme === 'dark' ? 'Switch to light' : 'Switch to dark'} onClick=${() => setTheme(theme === 'dark' ? 'light' : 'dark')}>${theme === 'dark' ? '☀' : '🌙'}</button>
           <${ActionBtn} act="refresh" label="↻ Refresh" busyLabel="…" ghost=${true}/>
           <div class="fleetpill live">
             ${d.nodes.map(nd => html`<span key=${nd.name} class="seg"><${Dot} up=${nd.up}/>${nd.name}</span>`)}
@@ -677,4 +695,4 @@ function App() {
   </div>`;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(html`<${React.Fragment}><${App}/><${Toaster}/></${React.Fragment}>`);
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${React.Fragment}><${App}/><${Toaster}/><${DrawerHost}/></${React.Fragment}>`);

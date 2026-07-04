@@ -238,3 +238,39 @@
 .vlist{overflow-y:auto;border:1px solid var(--line);border-radius:var(--rs);background:var(--panel2)}
 .vrow{display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink2);gap:12px}
 .vrow .mono{color:var(--ink3)}
+
+/* ── light theme (data-theme=light on <html>; dark stays the :root default) ── */
+html[data-theme="light"]{
+  --bg:#eef1f5; --panel:#ffffff; --panel2:#f4f6f9; --raise:#e9edf3;
+  --line:#e2e6ec; --line2:#cfd5df;
+  --ink:#161b26; --ink2:#586274; --ink3:#8b93a3;
+  --accent:#2f6fe0; --accent-ink:#194aa5; --accent-dim:#dbe7fb;
+  --good:#12915f; --good-bg:#e2f4ec; --warn:#a8720f; --warn-bg:#f8efd9;
+  --crit:#d5343f; --crit-bg:#fbe4e6; --info:#3468cf;
+  --sh:0 1px 0 rgba(0,0,0,.02) inset,0 12px 30px -14px rgba(20,30,60,.18);
+}
+html[data-theme="light"] body{ background:var(--bg); }
+html[data-theme="light"] pre.mono, html[data-theme="light"] .drawer-bd pre{ background:#f4f6f9 !important; color:var(--ink2) !important; }
+
+/* ── detail Drawer (click a component/row → slide-in details) ── */
+.drawer-scrim{position:fixed;inset:0;background:rgba(6,8,14,.46);z-index:120;display:flex;justify-content:flex-end;animation:dwfade .16s ease}
+@keyframes dwfade{from{opacity:0}to{opacity:1}}
+.drawer{width:min(460px,94vw);height:100%;background:var(--panel);border-left:1px solid var(--line);box-shadow:var(--sh);display:flex;flex-direction:column;animation:dwslide .22s cubic-bezier(.2,.7,.3,1)}
+@keyframes dwslide{from{transform:translateX(34px);opacity:.35}to{transform:none;opacity:1}}
+.drawer-hd{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--line);flex:none}
+.drawer-hd h3{margin:0;font-size:15px;font-weight:700;color:var(--ink)}
+.drawer-hd .dwsub{font-size:11px;color:var(--ink3);font-family:var(--mono)}
+.drawer-x{margin-left:auto;background:var(--panel2);border:1px solid var(--line);color:var(--ink2);border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;flex:none}
+.drawer-x:hover{color:var(--ink);border-color:var(--line2)}
+.drawer-bd{padding:12px 18px 22px;overflow-y:auto}
+.kv{display:flex;gap:14px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;align-items:baseline}
+.kv:last-child{border-bottom:0}
+.kvk{color:var(--ink2);min-width:118px;flex:none;font-size:12px}
+.kvv{color:var(--ink);word-break:break-word;flex:1}
+tr.clickrow{cursor:pointer}
+tr.clickrow:hover{background:var(--panel2)}
+.clickcard{cursor:pointer}
+.clickcard:hover{border-color:var(--line2)}
+.hdrbtn{background:var(--panel2);border:1px solid var(--line);color:var(--ink2);border-radius:8px;height:30px;min-width:32px;padding:0 8px;cursor:pointer;font-size:13px}
+.hdrbtn:hover{color:var(--ink);border-color:var(--line2)}
+.hdrbtn.on{color:var(--accent);border-color:var(--accent-dim)}
