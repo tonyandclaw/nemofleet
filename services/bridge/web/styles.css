@@ -35,9 +35,12 @@
   .brand .sub{font-size:10px;color:var(--ink3);letter-spacing:.04em}
   .nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--rs);color:var(--ink2);
     font-weight:530;font-size:13.5px;position:relative}
-  .nav a svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
+  .nav a svg,.navico{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;opacity:.82}
+  .nav a.on .navico{opacity:1}
+  .navgroup{margin-bottom:13px}
+  .navgh{font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink3);padding:0 11px;margin:0 0 4px;font-weight:700}
   .nav a:hover{background:var(--panel);color:var(--ink)}
-  .nav a.on{background:linear-gradient(90deg,var(--accent-dim),transparent);color:#fff}
+  .nav a.on{background:var(--accent-dim);color:var(--accent-ink);font-weight:600}
   .nav a.on::before{content:"";position:absolute;left:-14px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
   .nav .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink3)}
   .nav a.on .cnt,.nav a:hover .cnt{color:var(--accent-ink)}

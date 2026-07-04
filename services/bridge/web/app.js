@@ -121,6 +121,9 @@ const I18N = {
   'No SAST hits.': { en: 'No SAST hits.', zh: '無 SAST 命中。' },
   'off = dashboard only': { en: 'off = dashboard only', zh: '關 = 只在儀表板' },
   'Jira is always kept': { en: 'Jira is always kept', zh: '一律保留 Jira' },
+  'grp_monitor': { en: 'MONITOR', zh: '監控' },
+  'grp_govern': { en: 'GOVERN', zh: '治理' },
+  'grp_system': { en: 'SYSTEM', zh: '系統' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -821,11 +824,32 @@ const VIEWS = {
   settings: { label: 'Settings', comp: SettingsView },
 };
 
+const NAV_GROUPS = [
+  { key: 'monitor', items: ['overview', 'flow', 'fleet'] },
+  { key: 'govern', items: ['security', 'governance', 'changectrl', 'audit'] },
+  { key: 'system', items: ['proactive', 'admin', 'settings'] },
+];
+const NAV_ICON = {
+  overview: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
+  flow: '<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.3 10.9 16.7 6.9M7.3 13.1 16.7 17.1"/>',
+  fleet: '<rect x="3" y="4" width="18" height="5.5" rx="1.5"/><rect x="3" y="14.5" width="18" height="5.5" rx="1.5"/><path d="M6.5 6.75h.01M6.5 17.25h.01"/>',
+  security: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/>',
+  governance: '<path d="M12 3.5v17M6 7.5h12M8 7.5 5 14h6zM16 7.5 13 14h6zM8.5 20.5h7"/>',
+  changectrl: '<circle cx="6.5" cy="6" r="2.3"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="17.5" cy="12" r="2.3"/><path d="M6.5 8.3v7.4M8.7 6H13a2.2 2.2 0 0 1 2.2 2.2v2"/>',
+  proactive: '<circle cx="12" cy="12" r="1.8"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a10.5 10.5 0 0 0 0 13.2M18.6 5.4a10.5 10.5 0 0 1 0 13.2"/>',
+  audit: '<rect x="4.5" y="3" width="15" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  admin: '<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20c0-3.5 3-5.8 6.5-5.8s6.5 2.3 6.5 5.8"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v3M12 17.5v3M4.5 12h3M16.5 12h3M6.2 6.2 8.3 8.3M15.7 15.7l2.1 2.1M17.8 6.2 15.7 8.3M8.3 15.7 6.2 17.8"/>',
+};
 function NavRail({ me, route, counts }) {
   return html`<aside class="rail">
     <div class="brand"><span class="mark"></span><div><b>nemofleet</b><div class="sub">GOVERNED FLEET</div></div></div>
-    <nav class="nav">${Object.entries(VIEWS).map(([k, v]) => html`<a key=${k} class=${route === k ? 'on' : ''} href=${'#/' + k}>${t(v.label)}
-      ${counts[k] != null ? html`<span class="cnt">${counts[k]}</span>` : null}</a>`)}</nav>
+    <nav class="nav">${NAV_GROUPS.map(g => html`<div key=${g.key} class="navgroup">
+      <div class="navgh">${t('grp_' + g.key)}</div>
+      ${g.items.map(k => html`<a key=${k} class=${route === k ? 'on' : ''} href=${'#/' + k}>
+        <svg class="navico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" dangerouslySetInnerHTML=${{ __html: NAV_ICON[k] || '' }}></svg>
+        <span>${t(VIEWS[k].label)}</span>${counts[k] != null ? html`<span class="cnt">${counts[k]}</span>` : null}</a>`)}
+    </div>`)}</nav>
     <div class="railfoot"><span class="avatar">${(me.email || 'op')[0].toUpperCase()}</span>
       <div style=${{ minWidth: 0 }}><div style=${{ fontSize: '12px', fontWeight: 600 }}>${me.email || 'operator'}</div>
       <div style=${{ fontSize: '10.5px', color: 'var(--ink3)' }}>${me.role || ''}</div></div></div>
