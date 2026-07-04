@@ -175,6 +175,15 @@ const I18N = {
   'policy API unavailable': { en: 'policy API unavailable', zh: '政策 API 不可用' },
   'policy unavailable': { en: 'policy unavailable', zh: '政策不可用' },
   'loading…': { en: 'loading…', zh: '載入中…' },
+  'online': { en: 'online', zh: '在線' },
+  'offline': { en: 'offline', zh: '離線' },
+  'name': { en: 'name', zh: '名稱' },
+  'role': { en: 'role', zh: '角色' },
+  'zone': { en: 'zone', zh: '區域' },
+  'port': { en: 'port', zh: '埠' },
+  'tag': { en: 'tag', zh: '標籤' },
+  'caps': { en: 'caps', zh: '能力' },
+  'status': { en: 'status', zh: '狀態' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -971,7 +980,10 @@ function App() {
           <button class="hdrbtn" title=${THEME === 'dark' ? 'Switch to light' : 'Switch to dark'} onClick=${() => setTheme(THEME === 'dark' ? 'light' : 'dark')}>${THEME === 'dark' ? '☀' : '🌙'}</button>
           <${ActionBtn} act="refresh" label="↻ Refresh" busyLabel="…" ghost=${true}/>
           <div class="fleetpill live">
-            ${d.nodes.map(nd => html`<span key=${nd.name} class="seg"><${Dot} up=${nd.up}/>${nd.name}</span>`)}
+            ${d.nodes.map(nd => html`<span key=${nd.name} class="seg nodeseg" title=${t('Node detail')} onClick=${() => openDrawer({ title: t('Node detail'), sub: nd.name, rows: [
+              { k: t('name'), v: nd.name, mono: true }, { k: t('status'), v: nd.up ? '● ' + t('online') : '○ ' + t('offline') },
+              { k: t('role'), v: nd.role || '—' }, { k: t('zone'), v: nd.zone || '—' }, { k: t('port'), v: ':' + nd.port, mono: true },
+              { k: t('tag'), v: nd.tag || '—' }, { k: t('caps'), v: (nd.caps || []).join(', ') || '—' } ] })}><${Dot} up=${nd.up}/>${nd.name}</span>`)}
             <span class="seg">NIM · ${d.inference.model} <${Dot} up=${d.inference.reachable !== false}/></span>
             <span class="seg clock">${clock}</span>
           </div>

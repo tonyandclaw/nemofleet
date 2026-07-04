@@ -294,3 +294,5 @@ html[data-density="spacious"] .kpis{gap:20px}
 .seg2.filt{gap:2px} .seg2.filt .segbtn{padding:3px 8px;font-size:11px;text-transform:capitalize}
 .polrow{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}
 .polrow:last-of-type{border-bottom:0}
+.fleetpill .nodeseg{cursor:pointer;border-radius:6px;padding:2px 5px;margin:-2px -1px;transition:background .12s}
+.fleetpill .nodeseg:hover{background:var(--panel2);color:var(--ink)}
