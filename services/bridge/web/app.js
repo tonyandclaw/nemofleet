@@ -556,7 +556,7 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
             { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
             { k: 'target', label: 'Target', render: r => html`<span class="mono">${r.target || ''} · ${r.kind || ''}</span>` },
             { k: 'ref', label: 'Subject', render: r => html`<span class="mono muted">${r.ref || ''}</span>` },
-            { k: 'verdict', label: 'Verdict', align: 'right', render: r => vPill(r.verdict) },
+            { k: 'verdict', label: 'Verdict', align: 'right', render: r => html`${vPill(r.verdict)}${r.escalate ? html` <span class="pill2 c">→ human</span>` : r.redo > 0 ? html` <span class="pill2 w">redo ${r.redo}</span>` : null}` },
           ]}/></${Panel}>`}
       ${html`<${Panel} title="Config backups" label="known-good 版本" right=${html`<${ActionBtn} act="backup" label="Backup now" busyLabel="…" ghost=${true}/>`}>
         <div style=${{ display: 'flex', gap: '22px', flexWrap: 'wrap', marginBottom: '9px', fontSize: '12px' }}>
