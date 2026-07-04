@@ -60,7 +60,7 @@ deploy_oc_endpoint() {
   h=$(docker exec "$ct" sh -c 'curl -s -m3 http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null)
   # 「當前版」= 端點健康(對的 zone + a2a marker)且部署的每個模組都與本地逐位元一致。
   # 逐檔 cmp 取代舊的 marker 偵測 → 任何程式碼變更(含新模組缺檔)都會觸發重部署,不再靜默跑舊碼。
-  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills; do
+  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills wi_flow; do
     docker exec "$ct" sh -c "cat /usr/local/bin/$m.py 2>/dev/null" | cmp -s - "$BRIDGE/$m.py" || same=0
   done
   if [ "$same" = 1 ] && echo "$h" | grep -q "\"zone\": \"$zone\"" && echo "$h" | grep -q '"a2a": true'; then
@@ -74,6 +74,7 @@ deploy_oc_endpoint() {
     docker cp "$BRIDGE/wi_nuclei.py" "$ct:/usr/local/bin/wi_nuclei.py" >>"$LOG" 2>&1   # nuclei subsystem (import wi_nuclei)
     docker cp "$BRIDGE/wi_review.py" "$ct:/usr/local/bin/wi_review.py" >>"$LOG" 2>&1   # worker-c QA-review gates (import wi_review)
     docker cp "$BRIDGE/wi_skills.py" "$ct:/usr/local/bin/wi_skills.py" >>"$LOG" 2>&1   # SkillOS skill curation (import wi_skills)
+    docker cp "$BRIDGE/wi_flow.py" "$ct:/usr/local/bin/wi_flow.py" >>"$LOG" 2>&1   # flow event ring (import wi_flow)
     docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-knowledge' >>"$LOG" 2>&1
     docker cp "$NEMOFLEET_ROOT/knowledge" "$ct:/usr/local/share/nemofleet-knowledge" >>"$LOG" 2>&1   # canonical shared knowledge → KNOWLEDGE_DIR
     docker exec -u 0 "$ct" sh -c 'pkill -f worker-itops; true' >>"$LOG" 2>&1; sleep 1
