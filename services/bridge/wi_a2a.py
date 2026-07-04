@@ -17,6 +17,7 @@ A2A_SKILLS = {
   "firmware": {"id": "firmware-update", "name": "Firmware lifecycle", "description": "韌體版本 / 更新查核 · 分批上線", "tags": ["governance", "firmware"]},
   "rollback": {"id": "rollback", "name": "Restore known-good config", "description": "還原已知良好設定(需人核准)", "tags": ["governance", "rollback"]},
   "review":   {"id": "review", "name": "QA review (a/b outputs)", "description": "審查 worker-a/b 解法決策 → 綁定判決", "tags": ["governance", "review"]},
+  "curate":   {"id": "curate", "name": "Skill curation (SkillOS)", "description": "審查技能庫 insert/update/delete:品質閘 + 抗膨脹 + BM25(arXiv 2605.06614)", "tags": ["governance", "skills", "curator"]},
 }
 A2A_KNOWLEDGE = {"id": "knowledge", "name": "Shared fleet knowledge", "description": "共享知識：核准 baseline / 安全鍵定義 / lessons / fleet 快照", "tags": ["knowledge", "context"]}
 

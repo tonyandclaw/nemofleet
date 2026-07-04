@@ -63,7 +63,7 @@ flowchart LR
 - **harness 治理層**:OpenShell `policy.yaml`(egress / binaries / host 三層)+ nemoclaw strategy(model / route / policy tier)—— 程式碼層強制,由 log `ALLOWED` / `DENIED` 佐證。
 
 ## 規劃:第四個 worker(worker-c · 變更治理官)
-可選擴充 —— worker-c(zone C)= **生命週期**(備份 / 韌體 / rollback)+ **a/b 的品質監督**:審查 worker-a/worker-b 的解法與決策,爛的可退回重做(reject 綁定,經 team-lead 執行;worker 之間仍不互連、人在最頂端)。把艦隊從「各做各的」升級成有品質閘門的**自我校正系統**(propose → review → redo → verify)。完整規格見 [worker-c-spec.md](./worker-c-spec.md)。
+可選擴充 —— worker-c(zone C)= **生命週期**(備份 / 韌體 / rollback)+ **a/b 的品質監督**:審查 worker-a/worker-b 的解法與決策,爛的可退回重做(reject 綁定,經 team-lead 執行;worker 之間仍不互連、人在最頂端)。把艦隊從「各做各的」升級成有品質閘門的**自我校正系統**(propose → review → redo → verify)。完整規格見 [worker-c-spec.md](./worker-c-spec.md)。worker-c 同時是**技能庫 curator**(改編 SkillOS,arXiv 2605.06614):以品質閘 + 抗膨脹 + BM25 檢索治理 `skills/`,見 [skill-curation.md](./skill-curation.md)。
 
 ## 即時 demo 亮點(可選)
 team-lead 內建 `creative/architecture-diagram` 技能,demo 時可現場請它產一張 SVG 架構圖,展示「自我進化」的實際產出。

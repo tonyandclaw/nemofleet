@@ -21,6 +21,8 @@ from wi_util import sig_tier, vtuple as _vt, cipher_bad as _cipher_bad, days_lef
 _vtuple = _vt  # legacy alias — _vt/_vtuple were duplicate number-tuple extractors, now consolidated
 import wi_nuclei  # worker-b active nuclei scan subsystem (configured once deps exist, below)
 import wi_review  # worker-c QA-review gates (pure)
+import wi_skills  # SkillOS-style skill-repository curation (arXiv 2605.06614)
+from urllib.parse import parse_qs as _pq2
 import hashlib
 
 # 容器 egress 走不了 IPv6(NVD 等 Cloudflare 主機會解析到 IPv6 → 連線逾時);所有外部主機都有可用 IPv4。
@@ -152,7 +154,7 @@ ZONE_MONITOR = {
   "A": {"lab-asus-ebg19p-01"},   # 運維管:真實 EBG19P 商用閘道
   "B": set(),                     # 資安節點:CVE / 原始碼分析(不綁特定設備監控)
 }
-ZONE_CAPS = {"A": {"monitor", "fix", "cert"}, "B": {"monitor", "cve", "source", "nuclei"}, "C": {"backup", "firmware", "rollback", "review"}}
+ZONE_CAPS = {"A": {"monitor", "fix", "cert"}, "B": {"monitor", "cve", "source", "nuclei"}, "C": {"backup", "firmware", "rollback", "review", "curate"}}
 def _zone_has(cap):
     c = ZONE_CAPS.get(ZONE)
     return (cap in c) if c is not None else True          # 未知 zone → 全開(相容)
@@ -1793,6 +1795,26 @@ def run_review(kind, subject):
                     "reasons": (v.get("reasons") or [])[:2]})
     del REVIEWS[:-40]
     return v
+SKILLS_REPO = os.environ.get("SKILLS_REPO", "")   # 技能庫目錄(boot 同步給 worker-c);worker-c 當 SkillOS curator
+def _load_skills():
+    out = []
+    if SKILLS_REPO and os.path.isdir(SKILLS_REPO):
+        for root, _dirs, files in os.walk(SKILLS_REPO):
+            for fn in files:
+                if fn.endswith(".md"):
+                    try:
+                        out.append(wi_skills.parse_skill(open(os.path.join(root, fn), encoding="utf-8").read()))
+                    except Exception:
+                        pass
+    return out
+def run_skill_curate(op, name, text):
+    """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹)→ 綁定判決。"""
+    if not _zone_has("curate"):
+        return {"note": "skill 治理屬 zone C(治理官)職責", "zone": ZONE}
+    return wi_skills.curate(op, text or "", _load_skills(), name=name)
+def skill_search(query):
+    """SkillOS BM25 檢索:給 query 找最相關的技能。"""
+    return {"query": query, "results": wi_skills.bm25_search(query, _load_skills())}
 def _backup_schedule_loop():
     time.sleep(90)
     while True:
@@ -1814,6 +1836,7 @@ wi_nuclei.configure(_zone_has, load_settings, _open_jira_dedup, ZONE)
 def _a2a_run(skill, params):
     if skill in ("knowledge",): return knowledge.get_knowledge()
     if skill in ("review",): return run_review(params.get("kind", ""), params.get("subject") or {})
+    if skill in ("curate",): return run_skill_curate(params.get("op", ""), params.get("name", ""), params.get("text", ""))
     if skill in ("backup",): return run_backup("a2a")
     if skill in ("firmware", "firmware-update"): return firmware_status()
     if skill in ("rollback",): return run_rollback(params.get("to", ""), params.get("approval_token", ""))
@@ -1873,6 +1896,15 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             self._send(200, {"reviews": REVIEWS[-30:]})
+        elif self.path.split("?")[0] == "/skills":   # worker-c:技能庫列表 or ?q= BM25 檢索
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            _q = _pq2(self.path.split("?", 1)[1] if "?" in self.path else "").get("q", [""])[0]
+            if _q:
+                self._send(200, skill_search(_q))
+            else:
+                _sk = _load_skills()
+                self._send(200, {"count": len(_sk), "skills": [s["name"] for s in _sk]})
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -1944,7 +1976,7 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 flow("team-lead", _sk, "error", str(e))
                 return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rpc.get("id")})
-        if self.path in ("/review", "/backup", "/firmware-apply", "/rollback"):   # worker-c 治理官動作
+        if self.path in ("/review", "/backup", "/firmware-apply", "/rollback", "/skill-review"):   # worker-c 治理官動作
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             try:
@@ -1953,6 +1985,8 @@ class H(BaseHTTPRequestHandler):
                 b = {}
             if self.path == "/review":
                 return self._send(200, run_review(b.get("kind", ""), b.get("subject") or {}))
+            if self.path == "/skill-review":
+                return self._send(200, run_skill_curate(b.get("op", ""), b.get("name", ""), b.get("text", "")))
             if self.path == "/backup":
                 return self._send(200, run_backup("api"))
             if self.path == "/firmware-apply":

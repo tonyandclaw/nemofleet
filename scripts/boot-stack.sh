@@ -60,7 +60,7 @@ deploy_oc_endpoint() {
   h=$(docker exec "$ct" sh -c 'curl -s -m3 http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null)
   # 「當前版」= 端點健康(對的 zone + a2a marker)且部署的每個模組都與本地逐位元一致。
   # 逐檔 cmp 取代舊的 marker 偵測 → 任何程式碼變更(含新模組缺檔)都會觸發重部署,不再靜默跑舊碼。
-  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review; do
+  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills; do
     docker exec "$ct" sh -c "cat /usr/local/bin/$m.py 2>/dev/null" | cmp -s - "$BRIDGE/$m.py" || same=0
   done
   if [ "$same" = 1 ] && echo "$h" | grep -q "\"zone\": \"$zone\"" && echo "$h" | grep -q '"a2a": true'; then
@@ -73,6 +73,7 @@ deploy_oc_endpoint() {
     docker cp "$BRIDGE/wi_util.py" "$ct:/usr/local/bin/wi_util.py" >>"$LOG" 2>&1   # pure helpers (import wi_util)
     docker cp "$BRIDGE/wi_nuclei.py" "$ct:/usr/local/bin/wi_nuclei.py" >>"$LOG" 2>&1   # nuclei subsystem (import wi_nuclei)
     docker cp "$BRIDGE/wi_review.py" "$ct:/usr/local/bin/wi_review.py" >>"$LOG" 2>&1   # worker-c QA-review gates (import wi_review)
+    docker cp "$BRIDGE/wi_skills.py" "$ct:/usr/local/bin/wi_skills.py" >>"$LOG" 2>&1   # SkillOS skill curation (import wi_skills)
     docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-knowledge' >>"$LOG" 2>&1
     docker cp "$NEMOFLEET_ROOT/knowledge" "$ct:/usr/local/share/nemofleet-knowledge" >>"$LOG" 2>&1   # canonical shared knowledge → KNOWLEDGE_DIR
     docker exec -u 0 "$ct" sh -c 'pkill -f worker-itops; true' >>"$LOG" 2>&1; sleep 1
@@ -81,7 +82,9 @@ deploy_oc_endpoint() {
     local EBGC=""; { [ "$zone" = "A" ] || [ "$zone" = "C" ]; } && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGC="$(tr -d '\n\r' < "$HOME/.config/nemoclaw/ebg19p.cred")"
     # nuclei 目標:僅 zone B 注入裝置 IP(只給 target,不含 cred;nuclei 打 HTTP 表面)
     local EBGT=""; [ "$zone" = "B" ] && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGT="$(cut -d'|' -f1 "$HOME/.config/nemoclaw/ebg19p.cred" 2>/dev/null | tr -d ' \n\r')"
-    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
+    # worker-c(zone C)當 SkillOS curator → 給它整個技能庫來治理
+    local SKR=""; [ "$zone" = "C" ] && { docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-skills' >>"$LOG" 2>&1; docker cp "$NEMOFLEET_ROOT/skills" "$ct:/usr/local/share/nemofleet-skills" >>"$LOG" 2>&1; SKR=/usr/local/share/nemofleet-skills; }
+    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
     sleep 2
     docker exec "$ct" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
       && ok "worker 端點 :9099 已部署(zone $zone @ ${ct##*openshell-})" || bad "端點未起($ct;cat /tmp/worker-itops.log)"

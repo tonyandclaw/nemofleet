@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+# wi_skills.py — skill-repository curation, adapting SkillOS ("Learning Skill Curation for Self-Evolving
+# Agents", arXiv 2605.06614) to nemofleet's governed fleet.
+#
+# SkillOS pairs a frozen executor (retrieves + uses skills) with a trainable curator that
+# insert/update/deletes reusable Markdown skills under composite quality signals (task outcome, operation
+# validity, content quality, and conciseness / anti-proliferation), plus cheap BM25 retrieval. We can't
+# RL-train a curator here, so we implement the curator's QUALITY GATES + BM25 retrieval as deterministic,
+# unit-tested pure functions, and host them on worker-c — which is already the change-governance / QA
+# officer, a natural home for curating the fleet's procedural memory. Skills stay human-auditable Markdown
+# + YAML frontmatter (nemofleet and SkillOS share this format). No side effects.
+import re
+import math
+
+
+def parse_skill(text):
+    """Markdown + YAML frontmatter → {name, description, body}."""
+    name = desc = ""
+    body = text or ""
+    m = re.match(r"\s*---\s*\n(.*?)\n---\s*\n?(.*)", text or "", re.S)
+    if m:
+        fm, body = m.group(1), m.group(2)
+        nm = re.search(r"^name:\s*(.+)$", fm, re.M)
+        name = nm.group(1).strip() if nm else ""
+        dm = re.search(r"^description:\s*(.+)$", fm, re.M)
+        desc = dm.group(1).strip() if dm else ""
+    return {"name": name, "description": desc, "body": body.strip()}
+
+
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _tokens(s):
+    return _WORD.findall((s or "").lower())
+
+
+def bm25_search(query, skills, k1=1.5, b=0.75, top=5):
+    """SkillOS's cheap keyword retrieval: rank skills by BM25 over name + description + body."""
+    docs = [(_tokens(s.get("name", "") + " " + s.get("description", "") + " " + s.get("body", "")), s) for s in skills]
+    if not docs:
+        return []
+    n = len(docs)
+    avgdl = sum(len(d) for d, _ in docs) / n
+    df = {}
+    for d, _ in docs:
+        for t in set(d):
+            df[t] = df.get(t, 0) + 1
+    scored = []
+    q = _tokens(query)
+    for d, s in docs:
+        tf = {}
+        for t in d:
+            tf[t] = tf.get(t, 0) + 1
+        score = 0.0
+        for t in q:
+            if t not in tf:
+                continue
+            idf = math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
+            score += idf * (tf[t] * (k1 + 1)) / (tf[t] + k1 * (1 - b + b * len(d) / avgdl))
+        if score > 0:
+            scored.append((score, s))
+    scored.sort(key=lambda x: -x[0])
+    return [{"name": s.get("name"), "score": round(sc, 3)} for sc, s in scored[:top]]
+
+
+def _overlap(a, b):
+    """Jaccard token overlap — a cheap near-duplicate signal for anti-proliferation."""
+    ta, tb = set(_tokens(a)), set(_tokens(b))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def skill_quality(text, max_body_lines=120):
+    """SkillOS-style quality signals as deterministic gates → (parsed_skill, checks)."""
+    sk = parse_skill(text)
+    checks = []
+    fm_ok = bool(sk["name"] and sk["description"])
+    checks.append({"name": "frontmatter", "pass": fm_ok,
+                   "detail": "有 name + description(可被檢索/稽核)" if fm_ok else "缺 YAML frontmatter 的 name/description"})
+    kebab = bool(re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", sk["name"] or ""))
+    checks.append({"name": "name-format", "pass": kebab,
+                   "detail": "name 為 kebab-case" if kebab else "name 非 kebab-case"})
+    body_ok = len(sk["body"]) >= 20
+    checks.append({"name": "has-body", "pass": body_ok,
+                   "detail": "有指令內容" if body_ok else "指令內容過短/空"})
+    lines = sk["body"].count("\n") + 1
+    concise = lines <= max_body_lines
+    checks.append({"name": "concise", "pass": concise,
+                   "detail": "精簡(非逐字軌跡複製)" if concise else "過長(%d 行 > %d)— 疑似逐字複製,SkillOS compression 建議壓縮" % (lines, max_body_lines)})
+    return sk, checks
+
+
+def curate(op, text, existing, name="", dup_threshold=0.6):
+    """Validate a curator operation (insert / update / delete) → binding verdict.
+    existing = [{name, description, body}]. Mirrors SkillOS's insert/update/delete under quality signals."""
+    op = (op or "").lower()
+    if op == "delete":
+        found = any(s.get("name") == name for s in existing)
+        return {"op": "delete", "name": name, "verdict": "approve" if found else "reject",
+                "checks": [{"name": "exists", "pass": found, "detail": "存在於 repo" if found else "repo 無此技能"}],
+                "reasons": [] if found else ["repo 無此技能:" + name], "required_fixes": []}
+    sk, checks = skill_quality(text)
+    if op == "insert":
+        dup_score, dup_name = max(((_overlap(sk["body"], s.get("body", "")), s.get("name", "")) for s in existing),
+                                  default=(0.0, ""))
+        not_dup = dup_score < dup_threshold
+        checks.append({"name": "non-redundant", "pass": not_dup,
+                       "detail": "無高度重疊技能" if not_dup else "與『%s』重疊 %d%% — 建議 update 而非新增(SkillOS 抗膨脹)" % (dup_name, int(dup_score * 100))})
+    failed = [c for c in checks if not c["pass"]]
+    return {"op": op or "insert", "name": sk["name"], "verdict": "approve" if not failed else "reject",
+            "score": round(100 * (len(checks) - len(failed)) / max(len(checks), 1)),
+            "checks": checks, "reasons": [c["detail"] for c in failed],
+            "required_fixes": ["修正 %s(%s)" % (c["name"], c["detail"]) for c in failed]}

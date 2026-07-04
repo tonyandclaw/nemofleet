@@ -41,11 +41,11 @@ N=""; for _ in $(seq 12); do N=$(g $PB /nuclei); echo "$N" | grep -q '"available
 echo "$N" | grep -q '"available": false' && ok "GET /nuclei degrades gracefully (no binary -> clear note)" || bad "nuclei: ${N:0:120}"
 # every authed route is still wired (no-token -> 403, before any scan runs; guards refactors/modularization)
 WIRED=1
-for ep in /jira /assets /device-log /log-analysis /traffic /cve /monitor /source-cve /cert-scan /settings /recipients /last /knowledge /nuclei /flow /backup /firmware; do
+for ep in /jira /assets /device-log /log-analysis /traffic /cve /monitor /source-cve /cert-scan /settings /recipients /last /knowledge /nuclei /flow /backup /firmware /skills; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PB$ep")
   [ "$code" = 403 ] || { WIRED=0; bad "route $ep not wired (got $code)"; }
 done
-[ "$WIRED" = 1 ] && ok "all 17 authed routes wired (no-token -> 403)"
+[ "$WIRED" = 1 ] && ok "all 18 authed routes wired (no-token -> 403)"
 stop
 
 # ---- zone C: worker-c governance (review gates + lifecycle degrade) ----
@@ -56,6 +56,8 @@ echo "$RV" | grep -q '"verdict": *"reject"' && ok "POST /review REJECTs a deviat
 RV2=$(curl -s -X POST "http://127.0.0.1:$PC/review" -H "X-Bridge-Token: $TOK" -H 'Content-Type: application/json' -d '{"kind":"remediation","subject":{"bug":"ebg-wps","ok":true,"after":{"wps.enabled":"false"}}}')
 echo "$RV2" | grep -q '"verdict": *"approve"' && ok "POST /review APPROVEs a compliant remediation" || bad "review approve: ${RV2:0:120}"
 echo "$(curl -s -X POST -H "X-Bridge-Token: $TOK" "http://127.0.0.1:$PC/backup")" | grep -q '"available": false' && ok "POST /backup degrades gracefully (no device cred)" || bad "backup degrade"
+SR=$(curl -s -X POST "http://127.0.0.1:$PC/skill-review" -H "X-Bridge-Token: $TOK" -H 'Content-Type: application/json' -d '{"op":"insert","text":"# no frontmatter, just a body long enough to pass the length gate here"}')
+echo "$SR" | grep -q '"verdict": *"reject"' && ok "POST /skill-review (SkillOS curator) rejects a malformed skill" || bad "skill-review: ${SR:0:120}"
 stop
 
 echo "== worker_endpoint: $PASS pass, $FAIL fail =="
