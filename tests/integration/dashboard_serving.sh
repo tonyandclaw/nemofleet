@@ -30,8 +30,8 @@ C="Cookie: sid=$SID"
 # #1 flip: / -> /app default, classic at /classic
 loc=$(curl -s -o /dev/null -D - -H "$C" "http://127.0.0.1:$PORT/" | sed -n 's/\r$//;s/^[Ll]ocation: *//p')
 [ "$loc" = /app ] && ok "/ redirects to /app (SPA is default)" || bad "/ location: '$loc'"
-CL=$(curl -s -H "$C" "http://127.0.0.1:$PORT/classic")   # large body → pipe-free match (grep -q would SIGPIPE echo under pipefail)
-case "$CL" in *"<!doctype"*|*"<!DOCTYPE"*) ok "/classic still serves the legacy UI (fallback)" ;; *) bad "/classic missing (len ${#CL})" ;; esac
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "$C" "http://127.0.0.1:$PORT/classic")
+[ "$code" = 404 ] && ok "/classic removed (legacy blob deleted → 404)" || bad "/classic still present (got $code)"
 
 # SPA index + assets
 body=$(curl -s -H "$C" "http://127.0.0.1:$PORT/app")
