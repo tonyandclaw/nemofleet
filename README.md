@@ -8,10 +8,10 @@ All nodes run the **Hermes** harness on **local NVIDIA NIM — Nemotron 3 Super 
 
 | Node | Role |
 |---|---|
-| **team-lead** (`:8642`) | Human-facing front desk — multi-channel (Telegram / Email) intake, triage & dispatch to workers, close-out, self-evolving skills. |
-| **worker-a** (`:18789`) | Ops worker — device drift vs. approved baseline (ALERT on regression), certificate / weak-crypto audit, EBG19P remediation. |
-| **worker-b** (`:18790`) | Security worker — daily CVE scan, SBOM / SAST over upstream firmware source, syslog analysis. |
-| **worker-c** (`:18791`) | Governance worker — config backup / firmware lifecycle / rollback (human-approved), **QA review gate over a/b** (binding reject → redo), SkillOS skill curation. |
+| **team-lead** (API `:8642` · UI `:18790`) | Human-facing front desk — multi-channel (Telegram / Email) intake, triage & dispatch to workers, close-out, self-evolving skills. |
+| **worker-a** (UI `:18791`) | Ops worker — device drift vs. approved baseline (ALERT on regression), certificate / weak-crypto audit, EBG19P remediation. |
+| **worker-b** (UI `:18792`) | Security worker — daily CVE scan, SBOM / SAST over upstream firmware source, syslog analysis. |
+| **worker-c** (UI `:18793`) | Governance worker — config backup / firmware lifecycle / rollback (human-approved), **QA review gate over a/b** (binding reject → redo), SkillOS skill curation. |
 
 Supporting products (installed CLIs, not vendored here):
 
