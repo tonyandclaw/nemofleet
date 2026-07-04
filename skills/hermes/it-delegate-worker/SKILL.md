@@ -37,6 +37,13 @@ worker 同時提供標準 **A2A(Agent2Agent,NVIDIA / Linux Foundation)** 介面,
 - 或用 `services/bridge/a2a_client.py`:`A2AClient(base, token).send("monitor")`。
 > 唯讀掃描 / 狀態同步用 A2A(同步、直接拿結果);**remediation(ebg-*)仍走上面的非同步 `/fix`**(接手 → 背景執行 → `/last` 取結果)。
 
+## 先查艦隊技能庫,再發明作法(SkillOS executor 端)
+遇到**新型任務**、不確定有沒有既定程序時,先問 worker-c 的技能庫(BM25 檢索),別重新發明:
+```
+curl -s -H 'X-Bridge-Token: BRIDGETOKEN' 'http://<worker-c>:9099/skills?q=<任務關鍵詞>'
+```
+回 `{results: [{name, score}, …]}` —— 有高分命中 → 用你本地同名 SKILL.md 的程序;沒有 → 照常解,解完值得沉澱的模式會經 lessons-to-skill 過 worker-c 治理閘落地(見 skill-curation.md)。worker-c 未部署 → 跳過此步。
+
 ## 工作流記錄(讓 GUI Flow 看到「人 → team-lead 收件」這一跳)
 接到使用者需求、**委派之前**,先記一筆工作流事件(用你已有的 bridge token,走既有通道,免新 egress):
 ```

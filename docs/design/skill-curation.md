@@ -31,6 +31,12 @@ nemofleet 本就以 **Markdown + YAML frontmatter** 存技能(`skills/*`)、把 
 | `concise` | **compression / 抗膨脹** | 非逐字軌跡複製(過長 → 擋) |
 | `non-redundant`(insert) | **repo 精簡** | 與既有技能高度重疊 → 建議 update 而非新增 |
 
+## 為什麼 curator 只放 worker-c(placement)
+- **治理權威要單一**:兩個 curator = 判決分裂;論文本身也是「一個 curator 配 executor(s)」。
+- **executor 本來就分散**:team-lead(跑 SKILL.md)與 a/b 是 executor;檢索(`/skills?q=`)服務在庫所在的 worker-c,**用的人是 team-lead**(見 it-delegate-worker「先查艦隊技能庫」一節)。
+- **閘的呼叫點在 host**(lessons-to-skill / skill-sync 的 `skill_gate()`),判決來自 worker-c;成效訊號源自 eval。
+- **單點?** worker-c 缺席 → gate 放行+提示、team-lead 用本地技能目錄 —— 自我進化不因治理節點停擺。
+
 ## 接進自我進化
 **已接上**:`lessons-to-skill.sh` / `skill-sync.sh` 落地/散播技能前呼叫 `lib/common.sh` 的 `skill_gate()` → worker-c `POST /skill-review`;**reject = 綁定不落地**(帶 required_fixes 退回);worker-c 未部署則放行+提示(gate-if-available)。技能庫因此**受治理、抗膨脹、人可稽核**,不再無限堆積;判決可進稽核鏈。executor(team-lead/a/b)用 `GET /skills?q=` 找技能。
 
