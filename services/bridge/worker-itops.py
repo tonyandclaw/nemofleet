@@ -1782,11 +1782,17 @@ def run_rollback(to, approval_token=""):
         return {"ok": True, "restored_to": to, "keys": len(bk.get("config") or {}), "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     except Exception as e:
         return {"ok": False, "error": "rollback 失敗(需真機):%s" % e}
+REVIEWS = []
 def run_review(kind, subject):
-    """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層。"""
+    """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層;記入 REVIEWS 供 console。"""
     if not _zone_has("review"):
         return {"note": "review 屬 zone C(治理官)職責", "zone": ZONE}
-    return wi_review.review(kind, subject or {}, knowledge.baseline_conf("ebg19p"), knowledge.security_keys("ebg19p"))
+    v = wi_review.review(kind, subject or {}, knowledge.baseline_conf("ebg19p"), knowledge.security_keys("ebg19p"))
+    REVIEWS.append({"ts": time.strftime("%H:%M:%S"), "kind": kind, "target": v.get("target"),
+                    "verdict": v.get("verdict"), "score": v.get("score"), "ref": v.get("subject_ref", ""),
+                    "reasons": (v.get("reasons") or [])[:2]})
+    del REVIEWS[:-40]
+    return v
 def _backup_schedule_loop():
     time.sleep(90)
     while True:
@@ -1863,6 +1869,10 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             self._send(200, firmware_status())
+        elif self.path == "/reviews":   # worker-c 最近的審查判決(console)
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            self._send(200, {"reviews": REVIEWS[-30:]})
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})

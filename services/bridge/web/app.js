@@ -533,6 +533,43 @@ const FlowView = memo(function FlowView({ d }) {
           ]}/></${Panel}>`}
     </div></div>`;
 });
+const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
+  const g = d.governance_c || {};
+  const reviews = g.reviews || [];
+  const rejects = reviews.filter(r => r.verdict === 'reject').length;
+  const vPill = v => html`<span class=${'pill2 ' + (v === 'approve' ? 'g' : v === 'reject' ? 'c' : 'w')}>${v || '—'}</span>`;
+  return html`<div class="viewfade">
+    <div class="viewhd"><h2>Change control</h2>
+      <span class=${'pill2 ' + (g.up ? 'g' : 'w')}>${g.up ? 'worker-c up' : 'worker-c not deployed'}</span>
+      <span class="lbl">worker-c · 變更治理官 · zone C</span></div>
+    <div class="grid1">
+      ${html`<${Panel} title="Review gate" label="a/b 產出的品質閘 · reject 綁定重做">
+        <div style=${{ display: 'flex', gap: '22px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px' }}>
+          <div style=${{ textAlign: 'center' }}><div style=${{ fontSize: '30px', fontWeight: 800, color: rejects ? 'var(--crit)' : 'var(--ok)' }}>${rejects}</div><div class="muted" style=${{ fontSize: '11px' }}>rejected → 退回重做</div></div>
+          <div style=${{ textAlign: 'center' }}><div style=${{ fontSize: '30px', fontWeight: 800, color: 'var(--ink2)' }}>${reviews.length}</div><div class="muted" style=${{ fontSize: '11px' }}>total verdicts</div></div>
+          <div class="muted" style=${{ fontSize: '12px', maxWidth: '340px' }}>worker-c 審 worker-a remediation + worker-b CVE 決策,錨定核准 baseline。reject → team-lead 帶 required_fixes 退回重做,2 次不過升級人。人 > worker-c > a/b。</div>
+        </div>
+        <${DataTable} rows=${reviews} pageSize=${8} empty="尚無審查判決(worker-c 未部署或尚無委派)。"
+          cols=${[
+            { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
+            { k: 'target', label: 'Target', render: r => html`<span class="mono">${r.target || ''} · ${r.kind || ''}</span>` },
+            { k: 'ref', label: 'Subject', render: r => html`<span class="mono muted">${r.ref || ''}</span>` },
+            { k: 'verdict', label: 'Verdict', align: 'right', render: r => vPill(r.verdict) },
+          ]}/></${Panel}>`}
+      ${html`<${Panel} title="Config backups" label="known-good 版本" right=${html`<${ActionBtn} act="backup" label="Backup now" busyLabel="…" ghost=${true}/>`}>
+        <div style=${{ display: 'flex', gap: '22px', flexWrap: 'wrap', marginBottom: '9px', fontSize: '12px' }}>
+          <span class="muted">count <b class="ink2">${g.backup_count || 0}</b></span>
+          <span class="muted">latest <b class="mono ink2">${(g.backups || [])[0] || '—'}</b></span>
+        </div>
+        <${DataTable} rows=${(g.backups || []).map(b => ({ id: b }))} pageSize=${6} empty="尚無備份(需真機 + EBG19P_CRED)。"
+          cols=${[{ k: 'id', label: 'Backup snapshot', render: r => html`<span class="mono">${r.id}</span>` }]}/></${Panel}>`}
+      ${html`<${Panel} title="Firmware" label="生命週期 · urgency 由 CVE 驅動">
+        <div style=${{ fontSize: '13px' }}>
+          <div style=${{ marginBottom: '5px' }}>current <b class="mono ink2">${(g.firmware && g.firmware.current) || '—'}</b> ${g.firmware && g.firmware.urgency === 'high' ? html`<span class="pill2 c">update urgent</span>` : null}</div>
+          <div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || 'worker-c 未部署'}</div>
+        </div></${Panel}>`}
+    </div></div>`;
+});
 const VIEWS = {
   overview: { label: 'Overview', comp: OverviewView },
   flow: { label: 'Flow', comp: FlowView },
@@ -540,6 +577,7 @@ const VIEWS = {
   security: { label: 'Security', comp: SecurityView },
   governance: { label: 'Governance', comp: GovernanceView },
   proactive: { label: 'Proactive', comp: ProactiveView },
+  changectrl: { label: 'Change ctrl', comp: ChangeCtrlView },
   audit: { label: 'Audit', comp: AuditView },
   admin: { label: 'Admin', comp: AdminView },
   settings: { label: 'Settings', comp: SettingsView },

@@ -578,6 +578,16 @@ def _collect_impl():
         _flow.append({"ts": _t, "node": "team-lead", "peer": "human", "task": "patrol",
                       "status": "done", "detail": "%s crit / %s routine" % (_ps.get("last_critical", 0), _ps.get("last_routine", 0))})
     d["flow"] = sorted(_flow, key=lambda e: e.get("ts", ""), reverse=True)[:30]
+    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": {}}
+    try:
+        _rv = json.loads(_worker_get("worker-c", "/reviews", timeout=6) or "{}")
+        _bk = json.loads(_worker_get("worker-c", "/backup", timeout=6) or "{}")
+        _fw = json.loads(_worker_get("worker-c", "/firmware", timeout=6) or "{}")
+        _gc = {"up": bool(_rv or _bk or _fw), "reviews": _rv.get("reviews", []),
+               "backups": _bk.get("backups", []), "backup_count": _bk.get("count", 0), "firmware": _fw}
+    except Exception:
+        pass
+    d["governance_c"] = _gc
     _CACHE["ts"] = now; _CACHE["data"] = d
     return d
 
@@ -837,6 +847,13 @@ def do_action(do):
         sh(f"docker exec {ct2} sh -c \"curl -s -m20 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/nuclei-scan\"", 25)
         _flow_append("worker-b", "human", "nuclei scan (GUI)", "working")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)"}
+    if do == "backup":
+        ct3 = ct("worker-c")
+        if ct3:
+            sh(f"docker exec {ct3} sh -c \"curl -s -m20 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/backup\"", 25)
+            _flow_append("worker-c", "human", "backup (GUI)", "working")
+            _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-c 已觸發設定備份"}
+        return {"ok": False, "msg": "worker-c 未部署"}
     return {"ok": False, "msg": "未知動作"}
 
 AUDIT_FILE = os.path.expanduser("~/.config/nemoclaw/ebg19p-audit.jsonl")
@@ -2496,7 +2513,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作"}), "application/json; charset=utf-8")
             try:
                 self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")

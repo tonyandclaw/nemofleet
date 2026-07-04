@@ -96,5 +96,6 @@ function normalize(d) {
     acl: d._acl || null,
     proactive: d.proactive || null,
     flow: arr(d.flow),
+    governance_c: d.governance_c || null,
   };
 }
