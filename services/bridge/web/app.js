@@ -155,11 +155,25 @@ const I18N = {
   'worker-b · daily scan': { en: 'worker-b · daily scan', zh: 'worker-b · 每日掃描' },
   'Event volume': { en: 'Event volume', zh: '事件量' },
   'Recent governed actions': { en: 'Recent governed actions', zh: '近期受治理動作' },
+  'This view hit an error': { en: 'This view hit an error', zh: '此頁渲染出錯' },
+  'Reload': { en: 'Reload', zh: '重新載入' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
 applyUI();
 
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) { try { console.error('view error:', err); } catch (e) {} }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const e = this.state.err;
+    return html`<div class="errbox" style=${{ margin: '20px 0' }}><b>${t('This view hit an error')}</b>
+      <pre class="mono" style=${{ whiteSpace: 'pre-wrap', fontSize: '11px', color: 'var(--crit)', maxWidth: '820px', overflow: 'auto', marginTop: '8px' }}>${String((e && e.stack) || e)}</pre>
+      <button class="retry" onClick=${() => location.reload()}>${t('Reload')}</button></div>`;
+  }
+}
 function DrawerHost() {
   const [dw, setDw] = useState(null);
   useEffect(() => {
@@ -432,6 +446,7 @@ const EventsPanel = memo(function EventsPanel({ events }) {
 });
 
 const SNAP_SB = ['team-lead', 'worker-a', 'worker-b', 'worker-c'];
+const POLSB = ['team-lead', 'worker-a', 'worker-b', 'worker-c'];
 const FleetView = memo(function FleetView({ d }) {
   const [sb, setSb] = useState('worker-a');
   const [diag, setDiag] = useState(null);
@@ -596,7 +611,7 @@ const PolicyEditor = memo(function PolicyEditor() {
   const [sb, setSb] = useState('team-lead');
   const [pol, setPol] = useState(null);
   const [preset, setPreset] = useState('');
-  useEffect(() => { let ok = true; setPol({ loading: true }); NF.policyRo(sb).then(r => ok && setPol(r)).catch(e => ok && setPol({ ok: false, msg: e.message })); return () => { ok = false; }; }, [sb]);
+  useEffect(() => { if (typeof NF.policyRo !== 'function') { setPol({ ok: false, msg: 'policy API unavailable' }); return; } let ok = true; setPol({ loading: true }); NF.policyRo(sb).then(r => ok && setPol(r)).catch(e => ok && setPol({ ok: false, msg: e.message })); return () => { ok = false; }; }, [sb]);
   const p = (pol && pol.policy) || {};
   const egress = p.egress || [];
   return html`<${Panel} title="Policy editor" label="OpenShell egress · per sandbox">
@@ -918,7 +933,7 @@ function App() {
           </div>
         </div>
       </header>
-      <${View} d=${d}/>
+      <${ErrorBoundary} key=${route}><${View} d=${d}/></${ErrorBoundary}>
       <footer class="foot">
         <span>${t('Audit chain')} <b style=${{ color: d.audit.ok ? 'var(--good)' : 'var(--crit)' }}>${d.audit.ok ? t('✓ verified') : t('✗ broken')}</b> · <span class="mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></span>
         <span style=${{ marginLeft: 'auto' }} class="mono">nemofleet · ${t('live every 5s')}${err ? ' · ' + t('reconnecting…') : ''}</span>
