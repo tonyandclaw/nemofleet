@@ -39,6 +39,88 @@ const I18N = {
   'Skills · curator (SkillOS)': { en: 'Skills · curator (SkillOS)', zh: '技能庫 · curator (SkillOS)' }, 'Change control': { en: 'Change control', zh: '變更治理' },
   'Sandbox': { en: 'Sandbox', zh: '沙箱' }, 'Target': { en: 'Target', zh: '目標' }, 'Detail': { en: 'Detail', zh: '詳情' }, 'Details': { en: 'Details', zh: '詳情' },
   'No data.': { en: 'No data.', zh: '無資料。' }, 'Auto-open Jira': { en: 'Auto-open Jira', zh: '自動開 Jira' }, 'Notify channels': { en: 'Notify channels', zh: '通知管道' },
+  'Time': { en: 'Time', zh: '時間' },
+  'Policy': { en: 'Policy', zh: '政策' },
+  'Verdict': { en: 'Verdict', zh: '判決' },
+  'Component': { en: 'Component', zh: '元件' },
+  'Asset': { en: 'Asset', zh: '資產' },
+  'Severity': { en: 'Severity', zh: '嚴重度' },
+  'Sev': { en: 'Sev', zh: '級別' },
+  'Service': { en: 'Service', zh: '服務' },
+  'Issue': { en: 'Issue', zh: '問題' },
+  'File': { en: 'File', zh: '檔案' },
+  'Line': { en: 'Line', zh: '行號' },
+  'Finding': { en: 'Finding', zh: '發現項' },
+  'Name': { en: 'Name', zh: '名稱' },
+  'State': { en: 'State', zh: '狀態' },
+  'Status': { en: 'Status', zh: '狀態' },
+  'Image': { en: 'Image', zh: '映像' },
+  'Op': { en: 'Op', zh: '操作' },
+  'Category': { en: 'Category', zh: '分類' },
+  'Event': { en: 'Event', zh: '事件' },
+  'Task': { en: 'Task', zh: '任務' },
+  'Handoff': { en: 'Handoff', zh: '交接' },
+  'Subject': { en: 'Subject', zh: '主體' },
+  'Matched': { en: 'Matched', zh: '匹配於' },
+  'Backup snapshot': { en: 'Backup snapshot', zh: '備份快照' },
+  'Allowed': { en: 'Allowed', zh: '放行' },
+  'Denied': { en: 'Denied', zh: '拒絕' },
+  'Role': { en: 'Role', zh: '角色' },
+  'Appearance': { en: 'Appearance', zh: '外觀' },
+  'Light': { en: 'Light', zh: '亮' },
+  'Dark': { en: 'Dark', zh: '暗' },
+  'Compact': { en: 'Compact', zh: '緊湊' },
+  'Cozy': { en: 'Cozy', zh: '適中' },
+  'Spacious': { en: 'Spacious', zh: '寬鬆' },
+  'Theme': { en: 'Theme', zh: '主題' },
+  'Density': { en: 'Density', zh: '密度' },
+  'Node detail': { en: 'Node detail', zh: '節點詳情' },
+  'Device detail': { en: 'Device detail', zh: '設備詳情' },
+  'Policy editor': { en: 'Policy editor', zh: '政策編輯器' },
+  'Messaging channels': { en: 'Messaging channels', zh: '訊息管道' },
+  'writes to the live backend': { en: 'writes to the live backend', zh: '即時寫入後端' },
+  'Governance coverage': { en: 'Governance coverage', zh: '治理覆蓋率' },
+  'Blocked egress (DENIED)': { en: 'Blocked egress (DENIED)', zh: '封鎖出向(DENIED)' },
+  'Active alerts': { en: 'Active alerts', zh: '作用中告警' },
+  'Open escalations': { en: 'Open escalations', zh: '待處理升級' },
+  'unauthorized host · OPA host-layer': { en: 'unauthorized host · OPA host-layer', zh: '未授權主機 · OPA 主機層' },
+  'human-in-the-loop · NETOPS': { en: 'human-in-the-loop · NETOPS', zh: '人在迴路 · NETOPS' },
+  'none': { en: 'none', zh: '無' },
+  'OPA / L7 · OCSF events': { en: 'OPA / L7 · OCSF events', zh: 'OPA / L7 · OCSF 事件' },
+  'users · notifications': { en: 'users · notifications', zh: '使用者 · 通知' },
+  'worker-b · CVE / nuclei / cert / source': { en: 'worker-b · CVE / nuclei / cert / source', zh: 'worker-b · CVE / nuclei / 憑證 / 原始碼' },
+  'fleet scan': { en: 'fleet scan', zh: '機隊掃描' },
+  'OCSF · 2h': { en: 'OCSF · 2h', zh: 'OCSF · 2 小時' },
+  'engine · policy · verdict': { en: 'engine · policy · verdict', zh: '引擎 · 政策 · 判決' },
+  'allowed · 2h': { en: 'allowed · 2h', zh: '放行 · 2 小時' },
+  'hash-chained': { en: 'hash-chained', zh: '雜湊鏈接' },
+  'Jira · human-in-the-loop': { en: 'Jira · human-in-the-loop', zh: 'Jira · 人在迴路' },
+  'EBG19P syslog · classified': { en: 'EBG19P syslog · classified', zh: 'EBG19P syslog · 已分類' },
+  'OpenShell sandboxes': { en: 'OpenShell sandboxes', zh: 'OpenShell 沙箱' },
+  'on-demand · nemoclaw/openshell': { en: 'on-demand · nemoclaw/openshell', zh: '隨需 · nemoclaw / openshell' },
+  'per sandbox · recovery points': { en: 'per sandbox · recovery points', zh: '每沙箱 · 還原點' },
+  'OpenShell egress · per sandbox': { en: 'OpenShell egress · per sandbox', zh: 'OpenShell 出向 · 每沙箱' },
+  'start / stop per sandbox': { en: 'start / stop per sandbox', zh: '每沙箱啟停' },
+  'alerts / tickets': { en: 'alerts / tickets', zh: '告警 / 工單' },
+  'RBAC': { en: 'RBAC', zh: '權限控管' },
+  'worker cadence': { en: 'worker cadence', zh: 'worker 掃描頻率' },
+  'what counts as weak': { en: 'what counts as weak', zh: '何謂弱加密' },
+  'alert when exceeded': { en: 'alert when exceeded', zh: '超過即告警' },
+  'where alerts go': { en: 'where alerts go', zh: '告警去向' },
+  'active patrol + reporting': { en: 'active patrol + reporting', zh: '主動巡邏 + 回報' },
+  'Allowed governance events over time': { en: 'Allowed governance events over time', zh: '放行治理事件隨時間' },
+  'known-good 版本': { en: 'known-good versions', zh: '已知良好版本' },
+  '生命週期 · urgency 由 CVE 驅動': { en: 'lifecycle · urgency driven by CVEs', zh: '生命週期 · urgency 由 CVE 驅動' },
+  'No affected CVEs — or scan pending.': { en: 'No affected CVEs — or scan pending.', zh: '無受影響 CVE — 或掃描待執行。' },
+  'No audit entries.': { en: 'No audit entries.', zh: '無稽核紀錄。' },
+  'No cert/crypto issues.': { en: 'No cert/crypto issues.', zh: '無憑證 / 加密問題。' },
+  'No container telemetry.': { en: 'No container telemetry.', zh: '無容器遙測。' },
+  'No governance events in window.': { en: 'No governance events in window.', zh: '視窗內無治理事件。' },
+  'No nuclei hits — or scan pending.': { en: 'No nuclei hits — or scan pending.', zh: '無 nuclei 命中 — 或掃描待執行。' },
+  'No recent events — worker-a syslog sync idle.': { en: 'No recent events — worker-a syslog sync idle.', zh: '無近期事件 — worker-a syslog 閒置。' },
+  'No SAST hits.': { en: 'No SAST hits.', zh: '無 SAST 命中。' },
+  'off = dashboard only': { en: 'off = dashboard only', zh: '關 = 只在儀表板' },
+  'Jira is always kept': { en: 'Jira is always kept', zh: '一律保留 Jira' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -152,9 +234,9 @@ const Panel = memo(function Panel({ title, label, right, children, className }) 
 
 const Kpi = memo(function Kpi({ stripe, label, big, unit, sub }) {
   return html`<div class="kpi"><span class="stripe" style=${{ background: stripe }}></span>
-    <div class="lbl">${label}</div>
+    <div class="lbl">${t(label)}</div>
     <div><span class="big">${big}</span>${unit ? html`<span class="unit">${unit}</span>` : null}</div>
-    <div class="sub">${sub}</div></div>`;
+    <div class="sub">${t(sub)}</div></div>`;
 });
 
 const SevBar = ({ label, count, max, color, dotcls }) => {
@@ -177,7 +259,7 @@ const DataTable = memo(function DataTable({ rows, cols, pageSize = 8, empty, fet
   if (!total && !fetchPage) return html`<div class="empty">${t(empty || 'No data.')}</div>`;
   if (!slice.length) return html`<div class="empty">${empty || 'No data.'}</div>`;
   return html`<div><div class="tblwrap"><table class="dt">
-      <thead><tr>${cols.map(c => html`<th key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.label}</th>`)}</tr></thead>
+      <thead><tr>${cols.map(c => html`<th key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${t(c.label)}</th>`)}</tr></thead>
       <tbody>${slice.map((row, i) => html`<tr key=${i} class="clickrow" onClick=${() => (onRow ? onRow(row) : rowDrawer(drawerTitle || 'Detail', row))}>${cols.map(c => html`<td key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.render ? c.render(row) : row[c.k]}</td>`)}</tr>`)}</tbody>
     </table></div>
     ${pages > 1 ? html`<div class="pager">
@@ -323,7 +405,7 @@ const FleetView = memo(function FleetView({ d }) {
   const [inf, setInf] = useState({ provider: '', model: '' });
   const runDiag = (doWhat) => { setDiag({ title: doWhat + ' · ' + sb, out: 'Running…' });
     NF.sys({ do: doWhat, sb }).then(r => setDiag({ title: r.title || doWhat, out: r.out || '(no output)' })).catch(e => setDiag({ title: doWhat, out: e.message })); };
-  return html`<div class="viewfade"><div class="viewhd"><h2>Fleet</h2><span class="lbl">${d.nodes.length} nodes · ${d.devices.length} device(s)</span></div>
+  return html`<div class="viewfade"><div class="viewhd"><h2>${t('Fleet')}</h2><span class="lbl">${d.nodes.length} nodes · ${d.devices.length} device(s)</span></div>
     <div class="grid"><div class="col">
       <${FleetSummary} nodes=${d.nodes} devices=${d.devices}/>
       ${html`<${Panel} title="Snapshots" label="per sandbox · recovery points">
@@ -387,7 +469,7 @@ function posture(d) {
 const SecurityView = memo(function SecurityView({ d }) {
   const P = posture(d);
   const gc = P.score >= 80 ? 'var(--ok)' : P.score >= 65 ? 'var(--warn)' : 'var(--crit)';
-  return html`<div class="viewfade"><div class="viewhd"><h2>Security</h2><span class="lbl">worker-b · CVE / nuclei / cert / source</span></div>
+  return html`<div class="viewfade"><div class="viewhd"><h2>${t('Security')}</h2><span class="lbl">${t('worker-b · CVE / nuclei / cert / source')}</span></div>
     <div class="grid1">
       ${html`<${Panel} title="EBG19P security posture" label="drift · CVE · nuclei · cert 融合成一個分數">
         <div style=${{ display: 'flex', gap: '22px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -451,7 +533,7 @@ const SecurityView = memo(function SecurityView({ d }) {
 
 const GovernanceView = memo(function GovernanceView({ d }) {
   const g = d.governance;
-  return html`<div class="viewfade"><div class="viewhd"><h2>Governance</h2><span class="lbl">OPA / L7 · OCSF events</span></div>
+  return html`<div class="viewfade"><div class="viewhd"><h2>${t('Governance')}</h2><span class="lbl">${t('OPA / L7 · OCSF events')}</span></div>
     <div class="grid1">
       ${html`<${Panel} title="Event volume" label="allowed · 2h"><${GovChart} gov=${g}/>
         <div class="gstat"><div><div class="num" style=${{ color: SERIES.allowed }}>${g.allowed.toLocaleString()}</div><div class="lbl">Allowed</div></div>
@@ -580,8 +662,8 @@ const AdminView = memo(function AdminView({ d }) {
   const recips = d.recipients || [];
   const [nu, setNu] = useState({ email: '', password: '', role: 'viewer' });
   const [nr, setNr] = useState({ name: '', telegram: '', email: '' });
-  if (d.me.role !== 'admin') return html`<div class="viewfade"><div class="viewhd"><h2>Admin</h2></div><div class="empty">Admin only.</div></div>`;
-  return html`<div class="viewfade"><div class="viewhd"><h2>Admin</h2><span class="lbl">users · notifications</span></div>
+  if (d.me.role !== 'admin') return html`<div class="viewfade"><div class="viewhd"><h2>${t('Admin')}</h2></div><div class="empty">Admin only.</div></div>`;
+  return html`<div class="viewfade"><div class="viewhd"><h2>Admin</h2><span class="lbl">${t('users · notifications')}</span></div>
     <div class="grid1">
       ${html`<${Panel} title="Users & access" label="RBAC">
         ${users.length ? users.map(u => html`<div key=${u.email} class="adminrow">
@@ -658,7 +740,7 @@ const FlowView = memo(function FlowView({ d }) {
   const nodes = [{ id: 'team-lead', label: 'team-lead', role: 'front desk · coordinator' }, { id: 'worker-a', label: 'worker-a', role: 'ops' }, { id: 'worker-b', label: 'worker-b', role: 'security' }, { id: 'worker-c', label: 'worker-c', role: 'governance' }];
   const stPill = st => html`<span class=${'pill2 ' + (st === 'working' ? 'a' : st === 'done' ? 'g' : (st === 'fail' || st === 'error') ? 'c' : '')}>${st}</span>`;
   return html`<div class="viewfade">
-    <div class="viewhd"><h2>Flow</h2>
+    <div class="viewhd"><h2>${t('Flow')}</h2>
       <span class=${'pill2 ' + (active.size ? 'a' : 'g')}>${active.size ? active.size + ' working' : 'idle'}</span>
       <span class="lbl">誰委派誰、正在做什麼 · 即時</span></div>
     <div class="grid1">
