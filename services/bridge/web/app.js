@@ -458,12 +458,12 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
     <div class="lbl" style=${{ marginBottom: '10px' }}>${t('Managed device')}${devices.length > 1 ? ' · ' + devices.length : ''}</div>
     <div class="device clickcard" onClick=${() => openDrawer({ title: t('Device detail'), sub: dev.model || 'EBG19P', rows: [
         { k: 'asset', v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: 'model', v: dev.model || 'EBG19P' }, { k: 'firmware', v: dev.firmware || '—', mono: true },
-        { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: dev.online !== false ? 'yes' : 'no' } ] })}><div class="metrics">
+        { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: dev.online === true ? 'yes' : 'no' } ] })}><div class="metrics">
       ${[['CPU', dev.cpu, '%'], ['MEM', dev.mem, '%'], ['TEMP', dev.temp, '°C']].map(([k, v, u]) =>
     html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div></div>`)}
     </div></div>
     <div style=${{ fontSize: '12px', color: 'var(--ink2)', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <${Dot} up=${dev.online !== false}/> ASUS ExpertWiFi <b style=${{ color: 'var(--ink)' }}>${dev.model || 'EBG19P'}</b>
+      <${Dot} up=${dev.online === true}/> ASUS ExpertWiFi <b style=${{ color: 'var(--ink)' }}>${dev.model || 'EBG19P'}</b>
       <span class="mono muted" style=${{ marginLeft: 'auto' }}>${dev.firmware || ''}</span></div>
   </${Panel}>`;
 });

@@ -391,6 +391,19 @@ def _collect_impl():
                                                for fd in (nz.get("findings") or [])[:30]]}
         nodes.append(node)
     d["nodes"] = nodes
+    # 受管設備:由 worker monitor 推導(offline 為權威;離線 → 無 telemetry,online=False)
+    _devs = {}
+    for _n in nodes:
+        for _m in _n.get("monitor", []):
+            _a = _m.get("asset")
+            if not _a or _a in _devs:
+                continue
+            _h = _m.get("health") or {}
+            _off = bool(_m.get("offline")) or _m.get("status") == "offline"
+            _devs[_a] = {"asset": _a, "model": "EBG19P", "online": not _off,
+                         "cpu": _h.get("cpu_pct"), "mem": _h.get("ram_pct"), "temp": _h.get("temp_c"),
+                         "firmware": _h.get("firmver")}
+    d["devices"] = list(_devs.values())
     d["settings"] = (ep(cto, "/settings") if cto else {}) or {}   # 管理設定(讀 node A;兩台同步)
     d["mttr_n"] = 0   # 動態 MTTR:讀 node A 的 fix-history 近 N 次成功修復取平均(無紀錄→保留 44 秒基準)
     try:

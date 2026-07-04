@@ -83,7 +83,7 @@ function normalize(d) {
       coverage: num(gov.coverage, d.coverage) || 99.8, events: arr(gov.events, d.timeline, d.events),
     },
     alerts: arr(d.alerts_list, d.alerts).map(a => (typeof a === 'string' ? { msg: a } : a)),
-    devices: devices.length ? devices : [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', firmware: '3.0.0.6.102_45537', online: true, cpu: 12, mem: 34, temp: 51 }],
+    devices: devices.length ? devices : [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', firmware: null, online: false, cpu: null, mem: null, temp: null }],   // 無設備資料 → 誠實顯示離線(不捏造 online telemetry)
     cve: { ..._cve, findings: arr(_cve.findings, _cve.affected_list) },
     source: { ..._src, sast_list: arr(_src.sast_list), design: arr(_src.design) },
     cert: { ..._cert, findings: arr(_cert.findings) },
