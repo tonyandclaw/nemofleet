@@ -218,6 +218,13 @@ const I18N = {
   'No governance events in this window': { en: 'No governance events in this window', zh: '此時段無治理事件' },
   'Email': { en: 'Email', zh: 'Email' },
   'Password': { en: 'Password', zh: '密碼' },
+  'current': { en: 'current', zh: '目前' },
+  'not available': { en: 'not available', zh: '無法取得(需設備連線)' },
+  'chain verified': { en: 'chain verified', zh: '雜湊鏈已驗證' },
+  'chain broken': { en: 'chain broken', zh: '雜湊鏈損毀' },
+  'Search actor / action / detail…': { en: 'Search actor / action / detail…', zh: '搜尋帳號 / 動作 / 細節…' },
+  'Admin only.': { en: 'Admin only.', zh: '僅限管理員。' },
+  'Filter services…': { en: 'Filter services…', zh: '篩選服務…' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -676,6 +683,7 @@ const PolicyEditor = memo(function PolicyEditor() {
   const [preset, setPreset] = useState('');
   const [ep, setEp] = useState({ host: '', port: '443', access: 'full' });
   const [nonce, setNonce] = useState(0);
+  const [pq, setPq] = useState('');
   useEffect(() => {
     if (typeof NF.policyRo !== 'function') { setPol({ ok: false, msg: t('policy API unavailable') }); return; }
     let ok = true; setPol({ loading: true });
@@ -683,13 +691,14 @@ const PolicyEditor = memo(function PolicyEditor() {
     return () => { ok = false; };
   }, [sb, nonce]);
   const p = (pol && pol.policy) || {};
-  const nets = p.networks || [];
+  const _nets = p.networks || [];
+  const nets = pq.trim() ? _nets.filter(n => (n.name + ' ' + (n.eps || []).join(' ')).toLowerCase().includes(pq.trim().toLowerCase())) : _nets;
   const after = () => setNonce(n => n + 1);   // reload the policy after a mutation
   return html`<${Panel} title="Policy editor" label=${t('OpenShell services · open / revoke')}
     right=${html`<${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/>`}>
     ${!pol || pol.loading ? html`<div class="muted">${t('loading…')}</div>` : !pol.ok ? html`<div class="muted">${pol.msg || t('policy unavailable')}</div>` : html`<div>
       <div class="muted mono" style=${{ fontSize: '11px', margin: '2px 0 10px' }}>version ${p.version || '?'} · ${(p.hash || '')}</div>
-      <div class="lbl" style=${{ marginBottom: '7px' }}>${t('Network services')} · ${nets.length}</div>
+      <div class="srchbar" style=${{ marginBottom: '7px' }}><input class="inp" placeholder=${t('Filter services…')} value=${pq} onInput=${e => setPq(e.target.value)}/><span class="lbl" style=${{ marginLeft: 'auto' }}>${t('Network services')} · ${nets.length}</span></div>
       ${nets.length ? nets.map(n => html`<div key=${n.name} class="polrow">
         <div class="grow">
           <div style=${{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -735,12 +744,16 @@ const ChannelPanel = memo(function ChannelPanel() {
 });
 
 const AuditView = memo(function AuditView({ d }) {
-  if (!d.audit_recent.length && !(d.me.role === 'admin')) return html`<div class="viewfade"><div class="viewhd"><h2>Audit</h2></div><div class="empty">Admin only.</div></div>`;
-  return html`<div class="viewfade"><div class="viewhd"><h2>Audit</h2>
-    <span class=${'pill2 ' + (d.audit.ok ? 'g' : 'c')}>${d.audit.ok ? 'chain verified' : 'chain broken'}</span>
-    <span class="lbl mono">${(d.audit.count || 0).toLocaleString()} entries</span></div>
+  const [q, setQ] = useState('');
+  if (!d.audit_recent.length && !(d.me.role === 'admin')) return html`<div class="viewfade"><div class="viewhd"><h2>${t('Audit')}</h2></div><div class="empty">${t('Admin only.')}</div></div>`;
+  const ql = q.trim().toLowerCase();
+  const rows = ql ? d.audit_recent.filter(r => ((r.ts || '') + (r.actor || '') + (r.action || '') + (r.detail || '')).toLowerCase().includes(ql)) : d.audit_recent;
+  return html`<div class="viewfade"><div class="viewhd"><h2>${t('Audit')}</h2>
+    <span class=${'pill2 ' + (d.audit.ok ? 'g' : 'c')}>${d.audit.ok ? t('chain verified') : t('chain broken')}</span>
+    <span class="lbl mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></div>
     ${html`<${Panel} title="Tamper-evident admin audit" label="hash-chained">
-      <${VirtualList} rows=${d.audit_recent} rowH=${38} height=${380} empty="No audit entries."
+      <div class="srchbar"><input class="inp" placeholder=${t('Search actor / action / detail…')} value=${q} onInput=${e => setQ(e.target.value)}/>${ql ? html`<span class="muted" style=${{ fontSize: '11.5px' }}>${rows.length} / ${d.audit_recent.length}</span>` : null}</div>
+      <${VirtualList} rows=${rows} rowH=${38} height=${380} empty=${t('No audit entries.')}
         render=${r => html`<${React.Fragment}>
           <span class="mono" style=${{ width: '150px', flex: 'none' }}>${r.ts || ''}</span>
           <span style=${{ width: '150px', flex: 'none' }}>${r.actor || ''}</span>
@@ -865,7 +878,7 @@ const ProactiveView = memo(function ProactiveView({ d }) {
               { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
               { k: 'ev', label: '事件', render: r => { const c = (r.critical || []).length, rt = (r.routine || []).length;
                 return html`${c ? html`<span class="pill2 c">${c} critical</span> ` : null}${rt ? html`<span class="pill2">${rt} routine</span>` : null}${!c && !rt ? html`<span class="muted">no change</span>` : null}`; } },
-              { k: 'sent', label: '送出', align: 'right', render: r => html`${r.safety_net_fired ? html`<span class="pill2 g">safety-net</span> ` : null}${r.digest_sent ? html`<span class="pill2 a">digest</span>` : null}` },
+              { k: 'sent', label: '送出', align: 'right', render: r => html`${r.safety_net_fired ? html`<span class="pill2 g">safety-net</span> ` : null}${r.digest_sent ? html`<span class="pill2 a">digest</span>` : null}${!r.safety_net_fired && !r.digest_sent ? html`<span class="muted">–</span>` : null}` },
             ]}/>
         </${Panel}>`}
       </div>
@@ -934,7 +947,7 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
           cols=${[{ k: 'id', label: 'Backup snapshot', render: r => html`<span class="mono">${r.id}</span>` }]}/></${Panel}>`}
       ${html`<${Panel} title="Firmware" label="生命週期 · urgency 由 CVE 驅動">
         <div style=${{ fontSize: '13px' }}>
-          <div style=${{ marginBottom: '5px' }}>current <b class="mono ink2">${(g.firmware && g.firmware.current) || '—'}</b> ${fwUrgent ? html`<span class="pill2 c">update urgent</span>` : html`<span class="pill2 g">current</span>`}</div>
+          <div style=${{ marginBottom: '5px' }}>${t('current')} <b class="mono ink2">${(() => { const c = g.firmware && g.firmware.current; return (!c || /unknown|未知/i.test(c)) ? t('not available') : c; })()}</b> ${fwUrgent ? html`<span class="pill2 c">update urgent</span>` : html`<span class="pill2 g">current</span>`}</div>
           ${affCves.length ? html`<div class="muted" style=${{ fontSize: '12px' }}>CVE-driven:worker-b 判 ${affCves.length} 個 affected → <span class="mono">${affCves.slice(0, 3).join(', ')}${affCves.length > 3 ? '…' : ''}</span>(韌體更新可修)</div>` : html`<div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || 'worker-c 未部署'}</div>`}
         </div></${Panel}>`}
       ${html`<${Panel} title="Skills · curator (SkillOS)" label="技能庫治理 · arXiv 2605.06614" right=${html`<span class="lbl">${g.skills_count || 0} skills</span>`}>
@@ -991,6 +1004,21 @@ function NavRail({ me, route, counts }) {
   </aside>`;
 }
 
+function Skeleton() {
+  const bar = (w, h) => html`<div class="skq" style=${{ width: w, height: (h || 14) + 'px' }}></div>`;
+  return html`<div class="app"><aside class="rail">
+      <div class="brand"><span class="mark"></span><div>${bar('80px', 14)}<div style=${{ height: '6px' }}></div>${bar('54px', 8)}</div></div>
+      <nav class="nav">${[0, 1, 2, 3, 4, 5, 6].map(i => html`<div key=${i} class="skq" style=${{ height: '30px', margin: '4px 0', borderRadius: '9px' }}></div>`)}</nav>
+    </aside>
+    <main class="main">
+      <header class="top"><div>${bar('120px', 18)}<div style=${{ height: '6px' }}></div>${bar('220px', 10)}</div></header>
+      <section class="kpis">${[0, 1, 2, 3].map(i => html`<div key=${i} class="kpi">${bar('60%', 10)}<div style=${{ height: '10px' }}></div>${bar('45%', 26)}<div style=${{ height: '10px' }}></div>${bar('80%', 9)}</div>`)}</section>
+      <div class="grid"><div class="col"><div class="panel"><div class="pb">${bar('40%', 14)}<div style=${{ height: '14px' }}></div><div class="skq" style=${{ height: '190px', borderRadius: '10px' }}></div></div></div></div>
+        <div class="col"><div class="panel"><div class="pb">${bar('40%', 14)}<div style=${{ height: '14px' }}></div>${[0, 1, 2, 3].map(i => html`<div key=${i} class="skq" style=${{ height: '38px', margin: '7px 0', borderRadius: '8px' }}></div>`)}</div></div></div>
+      </div>
+    </main>
+  </div>`;
+}
 function App() {
   const { data, err, loading, reload } = useStatus();
   const route = useHashRoute('overview');
@@ -1001,7 +1029,7 @@ function App() {
   useEffect(() => { const h = () => reload(); addEventListener('nfreload', h); return () => removeEventListener('nfreload', h); }, [reload]);
 
   if (err && !d) return html`<div class="errbox"><b>${t('Cannot reach the fleet API')}</b><div class="ink2">${err}</div><button class="retry" onClick=${reload}>${t('Retry')}</button></div>`;
-  if (loading || !d) return html`<div class="loading"><div class="spin"></div>${t('Loading console…')}</div>`;
+  if (loading || !d) return html`<${Skeleton}/>`;
 
   const View = (VIEWS[route] || VIEWS.overview).comp;
   const counts = { security: (d.cve.findings.length + d.cert.findings.length) || null, governance: d.governance.denied || null };
