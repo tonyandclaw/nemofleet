@@ -185,6 +185,36 @@ const I18N = {
   'caps': { en: 'caps', zh: '能力' },
   'status': { en: 'status', zh: '狀態' },
   'device-offline-or-idle': { en: 'EBG19P offline or no syslog — shown when the device is online.', zh: 'EBG19P 離線或無 syslog — 設備上線後顯示。' },
+  'cve_interval_sec': { en: 'CVE scan interval', zh: 'CVE 掃描間隔' },
+  'cert_interval_sec': { en: 'Cert scan interval', zh: '憑證掃描間隔' },
+  'nuclei_interval_sec': { en: 'Nuclei scan interval', zh: 'Nuclei 掃描間隔' },
+  'cert_rsa_min': { en: 'Min RSA bits', zh: 'RSA 最小位元' },
+  'cert_ec_min': { en: 'Min ECDSA curve', zh: 'ECDSA 最小曲線' },
+  'cert_sig_min': { en: 'Min signature alg', zh: '簽章演算法下限' },
+  'cert_expire_warn_days': { en: 'Cert expiry warning', zh: '憑證到期提醒' },
+  'cert_cipher_policy': { en: 'Cipher policy', zh: '加密套件政策' },
+  'dev_cpu_hi': { en: 'Device CPU alert', zh: '設備 CPU 告警' },
+  'dev_ram_hi': { en: 'Device RAM alert', zh: '設備 RAM 告警' },
+  'dev_temp_hi': { en: 'Device temp alert', zh: '設備溫度告警' },
+  'patrol_interval_sec': { en: 'Patrol interval', zh: '巡邏間隔' },
+  'digest_interval_sec': { en: 'Digest interval', zh: '摘要間隔' },
+  'quiet_start': { en: 'Quiet start', zh: '靜音開始' },
+  'quiet_end': { en: 'Quiet end', zh: '靜音結束' },
+  'quiet_enabled': { en: 'Quiet hours', zh: '靜音時段' },
+  'nuclei_tags': { en: 'Nuclei tags', zh: 'Nuclei 標籤' },
+  'proactive_enabled': { en: 'Proactive patrol', zh: '主動巡邏' },
+  'proactive_safety_net': { en: 'Safety net', zh: '安全網' },
+  'auto_escalate': { en: 'Auto-open Jira', zh: '自動開 Jira' },
+  'worker-b CVE scan cadence': { en: 'worker-b CVE scan cadence', zh: 'worker-b 掃 CVE 的頻率' },
+  'worker-a cert/crypto cadence': { en: 'worker-a cert/crypto cadence', zh: 'worker-a 掃憑證/加密的頻率' },
+  'min RSA key bits': { en: 'min RSA key bits', zh: 'RSA 金鑰最小位元數' },
+  'min ECDSA curve': { en: 'min ECDSA curve', zh: 'ECDSA 最小曲線強度' },
+  'min signature alg': { en: 'min signature alg', zh: '可接受的最弱簽章演算法' },
+  'expiry lead-time (days)': { en: 'expiry lead-time (days)', zh: '到期前幾天預警' },
+  'cipher flagging policy': { en: 'cipher flagging policy', zh: '標記弱加密的政策' },
+  'CPU %': { en: 'CPU %', zh: 'CPU 使用率 %' },
+  'RAM %': { en: 'RAM %', zh: 'RAM 使用率 %' },
+  'Temp °C': { en: 'Temp °C', zh: '溫度 °C' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -948,7 +978,7 @@ function NavRail({ me, route, counts }) {
       <div class="navgh">${t('grp_' + g.key)}</div>
       ${g.items.map(k => html`<a key=${k} class=${route === k ? 'on' : ''} href=${'#/' + k}>
         <svg class="navico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" dangerouslySetInnerHTML=${{ __html: NAV_ICON[k] || '' }}></svg>
-        <span>${t(VIEWS[k].label)}</span>${counts[k] != null ? html`<span class="cnt">${counts[k]}</span>` : null}</a>`)}
+        <span>${t(VIEWS[k].label)}</span>${counts[k] != null ? html`<span class=${"cnt" + (k === "security" && counts[k] > 0 ? " sev" : "")}>${counts[k]}</span>` : null}</a>`)}
     </div>`)}</nav>
     <div class="railfoot"><span class="avatar">${(me.email || 'op')[0].toUpperCase()}</span>
       <div style=${{ minWidth: 0 }}><div style=${{ fontSize: '12px', fontWeight: 600 }}>${me.email || 'operator'}</div>

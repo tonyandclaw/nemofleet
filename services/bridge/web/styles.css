@@ -296,3 +296,12 @@ html[data-density="spacious"] .kpis{gap:20px}
 .polrow:last-of-type{border-bottom:0}
 .fleetpill .nodeseg{cursor:pointer;border-radius:6px;padding:2px 5px;margin:-2px -1px;transition:background .12s}
 .fleetpill .nodeseg:hover{background:var(--panel2);color:var(--ink)}
+
+/* ── polish: breathing online dots, card hover glow, severity nav badge ── */
+@media (prefers-reduced-motion: no-preference){
+  .dot.g{animation:nfpulse 2.6s ease-out infinite}
+  @keyframes nfpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 40%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+}
+.panel{transition:border-color .25s ease,box-shadow .25s ease}
+.panel:hover{border-color:color-mix(in srgb,var(--accent) 22%,var(--line));box-shadow:0 8px 30px -18px color-mix(in srgb,var(--accent) 40%,transparent)}
+.nav a .cnt.sev{color:#fff;background:var(--crit);border-radius:9px;padding:0 6px;min-width:17px;text-align:center;font-weight:600}
