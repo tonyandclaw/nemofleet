@@ -157,6 +157,7 @@ const I18N = {
   'Recent governed actions': { en: 'Recent governed actions', zh: '近期受治理動作' },
   'This view hit an error': { en: 'This view hit an error', zh: '此頁渲染出錯' },
   'Reload': { en: 'Reload', zh: '重新載入' },
+  'Refresh': { en: 'Refresh', zh: '重新整理' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -460,8 +461,8 @@ const FleetView = memo(function FleetView({ d }) {
       ${html`<${Panel} title="Snapshots" label="per sandbox · recovery points">
         <${Field} label="Sandbox"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
         <div class="addrow">
-          <button class="btn" onClick=${() => run(NF.snapshot('create', '', sb), 'Snapshot created')}>+ Create snapshot</button>
-          <button class="btn ghost" onClick=${() => run(NF.action('refresh'), 'Refreshed')}>Refresh</button>
+          <button class="btn" onClick=${() => run(NF.snapshot('create', '', sb), 'Snapshot created')}>${t('+ Create snapshot')}</button>
+          <button class="btn ghost" onClick=${() => run(NF.action('refresh'), 'Refreshed')}>${t('Refresh')}</button>
         </div>
         <div class="addrow" style=${{ marginTop: '8px' }}>
           <input class="inp" placeholder="snapshot id(空=最新)" value=${snapSel} onInput=${e => setSnapSel(e.target.value)}/>
