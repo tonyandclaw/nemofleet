@@ -287,7 +287,7 @@ def _collect_impl():
             d["containers"].append({"name": short(p[0]), "full": p[0], "status": p[1],
                                     "image": p[2], "ports": p[3] or "—", "uptime": p[4], "id": p[5][:12]})
 
-    d["gateway"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ 2>/dev/null", 4).strip() not in ("", "000")
+    d["gateway"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:%s/ 2>/dev/null" % os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080"), 4).strip() not in ("", "000")
     d["hermes_api"] = sh("curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/v1/models 2>/dev/null", 4).strip() not in ("", "000")
     cth = ct("team-lead")
     d["telegram_recent"] = 0
@@ -501,7 +501,7 @@ def _collect_impl():
     d["snapshots_meta"] = next((a["items"] for a in by_agent if a["sb"] == "worker-a"), [])
 
     al = []   # 雙語:{msg(zh), msg_en};前端用 L() 挑語言
-    if not d["gateway"]: al.append({"msg": "OpenShell gateway :18080 離線", "msg_en": "OpenShell gateway :18080 offline"})
+    if not d["gateway"]: al.append({"msg": "OpenShell gateway 離線", "msg_en": "OpenShell gateway offline"})
     if not d["hermes_api"]: al.append({"msg": "Hermes API :8642 離線", "msg_en": "Hermes API :8642 offline"})
     for n in nodes:
         if not n["alive"]: al.append({"msg": f"節點 {n['label']} 離線", "msg_en": f"Node {n['label']} offline"})

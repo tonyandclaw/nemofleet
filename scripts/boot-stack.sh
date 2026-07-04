@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 :
 
 LOG=/tmp/boot-stack.$$.log
-GW_PORT=18080
+GW_PORT="${NEMOCLAW_GATEWAY_PORT:-8080}"   # 本機 nemoclaw gateway 實際 port(舊 WSL 部署為 18080)
 MAIL_DIR="$NEMOFLEET_ROOT/services/mail"
 # Real SMTP/IMAP: the team-lead's email adapter reaches the real mail server over
 # governed OpenShell egress (allow the SMTP/IMAP host in a mail egress preset).

@@ -29,7 +29,7 @@ else
 fi
 
 hr "🧩 Stack 健康"
-gw=$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ 2>/dev/null); { [ -n "$gw" ] && [ "$gw" != 000 ]; } && g "OpenShell gateway :18080" || r "gateway :18080 未起"
+GWP="${NEMOCLAW_GATEWAY_PORT:-8080}"; gw=$(curl -s -m3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$GWP/" 2>/dev/null); { [ -n "$gw" ] && [ "$gw" != 000 ]; } && g "OpenShell gateway :$GWP" || r "gateway :$GWP 未起"
 hm=$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/v1/models 2>/dev/null); { [ -n "$hm" ] && [ "$hm" != 000 ]; } && g "Hermes API :8642" || r "Hermes :8642 未起"
 for entry in "worker-a:A" "worker-b:B"; do
   frag=${entry%%:*}; ct=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 "$frag")

@@ -36,7 +36,7 @@ clock_check
 [ -n "$CT_WC" ] && ok "worker-c container: $CT_WC" || warn "worker-c container 未見(治理節點;非致命)"
 curl -sS -m 6 "$HERMES_API/models" 2>/dev/null | grep -q hermes-agent && ok "hermes API alive ($HERMES_API)" || bad "hermes API down"
 [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:18789/ 2>/dev/null)" = 200 ] && ok "worker UI :18789" || bad "worker UI not 200"
-ss -ltn 2>/dev/null | grep -q ':18080' && ok "openshell gateway :18080" || bad "gateway :18080 down"
+ss -ltn 2>/dev/null | grep -q ":${NEMOCLAW_GATEWAY_PORT:-8080}" && ok "openshell gateway :${NEMOCLAW_GATEWAY_PORT:-8080}" || bad "gateway :${NEMOCLAW_GATEWAY_PORT:-8080} down"
 # 06-11 起納管 bridge 與 mail 元件(否則 boot 後「全綠」不代表 demo 主線可跑)
 if [ -n "$CT_WA" ] && docker exec "$CT_WA" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200; then
   ok "worker 修復端點 :9099(bridge 委派鏈)"
