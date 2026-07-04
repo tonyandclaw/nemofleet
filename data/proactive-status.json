@@ -1,1 +1,1 @@
-{"enabled": true, "patrol_interval_sec": 1200, "digest_interval_sec": 3600, "safety_net": true, "last_patrol": "2026-07-04 17:30:38", "last_critical": 0, "last_routine": 0, "snooze_until": 0, "summary": ""}
+{"enabled": true, "patrol_interval_sec": 1200, "digest_interval_sec": 3600, "safety_net": true, "last_patrol": "2026-07-04 20:30:47", "last_critical": 0, "last_routine": 0, "snooze_until": 0, "summary": ""}
