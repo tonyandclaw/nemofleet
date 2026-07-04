@@ -91,3 +91,21 @@ def review(kind, subject, baseline_text="", security_keys=None):
     if kind in ("cve", "source"):
         return review_cve(subject or {})
     return {"verdict": "approve", "kind": kind, "note": "無對應審查閘,放行", "checks": []}
+
+
+def annotate_redo(verdict, history, redo_cap=2):
+    """護欄(spec §5):同一 subject 的重做計數 + 升級旗標。history = 先前判決摘要
+    [{kind, ref, verdict}, …]。reject 時 redo_count = 此前同 (kind, ref) 已被 reject 的次數;
+    達 redo_cap 仍 reject → escalate=true(team-lead 停止重派、升級真人)。純函式。"""
+    if verdict.get("verdict") != "reject":
+        verdict["redo_count"] = 0
+        verdict["escalate"] = False
+        return verdict
+    prior = sum(1 for h in history
+                if h.get("kind") == verdict.get("kind") and h.get("ref") == verdict.get("subject_ref")
+                and h.get("verdict") == "reject")
+    verdict["redo_count"] = prior + 1
+    verdict["escalate"] = verdict["redo_count"] > redo_cap
+    if verdict["escalate"]:
+        verdict["required_fixes"] = ["重做已達上限(%d 次)— 停止重派,升級真人(Telegram/Email + Jira)" % redo_cap]
+    return verdict

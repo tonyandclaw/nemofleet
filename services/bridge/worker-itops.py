@@ -1786,8 +1786,10 @@ def run_review(kind, subject):
     if not _zone_has("review"):
         return {"note": "review 屬 zone C(治理官)職責", "zone": ZONE}
     v = wi_review.review(kind, subject or {}, knowledge.baseline_conf("ebg19p"), knowledge.security_keys("ebg19p"))
+    v = wi_review.annotate_redo(v, REVIEWS)   # 護欄:同 subject 重做計數;達上限 → escalate 真人
     REVIEWS.append({"ts": time.strftime("%H:%M:%S"), "kind": kind, "target": v.get("target"),
                     "verdict": v.get("verdict"), "score": v.get("score"), "ref": v.get("subject_ref", ""),
+                    "redo": v.get("redo_count", 0), "escalate": v.get("escalate", False),
                     "reasons": (v.get("reasons") or [])[:2]})
     del REVIEWS[:-40]
     return v

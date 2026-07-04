@@ -68,3 +68,30 @@ class TestReviewCve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRedoEscalation(unittest.TestCase):
+    def _rej(self):
+        return wi_review.review_remediation({"bug": "ebg-wps", "ok": True, "after": {"wps.enabled": "true"}}, BASELINE, KEYS)
+
+    def test_approve_resets(self):
+        v = wi_review.review_remediation({"bug": "ebg-wps", "ok": True, "after": {"wps.enabled": "false"}}, BASELINE, KEYS)
+        v = wi_review.annotate_redo(v, [{"kind": "remediation", "ref": "ebg-wps", "verdict": "reject"}])
+        self.assertEqual((v["redo_count"], v["escalate"]), (0, False))
+
+    def test_redo_counts_same_subject(self):
+        hist = [{"kind": "remediation", "ref": "ebg-wps", "verdict": "reject"}]
+        v = wi_review.annotate_redo(self._rej(), hist)
+        self.assertEqual((v["redo_count"], v["escalate"]), (2, False))   # 2nd reject, cap=2 → not yet
+
+    def test_escalates_past_cap(self):
+        hist = [{"kind": "remediation", "ref": "ebg-wps", "verdict": "reject"}] * 2
+        v = wi_review.annotate_redo(self._rej(), hist)
+        self.assertEqual((v["redo_count"], v["escalate"]), (3, True))    # 3rd reject > cap → human
+        self.assertIn("升級真人", v["required_fixes"][0])
+
+    def test_other_subject_does_not_count(self):
+        hist = [{"kind": "remediation", "ref": "ebg-upnp", "verdict": "reject"},
+                {"kind": "cve", "ref": "ebg-wps", "verdict": "reject"}]
+        v = wi_review.annotate_redo(self._rej(), hist)
+        self.assertEqual(v["redo_count"], 1)   # different bug / different kind don't count

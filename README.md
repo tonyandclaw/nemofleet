@@ -4,13 +4,14 @@ A policy-governed **team-lead + workers** fleet for ASUS network-device IT opera
 All nodes run the **Hermes** harness on **local NVIDIA NIM — Nemotron 3 Super 120B**. Governance is
 **code, not prompts**: every cross-node and egress action passes OPA / L7 policy.
 
-## 三節點分工 (the fleet)
+## 四節點分工 (the fleet)
 
 | Node | Role |
 |---|---|
 | **team-lead** (`:8642`) | Human-facing front desk — multi-channel (Telegram / Email) intake, triage & dispatch to workers, close-out, self-evolving skills. |
 | **worker-a** (`:18789`) | Ops worker — device drift vs. approved baseline (ALERT on regression), certificate / weak-crypto audit, EBG19P remediation. |
 | **worker-b** (`:18790`) | Security worker — daily CVE scan, SBOM / SAST over upstream firmware source, syslog analysis. |
+| **worker-c** (`:18791`) | Governance worker — config backup / firmware lifecycle / rollback (human-approved), **QA review gate over a/b** (binding reject → redo), SkillOS skill curation. |
 
 Supporting products (installed CLIs, not vendored here):
 
