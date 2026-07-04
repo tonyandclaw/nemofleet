@@ -184,6 +184,7 @@ const I18N = {
   'tag': { en: 'tag', zh: '標籤' },
   'caps': { en: 'caps', zh: '能力' },
   'status': { en: 'status', zh: '狀態' },
+  'device-offline-or-idle': { en: 'EBG19P offline or no syslog — shown when the device is online.', zh: 'EBG19P 離線或無 syslog — 設備上線後顯示。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -462,7 +463,7 @@ const EventsPanel = memo(function EventsPanel({ events }) {
   const rows = cat === 'all' ? events : (events || []).filter(e => (e.cat || 'service') === cat);
   return html`<${Panel} title="Recent device events" label="EBG19P syslog · classified"
     right=${html`<div class="seg2 filt">${cats.slice(0, 6).map(c => html`<button key=${c} class=${'segbtn ' + (cat === c ? 'on' : '')} onClick=${() => setCat(c)}>${c}</button>`)}</div>`}>
-    <${DataTable} rows=${rows} pageSize=${6} empty="No recent events — worker-a syslog sync idle."
+    <${DataTable} rows=${rows} pageSize=${6} empty=${t("device-offline-or-idle")}
       cols=${[
         { k: 't', label: 'Time', render: r => html`<span class="mono">${r.t || ''}</span>` },
         { k: 'cat', label: 'Category', render: r => html`<span class="catpill">${r.cat || 'service'}</span>` },

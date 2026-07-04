@@ -89,7 +89,7 @@ function normalize(d) {
     cert: { ..._cert, findings: arr(_cert.findings) },
     nuclei: _nuc ? { ..._nuc, findings: arr(_nuc.findings) } : null,
     syslog: d.syslog || opsNode.loganalysis || d.log_analysis || {},
-    events: arr(d.events, d.device_log, d.monitor && d.monitor.events),
+    events: arr(d.device_events, opsNode.devlog && opsNode.devlog.security_events, opsNode.loganalysis && opsNode.loganalysis.findings),   // 真實設備 syslog;EBG19P 離線時為空(不再誤餵治理事件)
     jira: arr(d.jira && d.jira.tickets, d.jira, d.tickets),
     audit: (d._audit && d._audit.chain) || d.audit || { ok: true, count: 0 },
     audit_recent: arr(d._audit && d._audit.recent),
