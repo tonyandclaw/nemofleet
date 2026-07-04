@@ -215,6 +215,9 @@ const I18N = {
   'CPU %': { en: 'CPU %', zh: 'CPU 使用率 %' },
   'RAM %': { en: 'RAM %', zh: 'RAM 使用率 %' },
   'Temp °C': { en: 'Temp °C', zh: '溫度 °C' },
+  'No governance events in this window': { en: 'No governance events in this window', zh: '此時段無治理事件' },
+  'Email': { en: 'Email', zh: 'Email' },
+  'Password': { en: 'Password', zh: '密碼' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -338,9 +341,9 @@ const Panel = memo(function Panel({ title, label, right, children, className }) 
     <div class="pb">${children}</div></section>`;
 });
 
-const Kpi = memo(function Kpi({ stripe, label, big, unit, sub }) {
+const Kpi = memo(function Kpi({ stripe, label, big, unit, sub, trend }) {
   return html`<div class="kpi"><span class="stripe" style=${{ background: stripe }}></span>
-    <div class="lbl">${t(label)}</div>
+    <div class="khead"><div class="lbl">${t(label)}</div>${trend != null ? html`<span class=${'ktrend ' + (trend >= 0 ? 'up' : 'dn')}>${trend >= 0 ? '↑' : '↓'} ${Math.abs(trend)}%</span>` : null}</div>
     <div><span class="big">${big}</span>${unit ? html`<span class="unit">${unit}</span>` : null}</div>
     <div class="sub">${t(sub)}</div></div>`;
 });
@@ -366,7 +369,7 @@ const DataTable = memo(function DataTable({ rows, cols, pageSize = 8, empty, fet
   if (!slice.length) return html`<div class="empty">${empty || 'No data.'}</div>`;
   return html`<div><div class="tblwrap"><table class="dt">
       <thead><tr>${cols.map(c => html`<th key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${t(c.label)}</th>`)}</tr></thead>
-      <tbody>${slice.map((row, i) => html`<tr key=${i} class="clickrow" onClick=${() => (onRow ? onRow(row) : rowDrawer(drawerTitle || 'Detail', row))}>${cols.map(c => html`<td key=${c.k} style=${c.align ? { textAlign: c.align } : null}>${c.render ? c.render(row) : row[c.k]}</td>`)}</tr>`)}</tbody>
+      <tbody>${slice.map((row, i) => html`<tr key=${i} class="clickrow" onClick=${() => (onRow ? onRow(row) : rowDrawer(drawerTitle || 'Detail', row))}>${cols.map(c => html`<td key=${c.k} class=${c.cls || ''} style=${c.align ? { textAlign: c.align } : null}>${c.render ? c.render(row) : row[c.k]}</td>`)}</tr>`)}</tbody>
     </table></div>
     ${pages > 1 ? html`<div class="pager">
       <span>${rows.length} rows</span>
@@ -380,6 +383,7 @@ const sevPill = s => html`<span class=${'sev ' + (s === 'high' || s === 'critica
 
 const GovChart = memo(function GovChart({ gov }) {
   const ref = useRef(null), chart = useRef(null);
+  const empty = !gov.allowed && !(gov.series_allowed && gov.series_allowed.some(v => v));
   const data = gov.series_allowed.length ? gov.series_allowed : synth(gov.allowed);
   useEffect(() => {
     const ctx = ref.current.getContext('2d');
@@ -396,8 +400,9 @@ const GovChart = memo(function GovChart({ gov }) {
     });
     return () => chart.current && chart.current.destroy();
   }, []);
+  const _emptyOverlay = empty ? html`<div class="chartempty">${t('No governance events in this window')}</div>` : null;
   useEffect(() => { if (chart.current) { chart.current.data.datasets[0].data = data; chart.current.update('none'); } }, [gov.allowed, gov.series_allowed]);
-  return html`<div class="chartbox"><canvas ref=${ref} aria-label="Allowed governance events over time"></canvas></div>`;
+  return html`<div class="chartbox">${_emptyOverlay}<canvas ref=${ref} aria-label="Allowed governance events over time"></canvas></div>`;
 });
 function synth(total, n = 20) { if (!total) return new Array(n).fill(0); const o = []; let a = 0; for (let i = 0; i < n; i++) { a += (total / n) * (0.6 + Math.random() * 0.8); o.push(Math.round(a / (i + 1))); } return o; }
 
@@ -534,7 +539,7 @@ const FleetView = memo(function FleetView({ d }) {
           cols=${[
             { k: 'name', label: 'Name', render: r => html`<span class="mono">${r.name || r.Names || '—'}</span>` },
             { k: 'state', label: 'State', render: r => html`<${Dot} up=${(r.state || r.status || '').toLowerCase().includes('up')}/> ${r.state || r.status || ''}` },
-            { k: 'image', label: 'Image', render: r => html`<span class="mono muted">${r.image || ''}</span>` },
+            { k: 'image', label: 'Image', cls: 'imgcell', render: r => html`<span class="mono muted" title=${r.image || ''}>${r.image || ''}</span>` },
           ]}/></${Panel}>`}
       ${html`<${Panel} title="Diagnostics" label="on-demand · nemoclaw/openshell">
         <${Field} label="Target"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
@@ -805,10 +810,10 @@ const AdminView = memo(function AdminView({ d }) {
           <button class="btn ghost" onClick=${() => run(NF.users({ op: 'del', email: u.email }), 'User removed')}>Remove</button>
         </div>`) : html`<div class="empty">No users loaded.</div>`}
         <div class="addrow">
-          <input class="inp" placeholder="email" value=${nu.email} onInput=${e => setNu({ ...nu, email: e.target.value })}/>
-          <input class="inp" type="password" placeholder="password" value=${nu.password} onInput=${e => setNu({ ...nu, password: e.target.value })}/>
-          <${Segmented} value=${nu.role} options=${['viewer', 'admin']} onChange=${r => setNu({ ...nu, role: r })}/>
-          <button class="btn" onClick=${() => run(NF.users({ op: 'add', ...nu }), 'User added')}>+ Add</button>
+          <label class="fld"><span>${t('Email')}</span><input class="inp" placeholder="you@asus.com" value=${nu.email} onInput=${e => setNu({ ...nu, email: e.target.value })}/></label>
+          <label class="fld"><span>${t('Password')}</span><input class="inp" type="password" placeholder="••••••" value=${nu.password} onInput=${e => setNu({ ...nu, password: e.target.value })}/></label>
+          <label class="fld"><span>${t('Role')}</span><${Segmented} value=${nu.role} options=${['viewer', 'admin']} onChange=${r => setNu({ ...nu, role: r })}/></label>
+          <button class="btn" onClick=${() => run(NF.users({ op: 'add', ...nu }), 'User added')}>${t('+ Add')}</button>
         </div>
       </${Panel}>`}
       ${html`<${Panel} title="Notification recipients" label="alerts / tickets">
@@ -818,10 +823,10 @@ const AdminView = memo(function AdminView({ d }) {
           <button class="btn ghost" onClick=${() => run(NF.recipient('del', r.name, '', r.email), 'Removed')}>Remove</button>
         </div>`) : html`<div class="empty">No recipients yet.</div>`}
         <div class="addrow">
-          <input class="inp" placeholder="name" value=${nr.name} onInput=${e => setNr({ ...nr, name: e.target.value })}/>
-          <input class="inp" placeholder="telegram id" value=${nr.telegram} onInput=${e => setNr({ ...nr, telegram: e.target.value })}/>
-          <input class="inp" placeholder="email" value=${nr.email} onInput=${e => setNr({ ...nr, email: e.target.value })}/>
-          <button class="btn" onClick=${() => run(NF.recipient('add', nr.name, nr.telegram, nr.email), 'Recipient added')}>+ Add</button>
+          <label class="fld"><span>${t('name')}</span><input class="inp" placeholder="Ops team" value=${nr.name} onInput=${e => setNr({ ...nr, name: e.target.value })}/></label>
+          <label class="fld"><span>Telegram ID</span><input class="inp" placeholder="123456789" value=${nr.telegram} onInput=${e => setNr({ ...nr, telegram: e.target.value })}/></label>
+          <label class="fld"><span>${t('Email')}</span><input class="inp" placeholder="ops@asus.com" value=${nr.email} onInput=${e => setNr({ ...nr, email: e.target.value })}/></label>
+          <button class="btn" onClick=${() => run(NF.recipient('add', nr.name, nr.telegram, nr.email), 'Recipient added')}>${t('+ Add')}</button>
         </div>
       </${Panel}>`}
       ${html`<${ChannelPanel}/>`}

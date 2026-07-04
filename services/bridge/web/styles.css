@@ -305,3 +305,15 @@ html[data-density="spacious"] .kpis{gap:20px}
 .panel{transition:border-color .25s ease,box-shadow .25s ease}
 .panel:hover{border-color:color-mix(in srgb,var(--accent) 22%,var(--line));box-shadow:0 8px 30px -18px color-mix(in srgb,var(--accent) 40%,transparent)}
 .nav a .cnt.sev{color:#fff;background:var(--crit);border-radius:9px;padding:0 6px;min-width:17px;text-align:center;font-weight:600}
+
+/* ── batch1 polish: KPI trend/head, chart empty overlay, addrow labels, image ellipsis ── */
+.kpi .khead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.kpi .sub{line-height:1.5}
+.ktrend{font:600 11px/1 var(--mono);padding:2px 6px;border-radius:6px}
+.ktrend.up{color:var(--good);background:color-mix(in srgb,var(--good) 14%,transparent)}
+.ktrend.dn{color:var(--crit);background:color-mix(in srgb,var(--crit) 14%,transparent)}
+.chartbox{position:relative}
+.chartempty{position:absolute;inset:0;display:grid;place-items:center;color:var(--ink3);font-size:12.5px;pointer-events:none;z-index:1}
+.dt td.imgcell{max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.addrow .fld{display:flex;flex-direction:column;gap:3px}
+.addrow .fld>span{font-size:10.5px;color:var(--ink3);letter-spacing:.02em;padding-left:2px}

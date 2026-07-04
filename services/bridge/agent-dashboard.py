@@ -177,15 +177,17 @@ h1{font-size:18px;font-weight:680;letter-spacing:-.02em}.sub{font-size:11.5px;co
 label{display:block;font-size:12px;color:#a0a3ab;margin:15px 0 5px}
 input{width:100%;background:#0e0e11;border:1px solid #2a2a31;border-radius:10px;padding:11px 13px;color:#f2f2f4;font:inherit;font-size:14px}input:focus{outline:2px solid #4d8dff;border-color:transparent}
 button{width:100%;margin-top:22px;background:#4d8dff;color:#fff;border:0;border-radius:10px;padding:12px;font:inherit;font-weight:600;font-size:15px;cursor:pointer}button:hover{opacity:.92}button:disabled{opacity:.5;cursor:default}
-.err{color:#ff5a66;font-size:12.5px;margin-top:13px;min-height:16px;text-align:center}</style></head><body>
+.err{color:#ff5a66;font-size:12.5px;margin-top:13px;min-height:16px;text-align:center;opacity:0;transition:opacity .25s ease}.err.show{opacity:1}.pwwrap{position:relative}.pwwrap input{padding-right:44px}.eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px;opacity:.55;padding:6px;width:auto}.eye:hover{opacity:.9}.eye.on{opacity:.95}</style></head><body>
 <form class="box" id="f"><div class="bd"><span class="mk"><img src="/brand.svg" width="30" height="30"></span><div><h1>NemoFleet</h1><div class="sub">Agent Control Plane</div></div></div>
 <label>帳號 Email</label><input id="em" type="email" autocomplete="username" autofocus placeholder="you@asus.com">
-<label>密碼</label><input id="pw" type="password" autocomplete="current-password" placeholder="********">
+<label>密碼</label><div class="pwwrap"><input id="pw" type="password" autocomplete="current-password" placeholder="********"><button type="button" id="eye" class="eye" tabindex="-1" aria-label="顯示/隱藏密碼">👁</button></div>
 <button id="b" type="submit">登入</button><div class="err" id="er"></div></form>
-<script>const f=document.getElementById('f'),er=document.getElementById('er'),b=document.getElementById('b');
-f.addEventListener('submit',async e=>{e.preventDefault();er.textContent='';b.disabled=true;b.textContent='登入中…';
+<script>const f=document.getElementById('f'),er=document.getElementById('er'),b=document.getElementById('b'),pw=document.getElementById('pw'),eye=document.getElementById('eye');
+eye.addEventListener('click',()=>{const v=pw.type==='password';pw.type=v?'text':'password';eye.classList.toggle('on',v);eye.textContent=v?'🙈':'👁';pw.focus();});
+function showErr(m){er.textContent=m;er.classList.add('show');}
+f.addEventListener('submit',async e=>{e.preventDefault();showErr('');er.classList.remove('show');b.disabled=true;b.textContent='登入中…';
 try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em.value,password:pw.value})});const j=await r.json();
-if(j.ok){location.href='/'}else{er.textContent=j.msg||'登入失敗';b.disabled=false;b.textContent='登入'}}catch(_){er.textContent='連線失敗';b.disabled=false;b.textContent='登入'}});</script></body></html>"""
+if(j.ok){location.href='/'}else{showErr(j.msg||'登入失敗');b.disabled=false;b.textContent='登入'}}catch(_){showErr('連線失敗');b.disabled=false;b.textContent='登入'}});</script></body></html>"""
 
 
 def sh(cmd, timeout=6):
