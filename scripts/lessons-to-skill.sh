@@ -41,6 +41,9 @@ PY
 n=$(python3 -c "import json,os;p='$DIR/eval/lessons.json';print(sum(len(v) for v in json.load(open(p)).values()) if os.path.exists(p) else 0)")
 echo "[lessons2skill] 渲染 $n 條教訓,目標=$TARGET"
 
+# SkillOS 治理閘:落地前先過 worker-c /skill-review(reject = 綁定,不落地)
+skill_gate "$TMP/SKILL.md" "lessons-learned" || { echo "[lessons2skill] worker-c 退回,修正後重跑" >&2; exit 1; }
+
 install_into() {  # $1=container $2=skill父目錄
   local ct="$1" base="$2"
   [ -n "$ct" ] || { echo "[lessons2skill] 略過(容器未找到)" >&2; return 0; }

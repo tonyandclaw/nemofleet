@@ -30,6 +30,8 @@ if docker exec "$TO_CT" sh -lc "[ -e $TO/$NAME ]" 2>/dev/null && [ "${3:-}" != "
   echo "[sync] target already has '$NAME' — skipping (pass --force to overwrite)"; exit 0
 fi
 docker cp "$FROM_CT:$SRC" "$TMP/$NAME"                   # source sandbox -> host tmp
+# SkillOS 治理閘:跨 agent 散播前先過 worker-c /skill-review(reject = 綁定,不散播)
+[ -f "$TMP/$NAME/SKILL.md" ] && { skill_gate "$TMP/$NAME/SKILL.md" "$NAME" || { echo "[sync] worker-c 退回,不散播" >&2; exit 4; }; }
 # provenance marker so we know it was synced, not native
 printf 'synced_from=%s\nskill=%s\nat=%s\n' "$DIR" "$NAME" "$(date -Is)" > "$TMP/$NAME/.synced-from"
 docker cp "$TMP/$NAME" "$TO_CT:$TO/$NAME"                # host tmp -> target sandbox

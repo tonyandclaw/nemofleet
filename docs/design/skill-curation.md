@@ -32,7 +32,7 @@ nemofleet 本就以 **Markdown + YAML frontmatter** 存技能(`skills/*`)、把 
 | `non-redundant`(insert) | **repo 精簡** | 與既有技能高度重疊 → 建議 update 而非新增 |
 
 ## 接進自我進化
-`lessons-to-skill.sh` / `skill-sync.sh` 產生或搬移技能時,先過 worker-c `POST /skill-review` → **approve 才落地**。技能庫因此**受治理、抗膨脹、人可稽核**,不再無限堆積;判決可進稽核鏈。executor(team-lead/a/b)用 `GET /skills?q=` 找技能。
+**已接上**:`lessons-to-skill.sh` / `skill-sync.sh` 落地/散播技能前呼叫 `lib/common.sh` 的 `skill_gate()` → worker-c `POST /skill-review`;**reject = 綁定不落地**(帶 required_fixes 退回);worker-c 未部署則放行+提示(gate-if-available)。技能庫因此**受治理、抗膨脹、人可稽核**,不再無限堆積;判決可進稽核鏈。executor(team-lead/a/b)用 `GET /skills?q=` 找技能。
 
 ## 沙箱實測(已驗)
 worker-c(zone C)對真實 `skills/`(12 支)curating:`GET /skills` 列出;`?q=review worker quality` 的 BM25 first-hit = `review-gate`;insert 好技能 → approve、無 frontmatter → reject;delete 不存在 → reject;A2A `curate` 可用。單元測試涵蓋 parse / 品質閘 / 抗膨脹 / BM25 / delete。

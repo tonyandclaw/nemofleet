@@ -127,5 +127,30 @@ ebg_hooks() {  # $1=cred_file, $2..=appGet hooks → JSON {hook: raw}
   python3 "$BRIDGE_DIR/ebg19p.py" "$1" hooks "${@:2}"
 }
 
+# ── SkillOS 治理閘(docs/design/skill-curation.md)────────────────────────────
+# skill_gate <SKILL.md path> [name] — 技能落地前送 worker-c POST /skill-review 審(品質閘+抗膨脹)。
+# 回 0=approve、1=reject(綁定,呼叫端勿落地)。worker-c 未部署/不可達 → 0+提示
+# (gate-if-available:自我進化不因治理節點缺席而停擺;部署 zone C 後閘自動生效)。
+skill_gate() {
+  local f="$1" name="${2:-}" tok payload resp
+  [ -n "$CT_WC" ] || { echo "[skill-gate] worker-c 未部署 → 未審放行(部署 zone C 後自動生效)" >&2; return 0; }
+  tok="$(cat "$BRIDGE_TOKEN_FILE" 2>/dev/null || true)"
+  [ -n "$tok" ] || { echo "[skill-gate] 無 bridge token → 未審放行" >&2; return 0; }
+  payload=$(python3 -c 'import json,sys; print(json.dumps({"op":"insert","text":open(sys.argv[1],encoding="utf-8").read()}))' "$f") || return 0
+  resp=$(printf '%s' "$payload" | docker exec -i "$CT_WC" sh -c "curl -s -m10 -X POST -H 'X-Bridge-Token: $tok' -H 'Content-Type: application/json' -d @- http://127.0.0.1:9099/skill-review" 2>/dev/null || true)
+  case "$resp" in
+    *'"verdict": "approve"'*|*'"verdict":"approve"'*)
+      echo "[skill-gate] ✓ worker-c approve${name:+($name)}"; return 0 ;;
+    *'"verdict": "reject"'*|*'"verdict":"reject"'*)
+      echo "[skill-gate] ✗ worker-c REJECT${name:+($name)} — 不落地。required_fixes:" >&2
+      printf '%s' "$resp" | python3 -c 'import sys,json
+try:
+    for x in json.load(sys.stdin).get("required_fixes", []): print("  -", x, file=sys.stderr)
+except Exception: pass' >&2 || true
+      return 1 ;;
+    *) echo "[skill-gate] worker-c 未回應 → 未審放行" >&2; return 0 ;;
+  esac
+}
+
 # ── shared sub-libraries ──────────────────────────────────────────────────────
 . "$LIB_DIR/routing.sh"
