@@ -158,6 +158,23 @@ const I18N = {
   'This view hit an error': { en: 'This view hit an error', zh: '此頁渲染出錯' },
   'Reload': { en: 'Reload', zh: '重新載入' },
   'Refresh': { en: 'Refresh', zh: '重新整理' },
+  'OpenShell services · open / revoke': { en: 'OpenShell services · open / revoke', zh: 'OpenShell 服務 · 開放 / 收回' },
+  'Network services': { en: 'Network services', zh: '網路服務' },
+  'no endpoints': { en: 'no endpoints', zh: '無端點' },
+  'Revoke service': { en: 'Revoke service', zh: '收回服務' },
+  'Revoke': { en: 'Revoke', zh: '收回' },
+  'Open an endpoint': { en: 'Open an endpoint', zh: '開放端點' },
+  'Open': { en: 'Open', zh: '開放' },
+  'Apply a preset': { en: 'Apply a preset', zh: '套用 preset' },
+  '+ Preset': { en: '+ Preset', zh: '＋Preset' },
+  '− Preset': { en: '− Preset', zh: '－Preset' },
+  'Apply preset': { en: 'Apply preset', zh: '套用 preset' },
+  'Remove preset': { en: 'Remove preset', zh: '移除 preset' },
+  'deny-by-default · no network services': { en: 'deny-by-default · no network services', zh: '預設全拒 · 無網路服務' },
+  'All changes are prove-gated server-side; deny-by-default stays intact.': { en: 'All changes are prove-gated server-side; deny-by-default stays intact.', zh: '所有變更後端 prove 驗證;預設全拒不變。' },
+  'policy API unavailable': { en: 'policy API unavailable', zh: '政策 API 不可用' },
+  'policy unavailable': { en: 'policy unavailable', zh: '政策不可用' },
+  'loading…': { en: 'loading…', zh: '載入中…' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -612,23 +629,49 @@ const PolicyEditor = memo(function PolicyEditor() {
   const [sb, setSb] = useState('team-lead');
   const [pol, setPol] = useState(null);
   const [preset, setPreset] = useState('');
-  useEffect(() => { if (typeof NF.policyRo !== 'function') { setPol({ ok: false, msg: 'policy API unavailable' }); return; } let ok = true; setPol({ loading: true }); NF.policyRo(sb).then(r => ok && setPol(r)).catch(e => ok && setPol({ ok: false, msg: e.message })); return () => { ok = false; }; }, [sb]);
+  const [ep, setEp] = useState({ host: '', port: '443', access: 'full' });
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    if (typeof NF.policyRo !== 'function') { setPol({ ok: false, msg: t('policy API unavailable') }); return; }
+    let ok = true; setPol({ loading: true });
+    NF.policyRo(sb).then(r => ok && setPol(r)).catch(e => ok && setPol({ ok: false, msg: e.message }));
+    return () => { ok = false; };
+  }, [sb, nonce]);
   const p = (pol && pol.policy) || {};
-  const egress = p.egress || [];
-  return html`<${Panel} title="Policy editor" label="OpenShell egress · per sandbox">
-    <${Field} label="Sandbox"><${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/></${Field}>
-    ${!pol ? null : pol.loading ? html`<div class="muted">loading…</div>` : !pol.ok ? html`<div class="muted">${pol.msg || 'policy unavailable'}</div>` : html`<div>
-      <div class="muted mono" style=${{ fontSize: '11px', margin: '4px 0 9px' }}>version ${p.version || '?'} · ${(p.hash || '').slice(0, 12)}</div>
-      <div class="lbl" style=${{ marginBottom: '6px' }}>Egress hosts · ${egress.length}</div>
-      <div class="tblwrap" style=${{ maxHeight: '176px', overflow: 'auto', border: '1px solid var(--line)', borderRadius: '8px', padding: '4px 10px' }}>
-        ${egress.length ? egress.map((h, i) => html`<div key=${i} class="kv"><span class="kvv mono" style=${{ fontSize: '12px' }}>${typeof h === 'string' ? h : (h.host || JSON.stringify(h))}</span></div>`) : html`<div class="muted" style=${{ padding: '6px 0' }}>deny-by-default · no explicit egress</div>`}
+  const nets = p.networks || [];
+  const after = () => setNonce(n => n + 1);   // reload the policy after a mutation
+  return html`<${Panel} title="Policy editor" label=${t('OpenShell services · open / revoke')}
+    right=${html`<${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/>`}>
+    ${!pol || pol.loading ? html`<div class="muted">${t('loading…')}</div>` : !pol.ok ? html`<div class="muted">${pol.msg || t('policy unavailable')}</div>` : html`<div>
+      <div class="muted mono" style=${{ fontSize: '11px', margin: '2px 0 10px' }}>version ${p.version || '?'} · ${(p.hash || '')}</div>
+      <div class="lbl" style=${{ marginBottom: '7px' }}>${t('Network services')} · ${nets.length}</div>
+      ${nets.length ? nets.map(n => html`<div key=${n.name} class="polrow">
+        <div class="grow">
+          <div style=${{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <b class="mono" style=${{ fontSize: '12.5px' }}>${n.name}</b>
+            ${n.l7 ? html`<span class="pill2 g">L7</span>` : null}
+            ${n.nbin ? html`<span class="muted" style=${{ fontSize: '10.5px' }}>${n.nbin} bin</span>` : null}
+          </div>
+          <div class="muted mono" style=${{ fontSize: '11px', marginTop: '3px', wordBreak: 'break-all' }}>${(n.eps || []).join('  ·  ') || t('no endpoints')}</div>
+        </div>
+        <${ConfirmBtn} danger=${true} ghost=${true} confirm=${t('Revoke service') + ' \'' + n.name + '\' (' + sb + ')?'} run=${() => NF.policy({ op: 'rule_remove', name: n.name, sb }).then(r => { after(); return r; })} label=${t('Revoke')} busyLabel="…"/>
+      </div>`) : html`<div class="muted" style=${{ padding: '6px 0' }}>${t('deny-by-default · no network services')}</div>`}
+
+      <div class="lbl" style=${{ margin: '15px 0 6px' }}>${t('Open an endpoint')}</div>
+      <div class="addrow" style=${{ flexWrap: 'wrap' }}>
+        <input class="inp" style=${{ maxWidth: '210px' }} placeholder="host (api.example.com)" value=${ep.host} onInput=${e => setEp({ ...ep, host: e.target.value })}/>
+        <input class="inp" style=${{ maxWidth: '80px' }} placeholder="port" value=${ep.port} onInput=${e => setEp({ ...ep, port: e.target.value })}/>
+        <${Segmented} value=${ep.access} options=${['full', 'rest', 'websocket']} onChange=${v => setEp({ ...ep, access: v })}/>
+        <${ConfirmBtn} confirm=${t('Open') + ' ' + ep.host + ':' + ep.port + ' (' + sb + ')?'} run=${() => NF.policy({ op: 'endpoint_add', host: ep.host, port: ep.port, access: ep.access, sb }).then(r => { after(); return r; })} label=${t('Open')} busyLabel="…"/>
       </div>
-      <div class="addrow" style=${{ marginTop: '10px' }}>
-        <input class="inp" placeholder="preset (telegram / github / huggingface…)" value=${preset} onInput=${e => setPreset(e.target.value)}/>
-        <${ConfirmBtn} confirm=${'Apply preset \'' + preset + '\' to ' + sb + '?'} run=${() => NF.policy({ op: 'preset', name: preset, on: true, sb })} label="+ Preset" busyLabel="applying"/>
-        <${ConfirmBtn} danger=${true} confirm=${'Remove preset \'' + preset + '\' from ' + sb + '?'} run=${() => NF.policy({ op: 'preset', name: preset, on: false, sb })} label="− Preset" busyLabel="removing"/>
+
+      <div class="lbl" style=${{ margin: '15px 0 6px' }}>${t('Apply a preset')}</div>
+      <div class="addrow">
+        <input class="inp" placeholder="telegram / github / huggingface…" value=${preset} onInput=${e => setPreset(e.target.value)}/>
+        <${ConfirmBtn} confirm=${t('Apply preset') + ' \'' + preset + '\' → ' + sb + '?'} run=${() => NF.policy({ op: 'preset', name: preset, on: true, sb }).then(r => { after(); return r; })} label=${t('+ Preset')} busyLabel="…"/>
+        <${ConfirmBtn} danger=${true} confirm=${t('Remove preset') + ' \'' + preset + '\' (' + sb + ')?'} run=${() => NF.policy({ op: 'preset', name: preset, on: false, sb }).then(r => { after(); return r; })} label=${t('− Preset')} busyLabel="…"/>
       </div>
-      <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>Preset add/remove is prove-gated server-side; deny-by-default stays intact.</div>
+      <div class="muted" style=${{ fontSize: '11px', marginTop: '10px' }}>${t('All changes are prove-gated server-side; deny-by-default stays intact.')}</div>
     </div>`}
   </${Panel}>`;
 });
