@@ -225,6 +225,7 @@ const I18N = {
   'Search actor / action / detail…': { en: 'Search actor / action / detail…', zh: '搜尋帳號 / 動作 / 細節…' },
   'Admin only.': { en: 'Admin only.', zh: '僅限管理員。' },
   'Filter services…': { en: 'Filter services…', zh: '篩選服務…' },
+  'Editing policy for': { en: 'Editing policy for', zh: '正在編輯的沙箱' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -694,8 +695,14 @@ const PolicyEditor = memo(function PolicyEditor() {
   const _nets = p.networks || [];
   const nets = pq.trim() ? _nets.filter(n => (n.name + ' ' + (n.eps || []).join(' ')).toLowerCase().includes(pq.trim().toLowerCase())) : _nets;
   const after = () => setNonce(n => n + 1);   // reload the policy after a mutation
-  return html`<${Panel} title="Policy editor" label=${t('OpenShell services · open / revoke')}
-    right=${html`<${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/>`}>
+  const _ZTAG = { 'team-lead': 'lead', 'worker-a': 'ops', 'worker-b': 'sec', 'worker-c': 'gov' };
+  return html`<${Panel} title="Policy editor" label=${t('OpenShell services · open / revoke')}>
+    <div class="agentpick">
+      <div class="agentpick-lbl">${t('Editing policy for')}</div>
+      <div class="agentpick-row">${POLSB.map(a => html`<button key=${a} class=${'agentbtn ' + (sb === a ? 'on' : '')} onClick=${() => setSb(a)}>
+        <span class="agentbtn-dot"></span><span class="agentbtn-name">${a}</span><span class=${'tag ' + (a === 'team-lead' ? 'a' : 'g')}>${t(_ZTAG[a] || '')}</span>
+      </button>`)}</div>
+    </div>
     ${!pol || pol.loading ? html`<div class="muted">${t('loading…')}</div>` : !pol.ok ? html`<div class="muted">${pol.msg || t('policy unavailable')}</div>` : html`<div>
       <div class="muted mono" style=${{ fontSize: '11px', margin: '2px 0 10px' }}>version ${p.version || '?'} · ${(p.hash || '')}</div>
       <div class="srchbar" style=${{ marginBottom: '7px' }}><input class="inp" placeholder=${t('Filter services…')} value=${pq} onInput=${e => setPq(e.target.value)}/><span class="lbl" style=${{ marginLeft: 'auto' }}>${t('Network services')} · ${nets.length}</span></div>

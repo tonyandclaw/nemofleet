@@ -326,3 +326,15 @@ html[data-density="spacious"] .kpis{gap:20px}
 .skq::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--ink) 7%,transparent),transparent);animation:sksh 1.3s infinite}
 @keyframes sksh{100%{transform:translateX(100%)}}
 @media (prefers-reduced-motion:reduce){.skq::after{animation:none}}
+
+/* ── policy-editor prominent agent picker ── */
+.agentpick{margin:2px 0 16px}
+.agentpick-lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px;font-weight:600}
+.agentpick-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.agentbtn{display:flex;align-items:center;gap:8px;padding:11px 13px;border-radius:10px;cursor:pointer;font:inherit;
+  background:var(--panel2);border:1.5px solid var(--line);color:var(--ink2);transition:all .16s}
+.agentbtn:hover{border-color:var(--line2);color:var(--ink)}
+.agentbtn.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent-ink);box-shadow:0 0 0 1px var(--accent) inset}
+.agentbtn-dot{width:8px;height:8px;border-radius:50%;background:var(--ink3);flex:none}
+.agentbtn.on .agentbtn-dot{background:var(--accent)}
+.agentbtn-name{font-weight:600;font-size:13.5px;flex:1;text-align:left;font-family:var(--mono)}
