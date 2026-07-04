@@ -27,6 +27,16 @@ const ActionBtn = memo(function ActionBtn({ act, label, busyLabel, ghost }) {
     finally { setBusy(false); reloadNow(); }
   }}>${busy ? html`<span class="mini"></span>${busyLabel || '…'}` : label}</button>`;
 });
+const ConfirmBtn = memo(function ConfirmBtn({ run: doRun, label, busyLabel, confirm: confirmMsg, ghost, danger }) {
+  const [busy, setBusy] = useState(false);
+  return html`<button class=${'btn ' + (ghost ? 'ghost ' : '') + (danger ? 'danger' : '')} disabled=${busy} onClick=${async () => {
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    setBusy(true);
+    try { const r = await doRun(); const good = r && (r.ok || r.out); toast(r && r.msg ? r.msg : (good ? 'Done' : 'Failed'), good ? 'g' : 'c'); }
+    catch (e) { toast('Failed: ' + e.message, 'c'); }
+    finally { setBusy(false); reloadNow(); }
+  }}>${busy ? html`<span class="mini"></span>${busyLabel || '…'}` : label}</button>`;
+});
 
 // form + control primitives ──────────────────────────────────────────────────
 async function run(promise, okMsg) {
@@ -246,10 +256,12 @@ const EventsPanel = memo(function EventsPanel({ events }) {
   </${Panel}>`;
 });
 
-const SNAP_SB = ['team-lead', 'worker-a', 'worker-b'];
+const SNAP_SB = ['team-lead', 'worker-a', 'worker-b', 'worker-c'];
 const FleetView = memo(function FleetView({ d }) {
   const [sb, setSb] = useState('worker-a');
   const [diag, setDiag] = useState(null);
+  const [snapSel, setSnapSel] = useState('');
+  const [inf, setInf] = useState({ provider: '', model: '' });
   const runDiag = (doWhat) => { setDiag({ title: doWhat + ' · ' + sb, out: 'Running…' });
     NF.sys({ do: doWhat, sb }).then(r => setDiag({ title: r.title || doWhat, out: r.out || '(no output)' })).catch(e => setDiag({ title: doWhat, out: e.message })); };
   return html`<div class="viewfade"><div class="viewhd"><h2>Fleet</h2><span class="lbl">${d.nodes.length} nodes · ${d.devices.length} device(s)</span></div>
@@ -261,7 +273,11 @@ const FleetView = memo(function FleetView({ d }) {
           <button class="btn" onClick=${() => run(NF.snapshot('create', '', sb), 'Snapshot created')}>+ Create snapshot</button>
           <button class="btn ghost" onClick=${() => run(NF.action('refresh'), 'Refreshed')}>Refresh</button>
         </div>
-        <div class="muted" style=${{ fontSize: '11.5px', marginTop: '10px' }}>Restore/delete of a specific version is type-to-confirm — wired next.</div>
+        <div class="addrow" style=${{ marginTop: '8px' }}>
+          <input class="inp" placeholder="snapshot id(空=最新)" value=${snapSel} onInput=${e => setSnapSel(e.target.value)}/>
+          <${ConfirmBtn} ghost=${true} confirm=${'還原 ' + sb + ' ← ' + (snapSel || 'latest') + '?'} run=${() => NF.snapshot('restore', snapSel, sb)} label="Restore" busyLabel="restoring"/>
+          <${ConfirmBtn} danger=${true} confirm=${'刪除 ' + sb + ' 的快照 ' + (snapSel || 'latest') + '?'} run=${() => NF.snapshot('delete', snapSel, sb)} label="Delete" busyLabel="deleting"/>
+        </div>
       </${Panel}>`}
     </div>
     <div class="col">
@@ -274,10 +290,21 @@ const FleetView = memo(function FleetView({ d }) {
           ]}/></${Panel}>`}
       ${html`<${Panel} title="Diagnostics" label="on-demand · nemoclaw/openshell">
         <${Field} label="Target"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
-        <div class="addrow">${['doctor', 'logs', 'recover', 'gwhealth'].map(x => html`<button key=${x} class="btn ghost" onClick=${() => runDiag(x)}>${x}</button>`)}</div>
+        <div class="addrow">${['doctor', 'logs', 'recover', 'gwhealth', 'stale', 'gsettings'].map(x => html`<button key=${x} class="btn ghost" onClick=${() => runDiag(x)}>${x}</button>`)}
+          <${ConfirmBtn} danger=${true} confirm=${'Rebuild ' + sb + '?會重建沙箱(數分鐘;自訂 policy 之後需 boot-stack 重補)。'} run=${() => NF.sys({ do: 'rebuild', sb })} label="rebuild" busyLabel="rebuilding"/></div>
         ${diag ? html`<div style=${{ marginTop: '12px' }}><div class="lbl" style=${{ marginBottom: '6px' }}>${diag.title}</div>
           <pre class="mono" style=${{ background: '#0d1017', border: '1px solid var(--line)', borderRadius: '8px', padding: '10px', fontSize: '11px', color: 'var(--ink2)', maxHeight: '220px', overflow: 'auto', whiteSpace: 'pre-wrap' }}>${diag.out}</pre></div>` : null}
       </${Panel}>`}
+      ${html`<${Panel} title="Inference" label="切換 provider / model(nemoclaw inference set)">
+        <${Field} label="Sandbox"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
+        <div class="addrow">
+          <input class="inp" placeholder="provider (vllm-local / nim…)" value=${inf.provider} onInput=${e => setInf({ ...inf, provider: e.target.value })}/>
+          <input class="inp" placeholder="model (nemotron-super)" value=${inf.model} onInput=${e => setInf({ ...inf, model: e.target.value })}/>
+          <${ConfirmBtn} confirm=${'把 ' + sb + ' 的推理切到 ' + (inf.provider || '?') + ' / ' + (inf.model || '?') + '?'} run=${() => NF.sys({ do: 'infset', sb, provider: inf.provider, model: inf.model })} label="Apply" busyLabel="applying"/>
+        </div></${Panel}>`}
+      ${html`<${Panel} title="Device ops · EBG19P" label="worker-a 快速處置(需設備連線)">
+        <div class="addrow">${[['sync', '同步設定'], ['harden', '一鍵強化'], ['restart', '重啟服務'], ['block', '封鎖未授權']].map(([op, lbl]) => html`<${ConfirmBtn} key=${op} ghost=${true} confirm=${lbl + '(' + op + ')— 對真實 EBG19P 執行,確定?'} run=${() => NF.deviceAction(op)} label=${lbl} busyLabel="…"/>`)}</div>
+        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>設備不在網段時回「不可達」的優雅降級;每筆進稽核。</div></${Panel}>`}
     </div></div></div>`;
 });
 
@@ -348,6 +375,11 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'detail', label: 'Detail', render: r => html`<span class="muted">${r.detail || ''}</span>` },
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
           ]}/></${Panel}>`}
+      ${(d.me && d.me.role === 'admin') ? html`<${Panel} title="Cipher policy override" label="標記為弱加密的家族(cert_cipher_policy=custom 時生效)">
+        <div class="addrow" style=${{ flexWrap: 'wrap' }}>${['rc4', '3des', 'cbc', 'null', 'export', 'md5', 'sha1', 'des'].map(fam => html`<span key=${fam} class="seg2" style=${{ display: 'inline-flex' }}>
+          <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 1 }), 'flag ' + fam)}>flag ${fam}</button>
+          <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 0 }), 'clear ' + fam)}>clear</button></span>`)}</div>
+        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>先到 Settings 把 cipher policy 設成 <b>custom</b>;個別家族開/關即時套用到 worker-a 掃描。</div></${Panel}>` : null}
       ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'asuswrt-merlin')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty="No SAST hits."
           cols=${[
@@ -403,6 +435,7 @@ const CFG = {
   dev_cpu_hi: [70, 80, 85, 90, 95], dev_ram_hi: [70, 80, 85, 90, 95], dev_temp_hi: [70, 75, 80, 85, 90],
   patrol_interval_sec: [{ v: 300, l: '5m' }, { v: 600, l: '10m' }, { v: 1200, l: '20m' }, { v: 1800, l: '30m' }, { v: 3600, l: '1h' }],
   digest_interval_sec: [{ v: 3600, l: '1h' }, { v: 21600, l: '6h' }, { v: 86400, l: '24h' }],
+  quiet_start: ['20:00', '21:00', '22:00', '23:00', '00:00'], quiet_end: ['06:00', '07:00', '08:00', '09:00', '10:00'],
 };
 const SettingsView = memo(function SettingsView({ d }) {
   const s = d.settings || {};
@@ -427,6 +460,11 @@ const SettingsView = memo(function SettingsView({ d }) {
         <${Field} label="proactive_enabled" hint="team-lead 主動巡邏 + 主動回報"><${Toggle} on=${s.proactive_enabled !== false} onChange=${v => set('proactive_enabled', v)}/></${Field}>
         <${Field} label="proactive_safety_net" hint="critical 確定性告警(不靠 team-lead)"><${Toggle} on=${s.proactive_safety_net !== false} onChange=${v => set('proactive_safety_net', v)}/></${Field}>
         ${seg('patrol_interval_sec', '主動巡邏頻率')}${seg('digest_interval_sec', '主動 digest 頻率')}</div></${Panel}>`}
+      ${html`<${Panel} title="Quiet hours & scan tags" label="靜音時段(critical 仍推)+ nuclei 範圍"><div class="formgrid">
+        <${Field} label="quiet_enabled" hint="啟用靜音時段"><${Toggle} on=${s.quiet_enabled === true} onChange=${v => set('quiet_enabled', v)}/></${Field}>
+        ${seg('quiet_start', '靜音開始')}${seg('quiet_end', '靜音結束')}
+        <${Field} label="nuclei_tags" hint="逗號分隔(asus,cve,exposure…)"><input class="inp" defaultValue=${s.nuclei_tags || 'asus,cve'} onBlur=${e => set('nuclei_tags', e.target.value)}/></${Field}>
+      </div></${Panel}>`}
     </div></div>`;
 });
 const AdminView = memo(function AdminView({ d }) {
