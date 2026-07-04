@@ -133,6 +133,28 @@ const I18N = {
   'entries': { en: 'entries', zh: '筆' },
   'live every 5s': { en: 'live every 5s', zh: '每 5 秒更新' },
   'reconnecting…': { en: 'reconnecting…', zh: '重新連線中…' },
+  'actions · 2h window': { en: 'actions · 2h window', zh: '動作 · 2 小時' },
+  'Allowed volume': { en: 'Allowed volume', zh: '放行量' },
+  'Denied (real)': { en: 'Denied (real)', zh: '拒絕(實際)' },
+  'Heartbeats · excluded': { en: 'Heartbeats · excluded', zh: '心跳 · 排除' },
+  'Heartbeats': { en: 'Heartbeats', zh: '心跳' },
+  'Hermes harness': { en: 'Hermes harness', zh: 'Hermes 節點' },
+  'lead': { en: 'lead', zh: '主控' },
+  'ops': { en: 'ops', zh: '運維' },
+  'sec': { en: 'sec', zh: '資安' },
+  'gov': { en: 'gov', zh: '治理' },
+  'Critical': { en: 'Critical', zh: '嚴重' },
+  'Serious': { en: 'Serious', zh: '高風險' },
+  'Weak crypto': { en: 'Weak crypto', zh: '弱加密' },
+  'Reconciled': { en: 'Reconciled', zh: '已核銷' },
+  'Governance events': { en: 'Governance events', zh: '治理事件' },
+  'Agent fleet': { en: 'Agent fleet', zh: 'Agent 機隊' },
+  'Recent device events': { en: 'Recent device events', zh: '近期設備事件' },
+  'Security posture': { en: 'Security posture', zh: '安全姿態' },
+  'Managed device': { en: 'Managed device', zh: '受管設備' },
+  'worker-b · daily scan': { en: 'worker-b · daily scan', zh: 'worker-b · 每日掃描' },
+  'Event volume': { en: 'Event volume', zh: '事件量' },
+  'Recent governed actions': { en: 'Recent governed actions', zh: '近期受治理動作' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -254,7 +276,7 @@ const Kpi = memo(function Kpi({ stripe, label, big, unit, sub }) {
 const SevBar = ({ label, count, max, color, dotcls }) => {
   const pct = max ? Math.max(6, Math.round(count / max * 100)) : 6;
   return html`<div class="sevrow"><div class="sevname">
-      <span class=${'dot ' + (dotcls || '')} style=${dotcls ? null : { background: color, color }}></span>${label}</div>
+      <span class=${'dot ' + (dotcls || '')} style=${dotcls ? null : { background: color, color }}></span>${t(label)}</div>
     <div class="track"><div class="fill" style=${{ width: pct + '%', background: color }}></div></div>
     <div class="num">${count}</div></div>`;
 };
@@ -312,19 +334,19 @@ const OverviewView = memo(function OverviewView({ d }) {
   const g = d.governance;
   return html`<div class="viewfade">
     <section class="kpis">
-      ${html`<${Kpi} stripe="var(--good)" label="Governance coverage" big=${g.coverage} unit="%" sub=${g.allowed.toLocaleString() + ' actions · 2h window'}/>`}
+      ${html`<${Kpi} stripe="var(--good)" label="Governance coverage" big=${g.coverage} unit="%" sub=${g.allowed.toLocaleString() + ' ' + t('actions · 2h window')}/>`}
       ${html`<${Kpi} stripe="var(--crit)" label="Blocked egress (DENIED)" big=${g.denied} sub="unauthorized host · OPA host-layer"/>`}
       ${html`<${Kpi} stripe="var(--warn)" label="Active alerts" big=${d.alerts.length} sub=${d.alerts[0] ? d.alerts[0].msg : 'none'}/>`}
       ${html`<${Kpi} stripe="var(--accent)" label="Open escalations" big=${d.jira.length} unit="Jira" sub="human-in-the-loop · NETOPS"/>`}
     </section>
     <div class="grid">
       <div class="col">
-        ${html`<${Panel} title="Governance events" label="OCSF · 2h" right=${html`<span class="legend"><span><i style=${{ background: SERIES.allowed }}></i>Allowed volume</span></span>`}>
+        ${html`<${Panel} title="Governance events" label="OCSF · 2h" right=${html`<span class="legend"><span><i style=${{ background: SERIES.allowed }}></i>${t('Allowed volume')}</span></span>`}>
           <${GovChart} gov=${g}/>
           <div class="gstat">
-            <div><div class="num" style=${{ color: SERIES.allowed }}>${g.allowed.toLocaleString()}</div><div class="lbl">Allowed</div></div>
-            <div><div class="num" style=${{ color: 'var(--crit)' }}>${g.denied}</div><div class="lbl">Denied (real)</div></div>
-            <div><div class="num ink2">${g.benign.toLocaleString()}</div><div class="lbl">Heartbeats · excluded</div></div>
+            <div><div class="num" style=${{ color: SERIES.allowed }}>${g.allowed.toLocaleString()}</div><div class="lbl">${t('Allowed')}</div></div>
+            <div><div class="num" style=${{ color: 'var(--crit)' }}>${g.denied}</div><div class="lbl">${t('Denied (real)')}</div></div>
+            <div><div class="num ink2">${g.benign.toLocaleString()}</div><div class="lbl">${t('Heartbeats · excluded')}</div></div>
           </div>
         </${Panel}>`}
         <${EventsPanel} events=${d.events}/>
@@ -340,16 +362,16 @@ const OverviewView = memo(function OverviewView({ d }) {
 
 const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
   const dev = devices[0] || {};
-  return html`<${Panel} title="Agent fleet" label=${'Hermes harness ×' + nodes.length}>
+  return html`<${Panel} title="Agent fleet" label=${t('Hermes harness') + ' ×' + nodes.length}>
     <div class="nodes">${nodes.map(n => html`<div key=${n.name} class="node clickcard" onClick=${() => openDrawer({ title: t('Node detail'), sub: n.name, rows: [
         { k: 'name', v: n.name, mono: true }, { k: 'role', v: n.role }, { k: 'zone', v: n.zone || '—' }, { k: 'port', v: ':' + n.port, mono: true },
         { k: 'status', v: n.up ? '● up' : '○ down' }, { k: 'tag', v: n.tag }, { k: 'caps', v: (n.caps || []).join(', ') || '—' } ] })}>
       <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></span>
-      <div><div class="nm">${n.name} <span class=${'tag ' + (n.tag === 'lead' ? 'a' : 'g')}>${n.tag}</span></div><div class="role">${n.role}</div></div>
+      <div><div class="nm">${n.name} <span class=${'tag ' + (n.tag === 'lead' ? 'a' : 'g')}>${t(n.tag)}</span></div><div class="role">${n.role}</div></div>
       <div class="rt"><${Dot} up=${n.up}/> :${n.port}<br/><span class="muted">${n.zone || ''}</span></div>
     </div>`)}</div>
     <hr class="sep" style=${{ margin: '14px 0 12px' }}/>
-    <div class="lbl" style=${{ marginBottom: '10px' }}>Managed device${devices.length > 1 ? 's · ' + devices.length : ''}</div>
+    <div class="lbl" style=${{ marginBottom: '10px' }}>${t('Managed device')}${devices.length > 1 ? ' · ' + devices.length : ''}</div>
     <div class="device clickcard" onClick=${() => openDrawer({ title: t('Device detail'), sub: dev.model || 'EBG19P', rows: [
         { k: 'asset', v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: 'model', v: dev.model || 'EBG19P' }, { k: 'firmware', v: dev.firmware || '—', mono: true },
         { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: dev.online !== false ? 'yes' : 'no' } ] })}><div class="metrics">
@@ -491,7 +513,7 @@ const SecurityView = memo(function SecurityView({ d }) {
           </div>
           <div style=${{ flex: 1, minWidth: '220px' }}>
             ${P.factors.length ? P.factors.map(f => html`<div key=${f.label} style=${{ marginBottom: '7px' }}>
-              <div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span class="ink2">${f.label} <b>×${f.n}</b></span><span style=${{ color: 'var(--crit)' }}>−${f.penalty}</span></div>
+              <div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span class="ink2">${t(f.label)} <b>×${f.n}</b></span><span style=${{ color: 'var(--crit)' }}>−${f.penalty}</span></div>
               <div style=${{ height: '4px', background: 'var(--line)', borderRadius: '3px', overflow: 'hidden', marginTop: '3px' }}><div style=${{ width: Math.min(f.penalty * 2, 100) + '%', height: '100%', background: 'var(--crit)' }}></div></div>
             </div>`) : html`<div class="muted">無扣分項 — 機隊安全姿態良好 ✓</div>`}
           </div>
@@ -548,9 +570,9 @@ const GovernanceView = memo(function GovernanceView({ d }) {
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Governance')}</h2><span class="lbl">${t('OPA / L7 · OCSF events')}</span></div>
     <div class="grid1">
       ${html`<${Panel} title="Event volume" label="allowed · 2h"><${GovChart} gov=${g}/>
-        <div class="gstat"><div><div class="num" style=${{ color: SERIES.allowed }}>${g.allowed.toLocaleString()}</div><div class="lbl">Allowed</div></div>
-        <div><div class="num" style=${{ color: 'var(--crit)' }}>${g.denied}</div><div class="lbl">Denied</div></div>
-        <div><div class="num ink2">${g.benign.toLocaleString()}</div><div class="lbl">Heartbeats</div></div></div></${Panel}>`}
+        <div class="gstat"><div><div class="num" style=${{ color: SERIES.allowed }}>${g.allowed.toLocaleString()}</div><div class="lbl">${t('Allowed')}</div></div>
+        <div><div class="num" style=${{ color: 'var(--crit)' }}>${g.denied}</div><div class="lbl">${t('Denied')}</div></div>
+        <div><div class="num ink2">${g.benign.toLocaleString()}</div><div class="lbl">${t('Heartbeats')}</div></div></div></${Panel}>`}
       ${html`<${GovActionsPanel} events=${g.events}/>`}
       ${d.me && d.me.role === 'admin' ? html`<${PolicyEditor}/>` : null}
     </div></div>`;
