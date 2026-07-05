@@ -94,6 +94,7 @@ function normalize(d) {
     audit: (d._audit && d._audit.chain) || d.audit || { ok: true, count: 0 },
     audit_recent: arr(d._audit && d._audit.recent),
     settings: d.settings || {},
+    snapshots_by_agent: arr(d.snapshots_by_agent),
     recipients: arr(d.recipients, d.settings && d.settings.recipients),
     acl: d._acl || null,
     proactive: d.proactive || null,

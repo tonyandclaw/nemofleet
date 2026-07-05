@@ -226,6 +226,13 @@ const I18N = {
   'Admin only.': { en: 'Admin only.', zh: '僅限管理員。' },
   'Filter services…': { en: 'Filter services…', zh: '篩選服務…' },
   'Editing policy for': { en: 'Editing policy for', zh: '正在編輯的沙箱' },
+  'Inference detail': { en: 'Inference detail', zh: '推理詳情' },
+  'model': { en: 'model', zh: '模型' },
+  'provider': { en: 'provider', zh: '供應商' },
+  'reachable': { en: 'reachable', zh: '可達' },
+  'unreachable': { en: 'unreachable', zh: '不可達' },
+  'endpoint': { en: 'endpoint', zh: '端點' },
+  'No snapshots yet — click Create.': { en: 'No snapshots yet — click Create.', zh: '尚無快照 — 點「建立快照」。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -340,7 +347,7 @@ function useClock() {
 }
 
 // ── shared components (memoized) ────────────────────────────────────────────────────────────
-const Dot = ({ up, s }) => html`<span class=${'dot ' + (s || (up ? 'g' : 'c'))}></span>`;
+const Dot = ({ up, s }) => { const cls = s === 'on' ? 'g' : s === 'off' ? 'off' : s === 'down' ? 'c' : s ? s : (up ? 'g' : 'c'); return html`<span class=${'dot ' + cls}></span>`; };
 
 const Panel = memo(function Panel({ title, label, right, children, className }) {
   return html`<section class=${'panel ' + (className || '')}>
@@ -528,18 +535,18 @@ const FleetView = memo(function FleetView({ d }) {
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Fleet')}</h2><span class="lbl">${d.nodes.length} nodes · ${d.devices.length} device(s)</span></div>
     <div class="grid"><div class="col">
       <${FleetSummary} nodes=${d.nodes} devices=${d.devices}/>
-      ${html`<${Panel} title="Snapshots" label="per sandbox · recovery points">
+      ${(() => { const grp = (d.snapshots_by_agent || []).find(g => g.sb === sb); const snaps = (grp && grp.items || []).slice().reverse(); return html`<${Panel} title="Snapshots" label="per sandbox · recovery points">
         <${Field} label="Sandbox"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
         <div class="addrow">
           <button class="btn" onClick=${() => run(NF.snapshot('create', '', sb), 'Snapshot created')}>${t('+ Create snapshot')}</button>
           <button class="btn ghost" onClick=${() => run(NF.action('refresh'), 'Refreshed')}>${t('Refresh')}</button>
         </div>
-        <div class="addrow" style=${{ marginTop: '8px' }}>
-          <input class="inp" placeholder="snapshot id(空=最新)" value=${snapSel} onInput=${e => setSnapSel(e.target.value)}/>
-          <${ConfirmBtn} ghost=${true} confirm=${'還原 ' + sb + ' ← ' + (snapSel || 'latest') + '?'} run=${() => NF.snapshot('restore', snapSel, sb)} label="Restore" busyLabel="restoring"/>
-          <${ConfirmBtn} danger=${true} confirm=${'刪除 ' + sb + ' 的快照 ' + (snapSel || 'latest') + '?'} run=${() => NF.snapshot('delete', snapSel, sb)} label="Delete" busyLabel="deleting"/>
-        </div>
-      </${Panel}>`}
+        <div class="snaplist">${snaps.length ? snaps.map(sn => html`<div key=${sn.ts} class="snaprow">
+            <div class="grow"><b class="mono">${sn.ver}</b> <span class="muted">${sn.name !== '—' ? sn.name : ''}</span><div class="muted mono" style=${{ fontSize: '11px' }}>${sn.ts}</div></div>
+            <${ConfirmBtn} ghost=${true} confirm=${t('Restore') + ' ' + sb + ' ← ' + sn.ts + '?'} run=${() => NF.snapshot('restore', sn.ts, sb)} label=${t('Restore')} busyLabel="…"/>
+            <${ConfirmBtn} danger=${true} confirm=${t('Delete') + ' ' + sb + ' · ' + sn.ts + '?'} run=${() => NF.snapshot('delete', sn.ts, sb)} label=${t('Delete')} busyLabel="…"/>
+          </div>`) : html`<div class="muted" style=${{ padding: '10px 2px', fontSize: '12px' }}>${t('No snapshots yet — click Create.')}</div>`}</div>
+      </${Panel}>`; })()}
     </div>
     <div class="col">
       ${html`<${Panel} title="Containers" label="OpenShell sandboxes">
@@ -1055,7 +1062,11 @@ function App() {
               { k: t('name'), v: nd.name, mono: true }, { k: t('status'), v: nd.up ? '● ' + t('online') : '○ ' + t('offline') },
               { k: t('role'), v: nd.role || '—' }, { k: t('zone'), v: nd.zone || '—' }, { k: t('port'), v: ':' + nd.port, mono: true },
               { k: t('tag'), v: nd.tag || '—' }, { k: t('caps'), v: (nd.caps || []).join(', ') || '—' } ] })}><${Dot} up=${nd.up}/>${nd.name}</span>`)}
-            <span class="seg">NIM · ${d.inference.model} <${Dot} up=${d.inference.reachable !== false}/></span>
+            <span class="seg nodeseg" title=${t('Inference detail')} onClick=${() => openDrawer({ title: t('Inference detail'), sub: 'NIM', rows: [
+              { k: t('model'), v: d.inference.model || '—', mono: true },
+              { k: t('provider'), v: d.inference.provider || 'nim', mono: true },
+              { k: t('status'), v: d.inference.reachable !== false ? '● ' + t('reachable') : '○ ' + t('unreachable') },
+              { k: t('endpoint'), v: d.inference.endpoint || d.inference.base_url || 'inference.local/v1', mono: true } ] })}>NIM · ${d.inference.model} <${Dot} up=${d.inference.reachable !== false}/></span>
             <span class="seg clock">${clock}</span>
           </div>
         </div>

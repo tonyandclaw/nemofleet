@@ -58,7 +58,7 @@
   .fleetpill .seg{display:flex;align-items:center;gap:7px;color:var(--ink2)}
   .fleetpill .seg+.seg{padding-left:14px;border-left:1px solid var(--line)}
   .dot{width:7px;height:7px;border-radius:50%;flex:none;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}
-  .dot.g{background:var(--good);color:var(--good)}.dot.w{background:var(--warn);color:var(--warn)}.dot.c{background:var(--crit);color:var(--crit)}
+  .dot.g{background:var(--good);color:var(--good)}.dot.w{background:var(--warn);color:var(--warn)}.dot.c{background:var(--crit);color:var(--crit)}.dot.off{background:var(--ink3);color:var(--ink3)}
   .live .dot.g{animation:bp 2.6s ease-in-out infinite}
   @keyframes bp{0%,100%{opacity:1}50%{opacity:.35}}
   .clock{font-family:var(--mono);color:var(--ink2);font-size:12px}
@@ -338,3 +338,7 @@ html[data-density="spacious"] .kpis{gap:20px}
 .agentbtn-dot{width:8px;height:8px;border-radius:50%;background:var(--ink3);flex:none}
 .agentbtn.on .agentbtn-dot{background:var(--accent)}
 .agentbtn-name{font-weight:600;font-size:13.5px;flex:1;text-align:left;font-family:var(--mono)}
+
+.snaplist{margin-top:10px;border-top:1px solid var(--line)}
+.snaprow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.snaprow:last-child{border-bottom:0}

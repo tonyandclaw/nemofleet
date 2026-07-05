@@ -509,7 +509,7 @@ def _collect_impl():
     d["policy"]["sandboxes"] = _list_agent_sandboxes()   # 供唯讀卡 agent 選單
     # 快照是每個 sandbox 各自一份(Hermes / worker-a / worker-b)→ 逐台收集
     by_agent = []; all_names = []
-    for label, sb in (("Hermes", "team-lead"), ("worker-a", "worker-a"), ("worker-b", "worker-b")):
+    for label, sb in (("team-lead", "team-lead"), ("worker-a", "worker-a"), ("worker-b", "worker-b"), ("worker-c", "worker-c")):
         items = []
         for ln in sh(f"nemoclaw {sb} snapshot list 2>/dev/null", 10).splitlines():
             vm = re.search(r"\b(v\d+)\b", ln)
@@ -892,7 +892,7 @@ def do_snapshot(op, sel, sb="worker-a"):
     # NemoClaw 快照 create / restore(逐沙箱)。localhost only · admin-gated · 白名單 + shlex.quote
     # 注意:restore CLI 即使「Restore failed」也回 rc=0,故成功要看輸出文字,不能只看退出碼。
     sel = (sel or "").strip()
-    if sb not in ("team-lead", "worker-a", "worker-b"):
+    if sb not in ("team-lead", "worker-a", "worker-b", "worker-c"):
         return {"ok": False, "msg": "sandbox 不合法"}
     if op == "delete":
         # 無 CLI delete;快照即 rebuild-backups/<sb>/<timestamp> 目錄 → 嚴格驗 timestamp 後 rmtree(防路徑穿越)
@@ -907,6 +907,7 @@ def do_snapshot(op, sel, sb="worker-a"):
             import shutil; shutil.rmtree(target)
         except Exception as e:
             return {"ok": False, "msg": f"刪除失敗:{e}"}
+        _CACHE["ts"] = 0
         return {"ok": True, "msg": f"已刪除 {sb} 快照 {ts}"}
     if op == "create":
         nm = re.sub(r"[^A-Za-z0-9._-]", "-", sel)[:40] or ("ui-" + time.strftime("%Y%m%d-%H%M%S"))
@@ -928,6 +929,8 @@ def do_snapshot(op, sel, sb="worker-a"):
     else:
         ok = "restored" in out.lower() and "restore failed" not in out.lower()
         msg = (f"已從 {sel} 復原 {sb}" if ok else "復原失敗(運行中沙箱無法 in-place 還原,請走重建流程)")
+    if ok:
+        _CACHE["ts"] = 0   # 清快取 → 快照 list 立即刷新
     return {"ok": ok, "msg": msg, "out": out[-400:]}
 
 def _strip_ansi(s):
