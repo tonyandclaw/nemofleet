@@ -342,3 +342,33 @@ html[data-density="spacious"] .kpis{gap:20px}
 .snaplist{margin-top:10px;border-top:1px solid var(--line)}
 .snaprow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
 .snaprow:last-child{border-bottom:0}
+
+/* ── forced password modal ── */
+.modal-scrim{position:fixed;inset:0;background:rgba(6,8,14,.66);z-index:200;display:grid;place-items:center;animation:dwfade .16s ease}
+.modal{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:24px 26px;width:min(400px,92vw);box-shadow:0 24px 60px -20px var(--shadow)}
+.modal h3{margin:0;font-size:17px;font-weight:750;color:var(--ink)}
+
+/* ── cert weak-crypto warning banner ── */
+.certbanner{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:10px;margin-bottom:12px;border:1px solid}
+.certbanner.hi{background:var(--crit-bg);border-color:color-mix(in srgb,var(--crit) 40%,transparent);color:var(--ink)}
+.certbanner.med{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 40%,transparent);color:var(--ink)}
+.certbanner-ico{font-size:20px;flex:none}
+.certbanner b{font-size:13px}
+
+/* ── architecture view ── */
+.archmap{display:flex;flex-direction:column;align-items:center;gap:0}
+.archrow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;width:100%}
+.archworkers{gap:14px}
+.archbox{background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:12px 16px;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:wrap}
+.archbox.archworkers>*,.archworkers .archbox{flex-direction:column;align-items:flex-start;min-width:150px}
+.archbox.human{border-color:var(--ink3);font-weight:600}
+.archbox.lead{border-color:var(--s-blue)}
+.archbox.w-ops{border-color:var(--s-aqua)}.archbox.w-sec{border-color:var(--s-violet)}.archbox.w-gov{border-color:var(--s-yellow)}
+.archbox.device{border-color:var(--ink3)}.archbox.ext{border-color:var(--line2)}
+.archconn{color:var(--ink3);font-size:11px;font-family:var(--mono);padding:9px 0;text-align:center}
+.archnim{margin-top:14px;padding:11px 16px;border-radius:10px;background:color-mix(in srgb,var(--s-yellow) 10%,transparent);border:1px solid color-mix(in srgb,var(--s-yellow) 30%,transparent);font-size:12.5px;text-align:center;width:100%}
+.archlayers{display:grid;gap:12px}
+.archlayer{padding:11px 13px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}
+.archlayer-h{display:flex;align-items:center;gap:8px;font-size:14px}
+.archrules{margin:0;padding-left:18px;color:var(--ink2);font-size:12.5px}
+.archrules li{margin:6px 0}

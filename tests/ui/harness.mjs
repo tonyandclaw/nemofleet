@@ -78,4 +78,4 @@ export async function mount({ route = 'overview', lang = 'en', theme = 'dark' } 
   return { text: () => textStr, html: htmlStr };
 }
 
-export const VIEWS = ['overview', 'flow', 'fleet', 'security', 'governance', 'changectrl', 'audit', 'proactive', 'admin', 'settings'];
+export const VIEWS = ['overview', 'architecture', 'flow', 'fleet', 'security', 'governance', 'changectrl', 'audit', 'proactive', 'admin', 'settings'];

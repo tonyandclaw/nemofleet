@@ -286,6 +286,52 @@ const I18N = {
   'worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.': { en: 'worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.', zh: 'worker-c 審 worker-a remediation + worker-b CVE 決策,錨定核准 baseline。reject → team-lead 帶 required_fixes 退回重做,2 次不過升級人。人 > worker-c > a/b。' },
   'CVE-driven: worker-b flags': { en: 'CVE-driven: worker-b flags', zh: 'CVE-driven:worker-b 判' },
   '(firmware update can fix)': { en: '(firmware update can fix)', zh: '(韌體更新可修)' },
+  'Set a new password': { en: 'Set a new password', zh: '設定新密碼' },
+  'First sign-in — please replace the temporary password before continuing.': { en: 'First sign-in — please replace the temporary password before continuing.', zh: '首次登入 — 請先更換臨時密碼再繼續。' },
+  'New password': { en: 'New password', zh: '新密碼' },
+  'Confirm password': { en: 'Confirm password', zh: '確認密碼' },
+  'Password must be at least 8 characters.': { en: 'Password must be at least 8 characters.', zh: '密碼至少需 8 個字元。' },
+  'Passwords do not match.': { en: 'Passwords do not match.', zh: '兩次密碼不一致。' },
+  'Password changed': { en: 'Password changed', zh: '密碼已變更' },
+  'Set password': { en: 'Set password', zh: '設定密碼' },
+  'Saving…': { en: 'Saving…', zh: '儲存中…' },
+  'Failed': { en: 'Failed', zh: '失敗' },
+  'clean': { en: 'clean', zh: '無警示' },
+  'weak certificate / crypto warning(s)': { en: 'weak certificate / crypto warning(s)', zh: '個憑證 / 加密弱點警示' },
+  'weak cipher / expiring / untrusted — worker-a flags these against the crypto baseline': { en: 'weak cipher / expiring / untrusted — worker-a flags these against the crypto baseline', zh: '弱加密 / 即將到期 / 不受信任 — worker-a 依加密基準標記' },
+  'high': { en: 'high', zh: '高' },
+  'medium': { en: 'medium', zh: '中' },
+  'Architecture': { en: 'Architecture', zh: '架構' },
+  'Nemoclaw × OpenShell × Hermes · governed 4-node fleet': { en: 'Nemoclaw × OpenShell × Hermes · governed 4-node fleet', zh: 'Nemoclaw × OpenShell × Hermes · 受治理四節點艦隊' },
+  'Topology': { en: 'Topology', zh: '拓撲' },
+  'human at the apex · hub-and-spoke': { en: 'human at the apex · hub-and-spoke', zh: '人在最頂端 · hub-and-spoke' },
+  'Human': { en: 'Human', zh: '人' },
+  'request': { en: 'request', zh: '需求' },
+  'report / escalate': { en: 'report / escalate', zh: '回報 / 升級' },
+  'front desk · coordinate · execute worker-c verdicts': { en: 'front desk · coordinate · execute worker-c verdicts', zh: '對人前台 · 協調 · 執行 worker-c 判決' },
+  'scoped egress · L7 deny-by-default': { en: 'scoped egress · L7 deny-by-default', zh: 'scoped 出向 · L7 預設全拒' },
+  'real device': { en: 'real device', zh: '真實設備' },
+  'upstream intel': { en: 'upstream intel', zh: '上游情資' },
+  'escalations': { en: 'escalations', zh: '升級工單' },
+  'local NIM': { en: 'local NIM', zh: '本地 NIM' },
+  'all nodes route here': { en: 'all nodes route here', zh: '四節點都路由到這' },
+  'The four layers': { en: 'The four layers', zh: '四層架構' },
+  'what each does': { en: 'what each does', zh: '各層職責' },
+  'host control plane': { en: 'host control plane', zh: 'host 控制面' },
+  'provisioning · model/route/policy strategy · points inference at local NIM': { en: 'provisioning · model/route/policy strategy · points inference at local NIM', zh: '開機編排 · 模型/路由/政策 strategy · 指向本地 NIM' },
+  'sandbox + governance': { en: 'sandbox + governance', zh: '沙箱 + 治理' },
+  'per-agent sandbox · policy.yaml (egress/binaries/host) · deny-by-default · worker_bridge /32 + token': { en: 'per-agent sandbox · policy.yaml (egress/binaries/host) · deny-by-default · worker_bridge /32 + token', zh: '每 agent 一沙箱 · policy.yaml(出向/binary/host)· 預設全拒 · worker_bridge /32 + token' },
+  'agent harness × 4': { en: 'agent harness × 4', zh: 'agent harness × 4' },
+  'same harness, different roles: team-lead + worker-a/b/c; skills = SKILL.md; workers run :9099 IT-ops': { en: 'same harness, different roles: team-lead + worker-a/b/c; skills = SKILL.md; workers run :9099 IT-ops', zh: '同一 harness、不同角色:team-lead + worker-a/b/c;技能 = SKILL.md;worker 跑 :9099 IT-ops' },
+  'local inference': { en: 'local inference', zh: '本地推理' },
+  'Nemotron 3 Super 120B (NVFP4) · OpenAI /v1 · all 4 nodes route here · provider-agnostic seam': { en: 'Nemotron 3 Super 120B (NVFP4) · OpenAI /v1 · all 4 nodes route here · provider-agnostic seam', zh: 'Nemotron 3 Super 120B(NVFP4)· OpenAI /v1 · 四節點共用 · provider-agnostic' },
+  'Governance invariants': { en: 'Governance invariants', zh: '治理不變量' },
+  'always true': { en: 'always true', zh: '恆真' },
+  'Authority: human > worker-c > worker-a/b — worker-c reject is binding; its firmware-apply/rollback need a human token.': { en: 'Authority: human > worker-c > worker-a/b — worker-c reject is binding; its firmware-apply/rollback need a human token.', zh: '權威:人 > worker-c > worker-a/b — worker-c 的 reject 綁定;它的 firmware-apply/rollback 需人核准 token。' },
+  'Hub-and-spoke — workers never talk to each other; supervision is arbitrated via team-lead.': { en: 'Hub-and-spoke — workers never talk to each other; supervision is arbitrated via team-lead.', zh: 'Hub-and-spoke — worker 之間不互連;監督透過 team-lead 仲裁。' },
+  'Only cross-agent channel — worker_bridge (/32 + X-Bridge-Token) → :9099; A2A rides the same governed channel.': { en: 'Only cross-agent channel — worker_bridge (/32 + X-Bridge-Token) → :9099; A2A rides the same governed channel.', zh: '唯一跨 agent 通道 — worker_bridge(/32 + X-Bridge-Token)→ :9099;A2A 走同一條受治理通道。' },
+  'Single source of knowledge — knowledge/ (approved baseline + security keys); version-hash aligned fleet-wide.': { en: 'Single source of knowledge — knowledge/ (approved baseline + security keys); version-hash aligned fleet-wide.', zh: '知識單一權威 — knowledge/(核准 baseline + 安全鍵);version-hash 全隊對齊。' },
+  'Governed self-evolution — new skills pass worker-c /skill-review (SkillOS quality gate) before landing.': { en: 'Governed self-evolution — new skills pass worker-c /skill-review (SkillOS quality gate) before landing.', zh: '受治理自我進化 — 新技能落地前過 worker-c /skill-review(SkillOS 品質閘)。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -302,6 +348,25 @@ class ErrorBoundary extends React.Component {
       <pre class="mono" style=${{ whiteSpace: 'pre-wrap', fontSize: '11px', color: 'var(--crit)', maxWidth: '820px', overflow: 'auto', marginTop: '8px' }}>${String((e && e.stack) || e)}</pre>
       <button class="retry" onClick=${() => location.reload()}>${t('Reload')}</button></div>`;
   }
+}
+function PwGate({ me }) {
+  const [pw, setPw] = useState(''); const [pw2, setPw2] = useState(''); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  if (!me || !me.must_change) return null;
+  const submit = async () => {
+    if (pw.length < 8) return setErr(t('Password must be at least 8 characters.'));
+    if (pw !== pw2) return setErr(t('Passwords do not match.'));
+    setBusy(true); setErr('');
+    try { const r = await NF.users({ op: 'pw', email: me.email, password: pw }); if (r && r.ok) { toast(t('Password changed'), 'g'); reloadNow(); } else { setErr((r && r.msg) || t('Failed')); } }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return html`<div class="modal-scrim"><div class="modal">
+    <h3>${t('Set a new password')}</h3>
+    <p class="muted" style=${{ fontSize: '13px', marginTop: '4px' }}>${t('First sign-in — please replace the temporary password before continuing.')}</p>
+    <label class="fld" style=${{ marginTop: '14px' }}><span>${t('New password')}</span><input class="inp" type="password" autofocus value=${pw} onInput=${e => setPw(e.target.value)}/></label>
+    <label class="fld" style=${{ marginTop: '10px' }}><span>${t('Confirm password')}</span><input class="inp" type="password" value=${pw2} onInput=${e => setPw2(e.target.value)} onKeyDown=${e => e.key === 'Enter' && submit()}/></label>
+    ${err ? html`<div style=${{ color: 'var(--crit)', fontSize: '12.5px', marginTop: '10px' }}>${err}</div>` : null}
+    <button class="btn" style=${{ marginTop: '16px', width: '100%' }} disabled=${busy} onClick=${submit}>${busy ? t('Saving…') : t('Set password')}</button>
+  </div></div>`;
 }
 function DrawerHost() {
   const [dw, setDw] = useState(null);
@@ -688,14 +753,17 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'cve', label: 'CVE', render: r => html`<span class="mono">${(r.cve || []).join(', ') || '—'}</span>` },
             { k: 'matched_at', label: 'Matched', align: 'right', render: r => html`<span class="mono muted">${r.matched_at || ''}</span>` },
           ]}/></${Panel}>` : null}
-      ${html`<${Panel} title="Certificates / weak crypto" label="worker-a probe">
+      ${(() => { const cf = d.cert.findings || []; const hi = cf.filter(f => /high|crit/i.test(f.severity || '')).length; const med = cf.length - hi;
+        return html`<${Panel} title="Certificates / weak crypto" label="worker-a probe"
+          right=${cf.length ? html`<span class=${'pill2 ' + (hi ? 'c' : 'w')}>${hi ? '⚠ ' + hi + ' ' + t('high') : ''}${hi && med ? ' · ' : ''}${med ? med + ' ' + t('medium') : ''}</span>` : html`<span class="pill2 g">✓ ${t('clean')}</span>`}>
+        ${cf.length ? html`<div class="certbanner ${hi ? 'hi' : 'med'}"><span class="certbanner-ico">⚠</span><div><b>${cf.length} ${t('weak certificate / crypto warning(s)')}</b><div class="muted" style=${{ fontSize: '11.5px', marginTop: '2px' }}>${t('weak cipher / expiring / untrusted — worker-a flags these against the crypto baseline')}</div></div></div>` : null}
         <${DataTable} rows=${d.cert.findings} pageSize=${6} empty="No cert/crypto issues."
           cols=${[
             { k: 'service', label: 'Service' },
             { k: 'issue', label: 'Issue', render: r => html`<span class="pill2 w">${r.issue || ''}</span>` },
             { k: 'detail', label: 'Detail', render: r => html`<span class="muted">${r.detail || ''}</span>` },
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
-          ]}/></${Panel}>`}
+          ]}/></${Panel}>`; })()}
       ${(d.me && d.me.role === 'admin') ? html`<${Panel} title="Cipher policy override" label="families flagged as weak (active when cert_cipher_policy=custom)">
         <div class="addrow" style=${{ flexWrap: 'wrap' }}>${['rc4', '3des', 'cbc', 'null', 'export', 'md5', 'sha1', 'des'].map(fam => html`<span key=${fam} class="seg2" style=${{ display: 'inline-flex' }}>
           <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 1 }), 'flag ' + fam)}>flag ${fam}</button>
@@ -1026,8 +1094,51 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
           ]}/></${Panel}>`}
     </div></div>`;
 });
+const ArchitectureView = memo(function ArchitectureView({ d }) {
+  const nodes = d.nodes || [];
+  const dot = (up) => html`<${Dot} s=${up ? 'on' : 'off'}/>`;
+  const layers = [
+    { k: 'nemoclaw', color: 'var(--s-blue)', title: 'Nemoclaw', role: t('host control plane'), desc: t('provisioning · model/route/policy strategy · points inference at local NIM') },
+    { k: 'openshell', color: 'var(--accent)', title: 'OpenShell', role: t('sandbox + governance'), desc: t('per-agent sandbox · policy.yaml (egress/binaries/host) · deny-by-default · worker_bridge /32 + token') },
+    { k: 'hermes', color: 'var(--s-aqua)', title: 'Hermes', role: t('agent harness × 4'), desc: t('same harness, different roles: team-lead + worker-a/b/c; skills = SKILL.md; workers run :9099 IT-ops') },
+    { k: 'nim', color: 'var(--s-yellow)', title: 'NIM', role: t('local inference'), desc: t('Nemotron 3 Super 120B (NVFP4) · OpenAI /v1 · all 4 nodes route here · provider-agnostic seam') },
+  ];
+  const rules = [
+    t('Authority: human > worker-c > worker-a/b — worker-c reject is binding; its firmware-apply/rollback need a human token.'),
+    t('Hub-and-spoke — workers never talk to each other; supervision is arbitrated via team-lead.'),
+    t('Only cross-agent channel — worker_bridge (/32 + X-Bridge-Token) → :9099; A2A rides the same governed channel.'),
+    t('Single source of knowledge — knowledge/ (approved baseline + security keys); version-hash aligned fleet-wide.'),
+    t('Governed self-evolution — new skills pass worker-c /skill-review (SkillOS quality gate) before landing.'),
+  ];
+  return html`<div class="viewfade"><div class="viewhd"><h2>${t('Architecture')}</h2><span class="lbl">${t('Nemoclaw × OpenShell × Hermes · governed 4-node fleet')}</span></div>
+    <${Panel} title=${t('Topology')} label=${t('human at the apex · hub-and-spoke')}>
+      <div class="archmap">
+        <div class="archrow"><div class="archbox human">${t('Human')} <span class="muted">· Telegram / Email · approval_token</span></div></div>
+        <div class="archconn">↓ ${t('request')} · ↑ ${t('report / escalate')}</div>
+        <div class="archrow"><div class="archbox lead">${dot((nodes.find(n => n.tag === 'lead') || {}).up)} <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div>
+        <div class="archconn">↓ worker_bridge (/32 + token) · A2A · :9099</div>
+        <div class="archrow archworkers">${['ops', 'sec', 'gov'].map((tag) => { const n = nodes.find(x => x.tag === tag) || {}; const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C';
+          return html`<div key=${tag} class=${'archbox w-' + tag}>${dot(n.up)} <b>${nm}</b> <span class="tag ${'g'}">${t(tag)}</span><div class="muted" style=${{ fontSize: '11px', marginTop: '3px' }}>zone ${zn}</div></div>`; })}</div>
+        <div class="archconn">↓ ${t('scoped egress · L7 deny-by-default')}</div>
+        <div class="archrow"><div class="archbox device">${dot((d.devices && d.devices[0] && d.devices[0].online) === true)} ASUS EBG19P <span class="muted">· ${t('real device')}</span></div>
+          <div class="archbox ext">GitHub · NVD · OSV <span class="muted">· ${t('upstream intel')}</span></div>
+          <div class="archbox ext">Jira <span class="muted">· ${t('escalations')}</span></div></div>
+        <div class="archnim">${dot(d.inference && d.inference.reachable !== false)} ${t('local NIM')} — Nemotron 3 Super 120B · <span class="mono">/v1</span> · ${t('all nodes route here')}</div>
+      </div>
+    </${Panel}>
+    <div class="grid1" style=${{ marginTop: '12px' }}>
+      <${Panel} title=${t('The four layers')} label=${t('what each does')}>
+        <div class="archlayers">${layers.map(l => html`<div key=${l.k} class="archlayer"><div class="archlayer-h"><span class="dot" style=${{ background: l.color, color: l.color }}></span><b>${l.title}</b> <span class="muted">${l.role}</span></div><div class="muted" style=${{ fontSize: '12.5px', marginTop: '4px' }}>${l.desc}</div></div>`)}</div>
+      </${Panel}>
+      <${Panel} title=${t('Governance invariants')} label=${t('always true')}>
+        <ul class="archrules">${rules.map((r, i) => html`<li key=${i}>${r}</li>`)}</ul>
+      </${Panel}>
+    </div>
+  </div>`;
+});
 const VIEWS = {
   overview: { label: 'Overview', comp: OverviewView },
+  architecture: { label: 'Architecture', comp: ArchitectureView },
   flow: { label: 'Flow', comp: FlowView },
   fleet: { label: 'Fleet', comp: FleetView },
   security: { label: 'Security', comp: SecurityView },
@@ -1040,11 +1151,12 @@ const VIEWS = {
 };
 
 const NAV_GROUPS = [
-  { key: 'monitor', items: ['overview', 'flow', 'fleet'] },
+  { key: 'monitor', items: ['overview', 'architecture', 'flow', 'fleet'] },
   { key: 'govern', items: ['security', 'governance', 'changectrl', 'audit'] },
   { key: 'system', items: ['proactive', 'admin', 'settings'] },
 ];
 const NAV_ICON = {
+  architecture: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="8.5" y="14" width="7" height="7" rx="1"/><path d="M6.5 10v2h11v-2M12 12v2"/>',
   overview: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
   flow: '<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.3 10.9 16.7 6.9M7.3 13.1 16.7 17.1"/>',
   fleet: '<rect x="3" y="4" width="18" height="5.5" rx="1.5"/><rect x="3" y="14.5" width="18" height="5.5" rx="1.5"/><path d="M6.5 6.75h.01M6.5 17.25h.01"/>',
@@ -1101,6 +1213,7 @@ function App() {
   const View = (VIEWS[route] || VIEWS.overview).comp;
   const counts = { security: (d.cve.findings.length + d.cert.findings.length) || null, governance: d.governance.denied || null };
   return html`<div class="app">
+    <${PwGate} me=${d.me}/>
     <${NavRail} me=${d.me} route=${route} counts=${counts}/>
     <main class="main">
       <header class="top live">
