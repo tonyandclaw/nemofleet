@@ -3,7 +3,7 @@
     --bg:#090b11; --panel:#12151d; --panel2:#171b25; --raise:#1e2330;
     --panel-hi:rgba(255,255,255,.045);   /* top hairline highlight → cards read as physical tiles */
     --line:#242835; --line2:#333a4a;
-    --ink:#eaedf5; --ink2:#a1abc0; --ink3:#646e84;
+    --ink:#eceff6; --ink2:#aeb7ca; --ink3:#7c869c;
     --accent:#4d8dff; --accent2:#6ea6ff; --accent-ink:#cbe0ff; --accent-dim:#1c2c50; --accent-glow:rgba(77,141,255,.16);
     --good:#34c98a; --good-bg:#0f3324; --warn:#f5b544; --warn-bg:#38290f; --crit:#f65a68; --crit-bg:#38151b; --info:#6e9bff;
     --s-blue:#4a8ee6; --s-red:#e66767; --s-aqua:#20b481; --s-violet:#9085e9; --s-yellow:#d39420;
@@ -369,16 +369,18 @@ html[data-density="spacious"] .kpis{gap:20px}
 .archmap{display:flex;flex-direction:column;align-items:center;gap:0}
 .archrow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;width:100%}
 .archworkers{gap:14px}
-.archbox{background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:12px 16px;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:wrap}
+.archbox{background:var(--raise);border:1px solid var(--line2);border-radius:10px;padding:12px 16px;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:wrap;color:var(--ink)}
+.archbox .muted{color:var(--ink2)}
 .archbox.archworkers>*,.archworkers .archbox{flex-direction:column;align-items:flex-start;min-width:150px}
 .archbox.human{border-color:var(--ink3);font-weight:600}
 .archbox.lead{border-color:var(--s-blue)}
 .archbox.w-ops{border-color:var(--s-aqua)}.archbox.w-sec{border-color:var(--s-violet)}.archbox.w-gov{border-color:var(--s-yellow)}
 .archbox.device{border-color:var(--ink3)}.archbox.ext{border-color:var(--line2)}
-.archconn{color:var(--ink3);font-size:11px;font-family:var(--mono);padding:9px 0;text-align:center}
-.archnim{margin-top:14px;padding:11px 16px;border-radius:10px;background:color-mix(in srgb,var(--s-yellow) 10%,transparent);border:1px solid color-mix(in srgb,var(--s-yellow) 30%,transparent);font-size:12.5px;text-align:center;width:100%}
+.archconn{color:var(--ink2);font-size:11px;font-family:var(--mono);padding:9px 0;text-align:center;opacity:.85}
+.archnim{margin-top:14px;padding:12px 16px;border-radius:10px;background:color-mix(in srgb,var(--s-yellow) 12%,transparent);border:1px solid color-mix(in srgb,var(--s-yellow) 34%,transparent);font-size:12.5px;text-align:center;width:100%;color:var(--ink)}
 .archlayers{display:grid;gap:12px}
-.archlayer{padding:11px 13px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}
+.archlayer{padding:12px 14px;border:1px solid var(--line2);border-radius:9px;background:var(--raise)}
+.archlayer .muted{color:var(--ink2)}
 .archlayer-h{display:flex;align-items:center;gap:8px;font-size:14px}
 .archrules{margin:0;padding-left:18px;color:var(--ink2);font-size:12.5px}
 .archrules li{margin:6px 0}
