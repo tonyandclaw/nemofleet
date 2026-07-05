@@ -96,6 +96,23 @@ test('every NF.<method> call targets a defined helper', () => {
   assert.equal(missing.length, 0, `app.js calls NF methods that api.js doesn't define: ${JSON.stringify(missing)}`);
 });
 
+// ── a SAST row opens its detail drawer without crashing (dict-shaped remediation once black-screened) ──
+test('SAST row → drawer renders (object fields do not crash the app)', async () => {
+  const { window, cleanup } = await mount({ route: 'security', lang: 'en', close: false });
+  try {
+    const rows = [...window.document.querySelectorAll('tr.clickrow')].filter(r => /CWE-798/.test(r.textContent));
+    assert.ok(rows.length, 'SAST row not rendered to click');
+    rows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 50));
+    const body = window.document.querySelector('.drawer-bd');
+    assert.ok(body, 'drawer did not open on SAST row click');
+    const dt = body.textContent || '';
+    assert.ok(!/\[object Object\]/.test(dt), 'a raw object leaked into the SAST drawer (would black-screen live)');
+    assert.ok(/Risk|Fix|CWE-798|hardcoded/i.test(dt), `SAST drawer body looks empty/crashed: ${JSON.stringify(dt.slice(0, 80))}`);
+    assert.ok(!/This view hit an error/.test(dt), 'SAST drawer threw (caught by ErrorBoundary): ' + JSON.stringify(dt.slice(0, 120)));
+  } finally { cleanup(); }
+});
+
 // ── every VIEWS entry has a component (nav can't point at nothing) ──
 test('every nav VIEWS entry has a comp', () => {
   const block = appSrc.slice(appSrc.indexOf('const VIEWS = {'), appSrc.indexOf('function NavRail'));

@@ -22,7 +22,11 @@ export const MOCK = {
   governance: { allowed: 1240, denied: 3, benign: 418, coverage: 99.8, series_allowed: [1, 2, 3, 4, 5], events: [{ ts: '14:22', target: 'api.telegram.org:443', policy: 'telegram', verdict: 'allowed' }] },
   cve: { critical: 1, serious: 2, counts: { critical: 1, affected: 84 }, findings: [{ cve: 'CVE-2024-6119', component: 'openssl', asset: 'ebg19p', severity: 'critical' }] },
   cert: { high: 0, counts: {}, findings: [] },
-  source: { sbom: 142, sast: 6, sbom_source: 'asuswrt-merlin', cve_reconciled: 7, sast_list: [{ cwe: 'CWE-78', upstream_path: 'web.c', line: 4412 }] },
+  source: { sbom: 142, sast: 6, sbom_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', sast_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', cve_reconciled: 7,
+    // real backend shape — remediation is an OBJECT (a raw-object render here once black-screened the app)
+    sast_list: [{ cwe: 'CWE-798 hardcoded-credential', file: 'real/001_netcfg.c', upstream_path: 'release/src/router/rc/common.c', line: 6,
+      code: 'static const char *ADMIN_PASSWORD = "x";', patch: '--- a/x.c\n+++ b/x.c\n@@ -4,1 +4,1 @@\n-bad\n+good', patch_verified: true, violates_design: 'REQ-SEC-05',
+      remediation: { risk: 'hardcoded key is extractable from firmware', fix: 'load from secrets, not source', ref: 'https://cwe.mitre.org/data/definitions/798.html' } }] },
   events: [],
   jira: { tickets: [{ id: 'NETOPS-1', summary: 'x', kind: 'cve', asset: 'ebg19p', priority: 'High' }] },
   audit_recent: [{ ts: '2026-07-03 14:20', actor: 'tony@asus.com', action: 'login', detail: 'ok', ok: true }],
@@ -35,7 +39,7 @@ export const MOCK = {
 };
 
 // Boot a fresh App in jsdom at a given route + language; returns { window, root, text }.
-export async function mount({ route = 'overview', lang = 'en', theme = 'dark' } = {}) {
+export async function mount({ route = 'overview', lang = 'en', theme = 'dark', close = true } = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>',
     { url: 'https://localhost/app#/' + route, pretendToBeVisual: true, runScripts: 'dangerously' });
   const { window } = dom;
@@ -72,6 +76,10 @@ export async function mount({ route = 'overview', lang = 'en', theme = 'dark' } 
   // Let effects + the status promise flush, then snapshot and tear down (jsdom timers must not keep node alive).
   await new Promise((r) => setTimeout(r, 80));
   const rootEl = window.document.getElementById('root');
+  if (!close) {
+    // live mode: caller drives interaction (e.g. click a row → drawer) then calls cleanup()
+    return { window, root: rootEl, text: () => rootEl.textContent || '', cleanup: () => { try { window.close(); } catch { /* ignore */ } } };
+  }
   const textStr = rootEl.textContent || '';
   const htmlStr = rootEl.innerHTML || '';
   try { window.close(); } catch { /* ignore */ }

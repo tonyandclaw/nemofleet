@@ -35,7 +35,9 @@ function sastDrawer(r) {
     ${r.patch ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Suggested patch')}${r.patch_verified
         ? html`<span class="pill2 g">${t('verified — sink removed')}</span>` : html`<span class="pill2 w">${t('advisory — needs human review')}</span>`}</div>
       <pre class="diffblock mono">${diffLines(r.patch)}</pre></div>` : null}
-    ${r.remediation ? html`<div class="sastsec"><div class="lbl">${t('Remediation')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.remediation}</div></div>` : null}
+    ${r.remediation ? html`<div class="sastsec"><div class="lbl">${t('Remediation')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${(r.remediation && typeof r.remediation === 'object')
+      ? html`${r.remediation.risk ? html`<div><b>${t('Risk')}:</b> ${r.remediation.risk}</div>` : null}${r.remediation.fix ? html`<div style=${{ marginTop: '5px' }}><b>${t('Fix')}:</b> ${r.remediation.fix}</div>` : null}${r.remediation.ref ? html`<div style=${{ marginTop: '5px' }}><a class="cvelink" href=${r.remediation.ref} target="_blank" rel="noopener noreferrer">${r.remediation.ref}</a></div>` : null}`
+      : r.remediation}</div></div>` : null}
   </div>` });
 }
 let THEME = localStorage.getItem('nf-theme') || 'dark';
@@ -435,6 +437,8 @@ const I18N = {
   'source updated — re-syncing': { en: 'source updated — re-syncing', zh: '來源已更新 — 重新同步中' },
   'worker-b syncs the pinned ref and scans it — a GitHub repo or a folder mounted into the sandbox. No demo fallback: if it can’t sync, it says so.': { en: 'worker-b syncs the pinned ref and scans it — a GitHub repo or a folder mounted into the sandbox. No demo fallback: if it can’t sync, it says so.', zh: 'worker-b 同步釘死的 ref 再掃描 —— GitHub repo 或掛載進沙箱的資料夾。無 demo 退回:同步不到就明說。' },
   'No SAST hits — configure a source above, or the pinned ref is clean.': { en: 'No SAST hits — configure a source above, or the pinned ref is clean.', zh: '無 SAST 命中 — 於上方設定來源,或釘死的 ref 本身乾淨。' },
+  'Risk': { en: 'Risk', zh: '風險' },
+  'Fix': { en: 'Fix', zh: '修法' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -483,7 +487,7 @@ function DrawerHost() {
   return html`<div class="drawer-scrim" onClick=${() => setDw(null)}>
     <aside class="drawer" onClick=${e => e.stopPropagation()}>
       <div class="drawer-hd"><h3>${dw.title || 'Details'}</h3>${dw.sub ? html`<span class="dwsub">${dw.sub}</span>` : null}<button class="drawer-x" onClick=${() => setDw(null)}>✕</button></div>
-      <div class="drawer-bd">${dw.node ? dw.node : (dw.rows || []).map((r, i) => html`<div key=${i} class="kv"><span class="kvk">${r.k}</span><span class=${'kvv ' + (r.mono ? 'mono' : '')}>${r.v == null || r.v === '' ? '—' : r.v}</span></div>`)}</div>
+      <div class="drawer-bd"><${ErrorBoundary}>${dw.node ? dw.node : (dw.rows || []).map((r, i) => html`<div key=${i} class="kv"><span class="kvk">${r.k}</span><span class=${'kvv ' + (r.mono ? 'mono' : '')}>${r.v == null || r.v === '' ? '—' : r.v}</span></div>`)}</${ErrorBoundary}></div>
     </aside>
   </div>`;
 }
