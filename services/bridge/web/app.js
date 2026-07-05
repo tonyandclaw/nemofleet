@@ -377,6 +377,17 @@ const I18N = {
   'started': { en: 'started', zh: '開始於' },
   'no activity yet': { en: 'no activity yet', zh: '尚無活動' },
   'control plane · provisions the sandboxes · policy · routes inference': { en: 'control plane · provisions the sandboxes · policy · routes inference', zh: '控制面 · 佈建各沙箱 · 政策 · 路由推理' },
+  'needed': { en: 'needed', zh: '需要' },
+  'revoke recommended': { en: 'revoke recommended', zh: '建議收回' },
+  'review': { en: 'review', zh: '待審' },
+  'binaries': { en: 'binaries', zh: '可執行檔' },
+  'Filesystem': { en: 'Filesystem', zh: '檔案系統' },
+  'default (deny-by-default)': { en: 'default (deny-by-default)', zh: '預設(全拒)' },
+  'service(s) recommended to revoke': { en: 'service(s) recommended to revoke', zh: '個服務建議收回' },
+  '— a default preset this agent’s job doesn’t use': { en: '— a default preset this agent’s job doesn’t use', zh: '— 此 agent 工作用不到的預設 preset' },
+  'Lean': { en: 'Lean', zh: '精簡' },
+  '— every service maps to this agent’s job': { en: '— every service maps to this agent’s job', zh: '— 每個服務都對得上此 agent 的職責' },
+  'to review (base-image config / maybe needed)': { en: 'to review (base-image config / maybe needed)', zh: '待審(base image 設定 / 可能需要)' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -888,6 +899,25 @@ const GovActionsPanel = memo(function GovActionsPanel({ events }) {
           return html`<span class=${'sev ' + (dn ? 'hi' : 'in')}>${dn ? 'DENIED' : 'ALLOWED'}</span>`; } },
       ]}/></${Panel}>`;
 });
+// Least-privilege classifier — for the selected agent, is a network service job-critical (keep),
+// a default preset nobody's job uses (revoke), or uncertain (review)? Mirrors harden-agent-policies.sh.
+const LP_NORM = { npm_yarn: 'npm', local_inference: 'local-inference', worker_bridge: 'worker-bridge', telegram_bot: 'telegram', mail_egress: 'mail' };
+const LP_BLOAT = new Set(['weather', 'brew', 'huggingface', 'npm', 'local-inference']);
+const LP_KEEP = {
+  'team-lead': /telegram|worker-bridge|managed_inference|^mail/,
+  'worker-a': /managed_inference|ebg19p|device|worker-bridge/,
+  'worker-b': /github|nvd|osv|managed_inference|nuclei/,
+  'worker-c': /managed_inference|ebg19p|device|github|skill/,
+};
+function lpClass(sb, rawName) {
+  const name = LP_NORM[rawName] || rawName;
+  if ((LP_KEEP[sb] || /$^/).test(name)) return 'keep';
+  if (name === 'pypi') return sb === 'worker-b' ? 'review' : 'revoke';
+  if (name === 'nvidia' || /nous/.test(name)) return 'review';   // base-image config, not preset-removable
+  if (LP_BLOAT.has(name)) return 'revoke';
+  return 'other';
+}
+const lpPresetName = (rawName) => LP_NORM[rawName] || rawName;
 const PolicyEditor = memo(function PolicyEditor() {
   const [sb, setSb] = useState('team-lead');
   const [pol, setPol] = useState(null);
@@ -914,19 +944,34 @@ const PolicyEditor = memo(function PolicyEditor() {
       </button>`)}</div>
     </div>
     ${!pol || pol.loading ? html`<div class="muted">${t('loading…')}</div>` : !pol.ok ? html`<div class="muted">${pol.msg || t('policy unavailable')}</div>` : html`<div>
-      <div class="muted mono" style=${{ fontSize: '11px', margin: '2px 0 10px' }}>version ${p.version || '?'} · ${(p.hash || '')}</div>
+      <div class="muted mono" style=${{ fontSize: '11px', margin: '2px 0 8px' }}>version ${p.version || '?'} · ${(p.hash || '')}</div>
+      ${(() => { const rv = _nets.filter(n => lpClass(sb, n.name) === 'revoke').length; const rw = _nets.filter(n => lpClass(sb, n.name) === 'review').length;
+        return html`<div class=${'lpsum ' + (rv ? 'warn' : 'ok')}><span class="lpsum-ico">${rv ? '⚠' : '✓'}</span><div>${rv
+          ? html`<b>${rv} ${t('service(s) recommended to revoke')}</b> <span class="muted">${t('— a default preset this agent’s job doesn’t use')}</span>`
+          : html`<b>${t('Lean')}</b> <span class="muted">${t('— every service maps to this agent’s job')}</span>`}${rw ? html`<div class="muted" style=${{ fontSize: '11px', marginTop: '2px' }}>${rw} ${t('to review (base-image config / maybe needed)')}</div>` : null}</div></div>`; })()}
       <div class="srchbar" style=${{ marginBottom: '7px' }}><input class="inp" placeholder=${t('Filter services…')} value=${pq} onInput=${e => setPq(e.target.value)}/><span class="lbl" style=${{ marginLeft: 'auto' }}>${t('Network services')} · ${nets.length}</span></div>
-      ${nets.length ? nets.map(n => html`<div key=${n.name} class="polrow">
+      ${nets.length ? nets.map((n) => { const cls = lpClass(sb, n.name); const pn = lpPresetName(n.name);
+        const asPreset = LP_BLOAT.has(pn) || pn === 'pypi';
+        return html`<div key=${n.name} class=${'polrow lp-' + cls}>
         <div class="grow">
-          <div style=${{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style=${{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
             <b class="mono" style=${{ fontSize: '12.5px' }}>${n.name}</b>
-            ${n.l7 ? html`<span class="pill2 g">L7</span>` : null}
-            ${n.nbin ? html`<span class="muted" style=${{ fontSize: '10.5px' }}>${n.nbin} bin</span>` : null}
+            ${cls === 'keep' ? html`<span class="pill2 g">${t('needed')}</span>` : cls === 'revoke' ? html`<span class="pill2 c">${t('revoke recommended')}</span>` : cls === 'review' ? html`<span class="pill2 w">${t('review')}</span>` : null}
+            ${n.l7 ? html`<span class="pill2 a">L7</span>` : null}
           </div>
           <div class="muted mono" style=${{ fontSize: '11px', marginTop: '3px', wordBreak: 'break-all' }}>${(n.eps || []).join('  ·  ') || t('no endpoints')}</div>
+          ${(n.bins && n.bins.length) ? html`<div class="muted" style=${{ fontSize: '10.5px', marginTop: '4px' }}>${t('binaries')}: <span class="mono">${n.bins.join(', ')}</span></div>` : null}
         </div>
-        <${ConfirmBtn} danger=${true} ghost=${true} confirm=${t('Revoke service') + ' \'' + n.name + '\' (' + sb + ')?'} run=${() => NF.policy({ op: 'rule_remove', name: n.name, sb }).then(r => { after(); return r; })} label=${t('Revoke')} busyLabel="…"/>
-      </div>`) : html`<div class="muted" style=${{ padding: '6px 0' }}>${t('deny-by-default · no network services')}</div>`}
+        <${ConfirmBtn} danger=${cls !== 'keep'} ghost=${true} confirm=${t('Revoke service') + ' \'' + n.name + '\' (' + sb + ')?'} run=${() => NF.policy(asPreset ? { op: 'preset', name: pn, on: false, sb } : { op: 'rule_remove', name: n.name, sb }).then(r => { after(); return r; })} label=${t('Revoke')} busyLabel="…"/>
+      </div>`; }) : html`<div class="muted" style=${{ padding: '6px 0' }}>${t('deny-by-default · no network services')}</div>`}
+
+      ${(p.fs_rw || p.fs_ro) ? html`<div class="lbl" style=${{ margin: '16px 0 7px' }}>${t('Filesystem')}</div>
+      <div class="fschips">
+        ${(p.fs_rw || []).map(x => html`<span key=${'rw' + x} class="fschip rw"><span class="mono">${x}</span> rw</span>`)}
+        ${p.workdir ? html`<span class="fschip rw"><span class="mono">workdir</span> rw</span>` : null}
+        ${(p.fs_ro || []).map(x => html`<span key=${'ro' + x} class="fschip ro"><span class="mono">${x}</span> ro</span>`)}
+        ${!(p.fs_rw || []).length && !(p.fs_ro || []).length && !p.workdir ? html`<span class="muted">${t('default (deny-by-default)')}</span>` : null}
+      </div>` : null}
 
       <div class="lbl" style=${{ margin: '15px 0 6px' }}>${t('Open an endpoint')}</div>
       <div class="addrow" style=${{ flexWrap: 'wrap' }}>

@@ -432,3 +432,17 @@ html[data-density="spacious"] .kpis{gap:20px}
   border:1px solid color-mix(in srgb,var(--accent) 34%,transparent);border-radius:20px}
 .archworkers .osh{flex:1;min-width:168px;display:flex}
 .archworkers .osh .archbox{width:100%}
+
+/* ── policy editor: least-privilege classification + filesystem ── */
+.lpsum{display:flex;gap:10px;align-items:flex-start;padding:10px 13px;border-radius:10px;margin-bottom:12px;border:1px solid;font-size:12.5px}
+.lpsum.warn{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 36%,transparent)}
+.lpsum.ok{background:var(--good-bg);border-color:color-mix(in srgb,var(--good) 32%,transparent)}
+.lpsum-ico{font-size:15px;line-height:1.2;flex:none}
+.lpsum.warn .lpsum-ico{color:var(--warn)}.lpsum.ok .lpsum-ico{color:var(--good)}
+.polrow.lp-revoke{border-left:2px solid var(--crit);padding-left:9px}
+.polrow.lp-review{border-left:2px solid var(--warn);padding-left:9px}
+.polrow.lp-keep{border-left:2px solid color-mix(in srgb,var(--good) 55%,transparent);padding-left:9px}
+.fschips{display:flex;flex-wrap:wrap;gap:7px}
+.fschip{font-size:11px;padding:2.5px 9px;border-radius:7px;border:1px solid var(--line2);background:var(--panel2)}
+.fschip.rw{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.fschip.ro{color:var(--ink2)}

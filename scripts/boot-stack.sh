@@ -125,6 +125,10 @@ ensure_xagent() {
   local INST_NUCLEI="$(dirname "$BRIDGE")/scripts/worker-b-install-nuclei.sh"
   [ -n "$CT_O2" ] && [ -x "$INST_NUCLEI" ] && \
     { bash "$INST_NUCLEI" >>"$LOG" 2>&1 && ok "worker-b nuclei 已安裝(binary + templates)" || bad "nuclei 安裝失敗(看 $LOG)"; }
+  # 最小權限:剝掉各 agent 用不到的預設 preset(brew/npm/pypi/huggingface/weather/local-inference)。重建後重套。
+  local HARDEN="$(dirname "$BRIDGE")/scripts/harden-agent-policies.sh"
+  [ -x "$HARDEN" ] && \
+    { bash "$HARDEN" >>"$LOG" 2>&1 && ok "least-privilege sweep 已套用(收回未用 preset)" || bad "least-privilege sweep 失敗(看 $LOG)"; }
   # policy:渲染兩節點 IP + /32 收斂(節點 A + 節點 B);兩個 /32 都在才算當前版(同名 preset 升級替換)
   if [ -f "$CONFIG_DIR/presets/worker-bridge-preset.yaml" ]; then
     local P; P=$(openshell policy get team-lead --full 2>/dev/null)

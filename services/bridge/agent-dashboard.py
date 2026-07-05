@@ -227,7 +227,7 @@ def short(name):
 
 def parse_policy(out, sandbox="team-lead"):
     # 解析 `openshell policy get <sb> --full` → 唯讀摘要(版本/雜湊/egress 白名單/可寫路徑)
-    p = {"sandbox": sandbox, "version": None, "hash": None, "networks": [], "fs_rw": []}
+    p = {"sandbox": sandbox, "version": None, "hash": None, "networks": [], "fs_rw": [], "fs_ro": [], "workdir": False}
     if not out:
         return p
     vm = re.search(r"Version:\s*(\d+)", out); hm = re.search(r"Hash:\s*([0-9a-f]+)", out)
@@ -243,6 +243,8 @@ def parse_policy(out, sandbox="team-lead"):
         return p
     fp = y.get("filesystem_policy") or {}
     p["fs_rw"] = [x for x in (fp.get("read_write") or []) if isinstance(x, str)]
+    p["fs_ro"] = [x for x in (fp.get("read_only") or []) if isinstance(x, str)]
+    p["workdir"] = bool(fp.get("include_workdir"))
     nets = y.get("network_policies") or {}
     pri = {"mail_egress": 0, "telegram": 1, "telegram_bot": 2, "worker_bridge": 3, "nvidia": 4}
     items = []
@@ -1007,10 +1009,12 @@ def do_policy_get(sb):
             "baseline_gaps": gaps, "prove_out": pout[-1200:], "history": hist[-1500:]}
 
 def do_policy_ro(sb):
-    # 唯讀:解析任一 agent 的 live 政策(供治理頁唯讀卡的 agent 選單即時切換)
+    # 唯讀:解析任一 agent 的 live 政策(供治理頁唯讀卡的 agent 選單即時切換)+ applied preset 清單(供最小權限審查)
     if not _policy_sb_ok(sb): sb = "team-lead"
     full = sh(f"openshell policy get {shlex.quote(sb)} --full 2>/dev/null", 12)
-    return {"ok": True, "policy": parse_policy(full, sb), "sandboxes": _list_agent_sandboxes()}
+    return {"ok": True, "policy": parse_policy(full, sb),
+            "presets": [p for p in _policy_presets(sb) if p.get("active")],
+            "sandboxes": _list_agent_sandboxes()}
 
 # ── 系統資訊(高價值唯讀;60s 快取,避免每 5s 輪詢狂打 CLI)──
 _SYSINFO = {"ts": 0, "data": None}
