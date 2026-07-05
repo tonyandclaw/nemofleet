@@ -44,13 +44,20 @@ curl -s -H 'X-Bridge-Token: BRIDGETOKEN' 'http://%%WC_IP%%:9099/skills?q=<任務
 ```
 回 `{results: [{name, score}, …]}` —— 有高分命中 → 用你本地同名 SKILL.md 的程序;沒有 → 照常解,解完值得沉澱的模式會經 lessons-to-skill 過 worker-c 治理閘落地(見 skill-curation.md)。worker-c 未部署 → 跳過此步。
 
-## 工作流記錄(讓 GUI Flow 看到「人 → team-lead 收件」這一跳)
-接到使用者需求、**委派之前**,先記一筆工作流事件(用你已有的 bridge token,走既有通道,免新 egress):
+## ⚑ 第一步(必做):把「人 → team-lead 收件」記進工作流
+**收到任何使用者需求後、做任何事之前**,先記一筆 `working` 事件 —— 這是 dashboard **Flow** 視圖看見「human 對你說了什麼」的唯一來源(你的 Telegram/email 內容是加密的,主機端看不到,只有你能記)。用你已有的 bridge token,走既有通道,免新 egress。**`detail` 一定要帶使用者需求原文**(截到 ~100 字即可):
 ```
 curl -s -X POST http://%%WA_IP%%:9099/flow -H 'X-Bridge-Token: BRIDGETOKEN' -H 'Content-Type: application/json' \
-  -d '{"node":"team-lead","peer":"human","task":"<一句話摘要使用者的需求>","status":"received"}'
+  -d '{"node":"team-lead","peer":"human","task":"<一句話摘要>","status":"working","detail":"<使用者需求原文>"}'
 ```
-之後你委派 worker(POST /fix 或 A2A)時,worker 端會自動記下「team-lead → worker」那一跳。合起來 dashboard 的 **Flow** 視圖就完整顯示:human → team-lead → worker → done。
+- `task` = 你對需求的一句話摘要(例:`關閉 WPS`);`detail` = 使用者實際講的話(例:`幫我把路由器的 WPS 關掉,不安全`)。
+- 之後你委派 worker 時,worker 端會**自動**記「team-lead → worker」那一跳(帶參數 + 結果)。
+- **全部處理完、回覆使用者後**,再補記一筆 `done`(讓那一列從進行中變完成):
+```
+curl -s -X POST http://%%WA_IP%%:9099/flow -H 'X-Bridge-Token: BRIDGETOKEN' -H 'Content-Type: application/json' \
+  -d '{"node":"team-lead","peer":"human","task":"<同一句摘要>","status":"done","detail":"<結果一句話,例:WPS 已關>"}'
+```
+合起來 dashboard 的 **Flow** 就完整顯示:**human → team-lead(收件原文)→ worker(委派+結果)→ team-lead done**。這一步不是可選的 —— 少了它,人就看不到你在做什麼。
 
 ## 回報給使用者(兩步)
 1. **委派確認**:拿到 `accepted:true` 後,立刻回覆:「已將此動作委派給專職 IT 的 worker 執行(處理中,約 30-60s)」。

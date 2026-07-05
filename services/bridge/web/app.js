@@ -371,6 +371,11 @@ const I18N = {
   'CPU': { en: 'CPU', zh: 'CPU' },
   'MEM': { en: 'MEM', zh: 'MEM' },
   'TEMP': { en: 'TEMP', zh: 'TEMP' },
+  'who is working, and on what': { en: 'who is working, and on what', zh: '誰在忙 · 在做什麼' },
+  'working': { en: 'working', zh: '進行中' },
+  'idle': { en: 'idle', zh: '閒置' },
+  'started': { en: 'started', zh: '開始於' },
+  'no activity yet': { en: 'no activity yet', zh: '尚無活動' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -1106,13 +1111,18 @@ const FlowView = memo(function FlowView({ d }) {
       <span class=${'pill2 ' + (active.size ? 'a' : 'g')}>${active.size ? active.size + ' working' : 'idle'}</span>
       <span class="lbl">${t('who delegated whom · live')}</span></div>
     <div class="grid1">
-      ${html`<${Panel} title="Fleet activity" label="working nodes light up">
-        <div style=${{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          ${nodes.map(n => html`<div key=${n.id} style=${{ padding: '11px 15px', borderRadius: '11px', border: '1px solid ' + (active.has(n.id) ? 'var(--acc)' : 'var(--line)'), background: active.has(n.id) ? 'rgba(57,135,229,.12)' : 'var(--panel2, var(--panel))', minWidth: '132px', transition: 'all .2s' }}>
-            <div class="mono" style=${{ fontWeight: 700, fontSize: '13px' }}>${n.label}</div>
-            <div class="muted" style=${{ fontSize: '11px', marginTop: '1px' }}>${n.role}</div>
-            <div style=${{ fontSize: '11.5px', marginTop: '5px', fontWeight: 600, color: active.has(n.id) ? 'var(--warn)' : 'var(--ink3, var(--muted))' }}>${active.has(n.id) ? '● working' : '○ idle'}</div>
-          </div>`)}
+      ${html`<${Panel} title="Fleet activity" label=${t('who is working, and on what')}>
+        <div class="actgrid">
+          ${nodes.map((n) => { const last = flow.find(e => e.node === n.id);  // flow is newest-first
+            const working = !!last && last.status === 'working';
+            return html`<div key=${n.id} class=${'actcard' + (working ? ' on' : '')}>
+              <div class="act-hd"><${Dot} s=${working ? 'on' : 'off'}/><span class="mono act-nm">${n.label}</span>
+                <span class=${'pill2 ' + (working ? 'a' : '')} style=${{ marginLeft: 'auto' }}>${working ? t('working') : t('idle')}</span></div>
+              <div class="act-role">${n.role}</div>
+              ${last ? html`<div class="act-task"><span class="mono">${last.task || '—'}</span>${last.detail ? html`<span class="muted"> · ${last.detail}</span>` : null}</div>
+                <div class="act-meta">${working ? t('started') : last.status} · <span class="mono">${last.ts || ''}</span>${last.peer && last.peer !== n.id ? html` · <span class="muted">← ${last.peer}</span>` : null}</div>`
+              : html`<div class="act-task muted">${t('no activity yet')}</div>`}
+            </div>`; })}
         </div></${Panel}>`}
       ${html`<${Panel} title="Delegation timeline" label="recent delegations / handoffs (peer → node)" right=${html`<${ActionBtn} act="patrol" label="Trigger patrol" busyLabel="…" ghost=${true}/>`}>
         <${DataTable} rows=${flow} pageSize=${12} empty="No workflow events yet — appear after a delegation/scan (team-lead → worker → status)."
