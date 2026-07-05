@@ -1836,6 +1836,40 @@ wi_nuclei.configure(_zone_has, load_settings, _open_jira_dedup, ZONE)
 
 # ── A2A (Agent2Agent) adapter — Agent Card + JSON-RPC envelope live in wi_a2a.py (dependency-injected).
 #    _a2a_run below is the local skill router (needs the scanners / knowledge / LAST_NUCLEI).
+def _a2a_summary(rpc_result):
+    """Condense an A2A result into a one-line outcome for the Flow timeline (what the worker
+    reported back). Pulls the result artifact's text, and if it's JSON, surfaces the fields a
+    human scans for — counts, ok, note, msg — rather than dumping the whole blob."""
+    try:
+        task = (rpc_result or {}).get("result") or {}
+        state = ((task.get("status") or {}).get("state")) or ""
+        txt = ""
+        for art in (task.get("artifacts") or []):
+            for p in (art.get("parts") or []):
+                if p.get("kind") == "text":
+                    txt = p.get("text", ""); break
+            if txt:
+                break
+        if not txt:
+            return state
+        try:
+            obj = json.loads(txt)
+        except Exception:
+            return txt[:100]
+        if isinstance(obj, dict):
+            bits = []
+            for k in ("count", "critical", "high", "findings", "ok", "note", "msg", "ver", "target"):
+                if k in obj and obj[k] not in (None, ""):
+                    v = obj[k]
+                    if isinstance(v, list):
+                        v = len(v)
+                    bits.append("%s=%s" % (k, v))
+            return (" · ".join(bits))[:100] or (state or "ok")
+        return str(obj)[:100]
+    except Exception:
+        return ""
+
+
 def _a2a_run(skill, params):
     if skill in ("knowledge",): return knowledge.get_knowledge()
     if skill in ("review",): return run_review(params.get("kind", ""), params.get("subject") or {})
@@ -1974,14 +2008,20 @@ class H(BaseHTTPRequestHandler):
                 n = int(self.headers.get("Content-Length", 0)); rpc = json.loads(self.rfile.read(n) or b"{}")
             except Exception:
                 return self._send(400, {"jsonrpc": "2.0", "error": {"code": -32700, "message": "parse error"}, "id": None})
-            _sk = (((rpc.get("params") or {}).get("message") or {}).get("metadata") or {}).get("skill") or rpc.get("method", "a2a")
-            wi_flow.flow("team-lead", _sk, "working")
+            _meta = (((rpc.get("params") or {}).get("message") or {}).get("metadata") or {})
+            _sk = _meta.get("skill") or rpc.get("method", "a2a")
+            # Record WHAT team-lead actually delegated (the skill's params), so the Flow timeline
+            # shows real content, not just a skill name + "working". e.g. remediate · bug=ebg-wps
+            _args = " · ".join("%s=%s" % (k, v) for k, v in _meta.items() if k not in ("skill", "peer"))
+            wi_flow.flow("team-lead", _sk, "working", _args)
             try:
                 _r = wi_a2a.handle_rpc(rpc, _a2a_run, LAST)
-                wi_flow.flow("team-lead", _sk, "done")
+                # Record what the worker actually returned (a short summary of the result artifact),
+                # so the "done" row carries the outcome instead of an empty status.
+                wi_flow.flow("team-lead", _sk, "done", _a2a_summary(_r) or _args)
                 return self._send(200, _r)
             except Exception as e:
-                wi_flow.flow("team-lead", _sk, "error", str(e))
+                wi_flow.flow("team-lead", _sk, "error", str(e)[:100])
                 return self._send(200, {"jsonrpc": "2.0", "error": {"code": -32000, "message": str(e)}, "id": rpc.get("id")})
         if self.path in ("/review", "/backup", "/firmware-apply", "/rollback", "/skill-review"):   # worker-c 治理官動作
             if not self._authed():
