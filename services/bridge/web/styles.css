@@ -460,3 +460,10 @@ html[data-density="spacious"] .kpis{gap:20px}
 .diffblock .dl.hunk{color:var(--accent);opacity:.85}
 .diffblock .dl.meta{color:var(--ink3)}
 .diffblock .dl.ctx{color:var(--ink2)}
+
+/* ── cipher policy: tier selector + read-only (tier-driven) toggles ── */
+.cipher-tier{display:flex;align-items:center;gap:11px;flex-wrap:wrap;padding:2px 0 12px;margin-bottom:2px;border-bottom:1px solid var(--line)}
+.cipher-tier .lbl{margin:0}
+.tglsw.ro{opacity:.75;cursor:not-allowed}
+.tglsw.ro.on{background:color-mix(in srgb,var(--warn) 30%,transparent);border-color:var(--warn)}
+.tglsw.ro.on>span{background:var(--warn)}

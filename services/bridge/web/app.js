@@ -422,6 +422,12 @@ const I18N = {
   'verified — sink removed': { en: 'verified — sink removed', zh: '已驗證 — sink 已消除' },
   'advisory — needs human review': { en: 'advisory — needs human review', zh: '建議 — 需人工審查' },
   'Remediation': { en: 'Remediation', zh: '修補說明' },
+  'Policy tier': { en: 'Policy tier', zh: '政策層級' },
+  'same setting as Settings → Certificate & crypto': { en: 'same setting as Settings → Certificate & crypto', zh: '與「設定 → 憑證與加密」同一項' },
+  'Custom — edit each family below': { en: 'Custom — edit each family below', zh: '自訂 — 逐一編輯下方套件' },
+  'Tier': { en: 'Tier', zh: '層級' },
+  'This tier flags the families highlighted below. Switch to custom to edit them individually.': { en: 'This tier flags the families highlighted below. Switch to custom to edit them individually.', zh: '此層級會標記下方反白的套件。切到 custom 才能逐項編輯。' },
+  'set by the tier — switch to custom to edit': { en: 'set by the tier — switch to custom to edit', zh: '由層級決定 — 切到 custom 才能編輯' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -816,24 +822,38 @@ const CIPHER_FAMS = [
   { k: 'SEED', why: 'Regional legacy cipher', detail: 'Korean legacy block cipher; non-standard for modern TLS. Flagged only under a strict minimal-suite policy.' },
   { k: 'CAMELLIA', why: 'Sound but non-preferred vs AES', detail: 'Cryptographically sound but not preferred over AES; flagged only when you want a strictly minimal cipher suite.' },
 ];
+// Mirrors worker-itops CIPHER_TIERS — which families each tier flags as weak (DES-CBC/DES-CBC3 → DES).
+const CIPHER_TIERS = {
+  lax: ['RC4', 'NULL', 'EXPORT', 'anon'],
+  standard: ['RC4', '3DES', 'DES', 'NULL', 'EXPORT', '-MD5', 'anon'],
+  strict: ['RC4', '3DES', 'DES', 'NULL', 'EXPORT', '-MD5', '@SHA1MAC', 'anon', 'IDEA', 'SEED', 'CAMELLIA'],
+};
 const CipherPolicyPanel = memo(function CipherPolicyPanel({ d }) {
   const [open, setOpen] = useState('');
-  const cur = new Set((d.settings && d.settings.cert_cipher_custom) || []);
   const pol = (d.settings && d.settings.cert_cipher_policy) || 'standard';
-  const active = pol === 'custom';
-  const flaggedN = CIPHER_FAMS.filter(f => cur.has(f.k)).length;
-  return html`<${Panel} title="Cipher policy override" label="per-family weak-crypto flags"
-    right=${html`<span class=${'pill2 ' + (active ? 'c' : 'g')}>${active ? flaggedN + ' ' + t('flagged') : t('policy: ') + pol}</span>`}>
-    <div class=${'certpol-banner ' + (active ? 'on' : 'off')}>
-      <span class="certpol-ico">${active ? '⚑' : 'ⓘ'}</span>
-      <div><b>${active ? t('Custom policy is live') : t('Active policy') + ': ' + pol}</b>
-        <div class="muted" style=${{ fontSize: '11.5px', marginTop: '2px' }}>${active
-          ? t('worker-a flags the families switched on below on its next cert scan.')
-          : t('These per-family flags only bite when the cipher policy is set to custom — change it in Settings → Certificate & crypto.')}</div></div>
+  const custom = pol === 'custom';
+  // effective flagged set — the SAME truth the scan uses: custom → per-family list; a tier → that tier's families.
+  const eff = new Set(custom ? ((d.settings && d.settings.cert_cipher_custom) || []) : (CIPHER_TIERS[pol] || CIPHER_TIERS.standard));
+  const flaggedN = CIPHER_FAMS.filter(f => eff.has(f.k)).length;
+  const setTier = (v) => run(NF.config('cert_cipher_policy', v), 'cipher policy → ' + v);
+  return html`<${Panel} title="Cipher policy override" label="tier + per-family weak-crypto flags"
+    right=${html`<span class="pill2 c">${flaggedN} ${t('flagged')}</span>`}>
+    <div class="cipher-tier">
+      <span class="lbl">${t('Policy tier')}</span>
+      <${Segmented} value=${pol} options=${['lax', 'standard', 'strict', 'custom']} onChange=${setTier}/>
+      <span class="muted" style=${{ fontSize: '10.5px', marginLeft: 'auto', textAlign: 'right' }}>${t('same setting as Settings → Certificate & crypto')}</span>
     </div>
-    <div class="cipherlist">${CIPHER_FAMS.map((f) => { const on = cur.has(f.k); const isOpen = open === f.k; return html`<div key=${f.k} class=${'cipherrow' + (isOpen ? ' open' : '')}>
-      <button class=${'tglsw' + (on ? ' on' : '')} role="switch" aria-checked=${on} title=${on ? t('flagged as weak — click to allow') : t('allowed — click to flag as weak')}
-        onClick=${() => run(NF.certPolicy({ fam: f.k, on: on ? 0 : 1 }), (on ? 'clear ' : 'flag ') + f.k)}><span></span></button>
+    <div class=${'certpol-banner ' + (custom ? 'on' : 'off')}>
+      <span class="certpol-ico">${custom ? '⚑' : 'ⓘ'}</span>
+      <div><b>${custom ? t('Custom — edit each family below') : t('Tier') + ': ' + pol}</b>
+        <div class="muted" style=${{ fontSize: '11.5px', marginTop: '2px' }}>${custom
+          ? t('worker-a flags the families switched on below on its next cert scan.')
+          : t('This tier flags the families highlighted below. Switch to custom to edit them individually.')}</div></div>
+    </div>
+    <div class="cipherlist">${CIPHER_FAMS.map((f) => { const on = eff.has(f.k); const isOpen = open === f.k; return html`<div key=${f.k} class=${'cipherrow' + (isOpen ? ' open' : '')}>
+      <button class=${'tglsw' + (on ? ' on' : '') + (custom ? '' : ' ro')} role="switch" aria-checked=${on} disabled=${!custom}
+        title=${custom ? (on ? t('flagged as weak — click to allow') : t('allowed — click to flag as weak')) : t('set by the tier — switch to custom to edit')}
+        onClick=${() => custom && run(NF.certPolicy({ fam: f.k, on: on ? 0 : 1 }), (on ? 'clear ' : 'flag ') + f.k)}><span></span></button>
       <div class="ciphermain" onClick=${() => setOpen(isOpen ? '' : f.k)}>
         <div class="cipherhd"><code>${f.k}</code><span class="muted">${t(f.why)}</span><span class="cipherexp">${isOpen ? '−' : 'ⓘ'}</span></div>
         ${isOpen ? html`<div class="cipherdetail">${t(f.detail)}</div>` : null}
