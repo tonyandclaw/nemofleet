@@ -10,8 +10,34 @@ function toast(msg, kind = 'i') { dispatchEvent(new CustomEvent('nftoast', { det
 function reloadNow() { dispatchEvent(new CustomEvent('nfreload')); }
 function openDrawer(detail) { dispatchEvent(new CustomEvent('nfdrawer', { detail })); }
 function statusBullet(ok, onLabel, offLabel) { return html`<span style=${{ color: ok ? 'var(--good)' : 'var(--ink3)', fontSize: '9px' }}>${ok ? '●' : '○'}</span> ${ok ? onLabel : offLabel}`; }
+// CVE id → clickable NIST NVD detail page (real advisory, opens in a new tab)
+function cveLink(id) { if (!id) return html`<span class="mono">—</span>`;
+  return html`<a class="mono cvelink" href=${'https://nvd.nist.gov/vuln/detail/' + encodeURIComponent(id)} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${id}</a>`; }
 function fmtVal(v) { if (v == null || v === '') return '—'; if (Array.isArray(v)) return v.length ? v.map(fmtVal).join(', ') : '—'; if (typeof v === 'object') return JSON.stringify(v); return String(v); }
 function rowDrawer(title, row) { openDrawer({ title, rows: Object.entries(row).filter(([k]) => k[0] !== '_').map(([k, v]) => ({ k, v: fmtVal(v), mono: true })) }); }
+// Render a unified diff / patch with git-style colouring: '-' lines red, '+' lines green, hunks dim.
+function diffLines(patch) {
+  return String(patch || '').split('\n').map((ln, i) => {
+    const c0 = ln.charAt(0);
+    const cls = ln.startsWith('@@') ? 'hunk' : (ln.startsWith('+++') || ln.startsWith('---')) ? 'meta'
+      : c0 === '+' ? 'add' : c0 === '-' ? 'del' : 'ctx';
+    return html`<div key=${i} class=${'dl ' + cls}>${ln || ' '}</div>`;
+  });
+}
+// SAST finding detail — real worker-b pattern-SAST hit against the asuswrt-merlin source.
+function sastDrawer(r) {
+  openDrawer({ title: t('SAST finding'), sub: r.cwe || 'CWE', node: html`<div class="sastdw">
+    <div class="kv"><span class="kvk">CWE</span><span class="kvv">${r.url
+      ? html`<a class="mono cvelink" href=${r.url} target="_blank" rel="noopener noreferrer">${r.cwe}</a>` : html`<span class="mono">${r.cwe || '—'}</span>`}</span></div>
+    <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv mono" style=${{ wordBreak: 'break-all' }}>${(r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : '')}</span></div>
+    ${r.violates_design ? html`<div class="kv"><span class="kvk">${t('Design')}</span><span class="kvv"><span class="pill2 c">${t('violates approved baseline')}</span></span></div>` : null}
+    ${r.code ? html`<div class="sastsec"><div class="lbl">${t('Matched code')}</div><pre class="codeblock mono">${r.code}</pre></div>` : null}
+    ${r.patch ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Suggested patch')}${r.patch_verified
+        ? html`<span class="pill2 g">${t('verified — sink removed')}</span>` : html`<span class="pill2 w">${t('advisory — needs human review')}</span>`}</div>
+      <pre class="diffblock mono">${diffLines(r.patch)}</pre></div>` : null}
+    ${r.remediation ? html`<div class="sastsec"><div class="lbl">${t('Remediation')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.remediation}</div></div>` : null}
+  </div>` });
+}
 let THEME = localStorage.getItem('nf-theme') || 'dark';
 let LANG = localStorage.getItem('nf-lang') || 'zh';
 let DENSITY = localStorage.getItem('nf-density') || 'cozy';
@@ -388,6 +414,14 @@ const I18N = {
   'Lean': { en: 'Lean', zh: '精簡' },
   '— every service maps to this agent’s job': { en: '— every service maps to this agent’s job', zh: '— 每個服務都對得上此 agent 的職責' },
   'to review (base-image config / maybe needed)': { en: 'to review (base-image config / maybe needed)', zh: '待審(base image 設定 / 可能需要)' },
+  'SAST finding': { en: 'SAST finding', zh: 'SAST 原始碼命中' },
+  'Design': { en: 'Design', zh: '設計' },
+  'violates approved baseline': { en: 'violates approved baseline', zh: '違反核准基準' },
+  'Matched code': { en: 'Matched code', zh: '命中的程式碼' },
+  'Suggested patch': { en: 'Suggested patch', zh: '建議修補' },
+  'verified — sink removed': { en: 'verified — sink removed', zh: '已驗證 — sink 已消除' },
+  'advisory — needs human review': { en: 'advisory — needs human review', zh: '建議 — 需人工審查' },
+  'Remediation': { en: 'Remediation', zh: '修補說明' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -829,7 +863,7 @@ const SecurityView = memo(function SecurityView({ d }) {
       ${html`<${Panel} title="CVE findings" label="fleet scan" right=${html`<${ActionBtn} act="cve" label="Rescan" busyLabel="Scanning" ghost=${true}/>`}>
         <${DataTable} rows=${d.cve.findings} pageSize=${8} empty="No affected CVEs — or scan pending."
           cols=${[
-            { k: 'cve', label: 'CVE', render: r => html`<span class="mono">${r.cve || r.id || '—'}</span>` },
+            { k: 'cve', label: 'CVE', render: r => cveLink(r.cve || r.id) },
             { k: 'component', label: 'Component', render: r => html`<span class="mono">${r.component || r.pkg || ''}</span>` },
             { k: 'asset', label: 'Asset', render: r => r.asset || '' },
             { k: 'severity', label: 'Severity', align: 'right', render: r => sevPill(r.severity || r.cls) },
@@ -847,7 +881,7 @@ const SecurityView = memo(function SecurityView({ d }) {
           cols=${[
             { k: 'severity', label: 'Sev', render: r => sevPill(r.severity) },
             { k: 'name', label: 'Finding', render: r => html`<span>${r.name || r.template || '—'}</span>` },
-            { k: 'cve', label: 'CVE', render: r => html`<span class="mono">${(r.cve || []).join(', ') || '—'}</span>` },
+            { k: 'cve', label: 'CVE', render: r => (r.cve || []).length ? html`${(r.cve || []).map((id, i) => html`<span key=${id}>${i ? ', ' : ''}${cveLink(id)}</span>`)}` : html`<span class="mono">—</span>` },
             { k: 'matched_at', label: 'Matched', align: 'right', render: r => html`<span class="mono muted">${r.matched_at || ''}</span>` },
           ]}/></${Panel}>` : null}
       ${(() => { const cf = d.cert.findings || []; const hi = cf.filter(f => /high|crit/i.test(f.severity || '')).length; const med = cf.length - hi;
@@ -863,9 +897,9 @@ const SecurityView = memo(function SecurityView({ d }) {
           ]}/></${Panel}>`; })()}
       ${(d.me && d.me.role === 'admin') ? html`<${CipherPolicyPanel} d=${d}/>` : null}
       ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'asuswrt-merlin')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
-        <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty="No SAST hits."
+        <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty="No SAST hits." onRow=${sastDrawer}
           cols=${[
-            { k: 'cwe', label: 'CWE', render: r => html`<span class="mono">${r.cwe || '—'}</span>` },
+            { k: 'cwe', label: 'CWE', render: r => html`<span class="mono cvelink">${r.cwe || '—'}</span>` },
             { k: 'file', label: 'File', render: r => html`<span class="mono" style=${{ wordBreak: 'break-all' }}>${r.upstream_path || r.file || ''}</span>` },
             { k: 'line', label: 'Line', align: 'right', render: r => html`<span class="mono">${r.line || ''}</span>` },
           ]}/></${Panel}>`}
@@ -891,11 +925,11 @@ const GovActionsPanel = memo(function GovActionsPanel({ events }) {
     right=${html`<div class="seg2 filt">${['all', 'allowed', 'denied'].map(x => html`<button key=${x} class=${'segbtn ' + (vf === x ? 'on' : '')} onClick=${() => setVf(x)}>${t(x)}</button>`)}</div>`}>
     <${DataTable} rows=${ev} pageSize=${10} empty="No governance events in window."
       cols=${[
-        { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || r.t || ''}</span>` },
-        { k: 'target', label: 'Target', render: r => html`<span class="mono">${r.target || r.b || ''}</span>` },
-        { k: 'policy', label: 'Policy', render: r => html`<span class="catpill">${r.policy || r.a || '—'}</span>` },
+        { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.t || r.ts || '—'}</span>` },
+        { k: 'target', label: 'Target', render: r => html`<span class="mono" style=${{ wordBreak: 'break-all' }}>${r.target || r.b || r.reason || r.cls || '—'}</span>` },
+        { k: 'policy', label: 'Policy', render: r => html`<span class="catpill">${r.policy || r.a || r.engine || '—'}</span>` },
         { k: 'verdict', label: 'Verdict', align: 'right', render: r => {
-          const dn = (r.verdict || r.cls || '').toLowerCase().includes('den');
+          const dn = (r.verb || r.verdict || r.cls || '').toLowerCase().includes('den');
           return html`<span class=${'sev ' + (dn ? 'hi' : 'in')}>${dn ? 'DENIED' : 'ALLOWED'}</span>`; } },
       ]}/></${Panel}>`;
 });

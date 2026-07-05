@@ -446,3 +446,17 @@ html[data-density="spacious"] .kpis{gap:20px}
 .fschip{font-size:11px;padding:2.5px 9px;border-radius:7px;border:1px solid var(--line2);background:var(--panel2)}
 .fschip.rw{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
 .fschip.ro{color:var(--ink2)}
+
+/* ── CVE / CWE links + SAST patch diff drawer ── */
+.cvelink{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mix(in srgb,var(--accent) 45%,transparent);cursor:pointer}
+.cvelink:hover{color:var(--accent2);border-bottom-style:solid}
+.sastdw{display:flex;flex-direction:column;gap:12px}
+.sastsec{display:flex;flex-direction:column;gap:6px}
+.codeblock{background:var(--inset);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:11.5px;color:var(--ink2);overflow-x:auto;white-space:pre;margin:0}
+.diffblock{background:var(--inset);border:1px solid var(--line);border-radius:8px;padding:8px 0;font-size:11.5px;overflow-x:auto;margin:0;line-height:1.55}
+.diffblock .dl{padding:0 12px;white-space:pre}
+.diffblock .dl.add{background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good)}
+.diffblock .dl.del{background:color-mix(in srgb,var(--crit) 15%,transparent);color:var(--crit)}
+.diffblock .dl.hunk{color:var(--accent);opacity:.85}
+.diffblock .dl.meta{color:var(--ink3)}
+.diffblock .dl.ctx{color:var(--ink2)}
