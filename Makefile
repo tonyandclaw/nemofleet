@@ -30,6 +30,9 @@ lint: ## syntax-check every shell script + py-compile services
 test: ## run unit tests (pure logic; no live stack needed)
 	python3 -m unittest discover -s tests/unit -p 'test_*.py'
 
+uitest: ## run UI render tests (jsdom; catches i18n leaks, blank views, dead wiring)
+	@cd tests/ui && [ -d node_modules ] || npm install --silent jsdom >/dev/null 2>&1; cd $(CURDIR) && node --test tests/ui/ui.test.mjs
+
 itest: ## run integration tests (services started standalone; python3 + curl only, no live stack)
 	@set -e; for t in tests/integration/*.sh; do echo "→ $$t"; bash "$$t"; done
 

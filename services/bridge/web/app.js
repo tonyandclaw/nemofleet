@@ -233,6 +233,59 @@ const I18N = {
   'unreachable': { en: 'unreachable', zh: '不可達' },
   'endpoint': { en: 'endpoint', zh: '端點' },
   'No snapshots yet — click Create.': { en: 'No snapshots yet — click Create.', zh: '尚無快照 — 點「建立快照」。' },
+  'No backups yet (needs device + EBG19P_CRED).': { en: 'No backups yet (needs device + EBG19P_CRED).', zh: '尚無備份(需真機 + EBG19P_CRED)。' },
+  'No review verdicts yet (worker-c not deployed / no delegation).': { en: 'No review verdicts yet (worker-c not deployed / no delegation).', zh: '尚無審查判決(worker-c 未部署或尚無委派)。' },
+  'No patrol log yet (loop idle or just started).': { en: 'No patrol log yet (loop idle or just started).', zh: '尚無巡邏記錄(loop 未跑或剛啟動)。' },
+  'No workflow events yet — appear after a delegation/scan (team-lead → worker → status).': { en: 'No workflow events yet — appear after a delegation/scan (team-lead → worker → status).', zh: '尚無工作流事件 — 委派 / 掃描觸發後會出現(team-lead → worker → 狀態)。' },
+  'No skill-curation verdicts yet (worker-c not deployed).': { en: 'No skill-curation verdicts yet (worker-c not deployed).', zh: '尚無技能治理判決(worker-c 未部署或無 insert/update/delete)。' },
+  'deterministic critical alerts (independent of team-lead)': { en: 'deterministic critical alerts (independent of team-lead)', zh: 'critical 確定性告警(不靠 team-lead)' },
+  'team-lead active patrol + reporting': { en: 'team-lead active patrol + reporting', zh: 'team-lead 主動巡邏 + 主動回報' },
+  'enable quiet hours': { en: 'enable quiet hours', zh: '啟用靜音時段' },
+  'mute proactive interrupts during maintenance (still patrols + logs)': { en: 'mute proactive interrupts during maintenance (still patrols + logs)', zh: '維護時暫時靜音主動打斷(仍巡邏+記錄)' },
+  'comma-separated (asus,cve,exposure…)': { en: 'comma-separated (asus,cve,exposure…)', zh: '逗號分隔(asus,cve,exposure…)' },
+  'quality gate on a/b output · reject = binding redo': { en: 'quality gate on a/b output · reject = binding redo', zh: 'a/b 產出的品質閘 · reject 綁定重做' },
+  'drift · CVE · nuclei · cert fused into one score': { en: 'drift · CVE · nuclei · cert fused into one score', zh: 'drift · CVE · nuclei · cert 融合成一個分數' },
+  'team-lead active patrol': { en: 'team-lead active patrol', zh: 'team-lead 主動巡邏' },
+  'worker-a quick actions (needs device link)': { en: 'worker-a quick actions (needs device link)', zh: 'worker-a 快速處置(需設備連線)' },
+  'switch provider / model (nemoclaw inference set)': { en: 'switch provider / model (nemoclaw inference set)', zh: '切換 provider / model(nemoclaw inference set)' },
+  'skill-repo governance · arXiv 2605.06614': { en: 'skill-repo governance · arXiv 2605.06614', zh: '技能庫治理 · arXiv 2605.06614' },
+  'recent patrols · delta events': { en: 'recent patrols · delta events', zh: '最近巡邏 · delta 事件' },
+  'recent delegations / handoffs (peer → node)': { en: 'recent delegations / handoffs (peer → node)', zh: '最近的委派 / 交接 (peer → node)' },
+  'families flagged as weak (active when cert_cipher_policy=custom)': { en: 'families flagged as weak (active when cert_cipher_policy=custom)', zh: '標記為弱加密的家族(cert_cipher_policy=custom 時生效)' },
+  'working nodes light up': { en: 'working nodes light up', zh: '正在工作的節點會亮起' },
+  'lifecycle · urgency driven by CVEs': { en: 'lifecycle · urgency driven by CVEs', zh: '生命週期 · urgency 由 CVE 驅動' },
+  'quiet hours (critical still pushed) + nuclei scope': { en: 'quiet hours (critical still pushed) + nuclei scope', zh: '靜音時段(critical 仍推)+ nuclei 範圍' },
+  'Sync settings': { en: 'Sync settings', zh: '同步設定' },
+  'Harden': { en: 'Harden', zh: '一鍵強化' },
+  'Restart services': { en: 'Restart services', zh: '重啟服務' },
+  'Block unauthorized': { en: 'Block unauthorized', zh: '封鎖未授權' },
+  'run against the real EBG19P, confirm?': { en: 'run against the real EBG19P, confirm?', zh: '對真實 EBG19P 執行,確定?' },
+  'Off-net → graceful \'unreachable\'; every action audited.': { en: 'Off-net → graceful \'unreachable\'; every action audited.', zh: '設備不在網段時回「不可達」的優雅降級;每筆進稽核。' },
+  'Config drift': { en: 'Config drift', zh: '設定安全退化 (drift)' },
+  'Cert/crypto high-risk': { en: 'Cert/crypto high-risk', zh: '憑證/加密高風險' },
+  'No penalties — fleet posture is healthy ✓': { en: 'No penalties — fleet posture is healthy ✓', zh: '無扣分項 — 機隊安全姿態良好 ✓' },
+  'Set cipher policy to': { en: 'Set cipher policy to', zh: '先到 Settings 把 cipher policy 設成' },
+  'in Settings; per-family flag/clear applies live to worker-a.': { en: 'in Settings; per-family flag/clear applies live to worker-a.', zh: ';個別家族開/關即時套用到 worker-a 掃描。' },
+  'rebuilds the sandbox.': { en: 'rebuilds the sandbox.', zh: '會 rebuild 沙箱。' },
+  'rebuilds the sandbox (keeps credentials).': { en: 'rebuilds the sandbox (keeps credentials).', zh: '會 rebuild 沙箱(保留憑證)。' },
+  'Stop/Start rebuilds the sandbox; credentials are kept.': { en: 'Stop/Start rebuilds the sandbox; credentials are kept.', zh: 'Stop/Start 會 rebuild 沙箱;憑證保留。' },
+  'rebuilds the sandbox (minutes; custom policy must be re-applied via boot-stack).': { en: 'rebuilds the sandbox (minutes; custom policy must be re-applied via boot-stack).', zh: '會重建沙箱(數分鐘;自訂 policy 之後需 boot-stack 重補)。' },
+  'Switch inference of': { en: 'Switch inference of', zh: '把推理切換 ·' },
+  'on · guaranteed delivery': { en: 'on · guaranteed delivery', zh: 'on · 保證送達' },
+  'Events': { en: 'Events', zh: '事件' },
+  'Sent': { en: 'Sent', zh: '送出' },
+  'who delegated whom · live': { en: 'who delegated whom · live', zh: '誰委派誰、正在做什麼 · 即時' },
+  'worker-c · change-governance · zone C': { en: 'worker-c · change-governance · zone C', zh: 'worker-c · 變更治理官 · zone C' },
+  'rejected → sent back': { en: 'rejected → sent back', zh: 'rejected → 退回重做' },
+  'worker-c not deployed': { en: 'worker-c not deployed', zh: 'worker-c 未部署' },
+  'worker-b nuclei active scan (nuclei-templates)': { en: 'worker-b nuclei active scan (nuclei-templates)', zh: 'worker-b nuclei 主動掃 (nuclei-templates)' },
+  'proactive patrol cadence': { en: 'proactive patrol cadence', zh: '主動巡邏頻率' },
+  'proactive digest cadence': { en: 'proactive digest cadence', zh: '主動 digest 頻率' },
+  'quiet start': { en: 'quiet start', zh: '靜音開始' },
+  'quiet end': { en: 'quiet end', zh: '靜音結束' },
+  'worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.': { en: 'worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.', zh: 'worker-c 審 worker-a remediation + worker-b CVE 決策,錨定核准 baseline。reject → team-lead 帶 required_fixes 退回重做,2 次不過升級人。人 > worker-c > a/b。' },
+  'CVE-driven: worker-b flags': { en: 'CVE-driven: worker-b flags', zh: 'CVE-driven:worker-b 判' },
+  '(firmware update can fix)': { en: '(firmware update can fix)', zh: '(韌體更新可修)' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -559,20 +612,20 @@ const FleetView = memo(function FleetView({ d }) {
       ${html`<${Panel} title="Diagnostics" label="on-demand · nemoclaw/openshell">
         <${Field} label="Target"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
         <div class="addrow">${['doctor', 'logs', 'recover', 'gwhealth', 'stale', 'gsettings'].map(x => html`<button key=${x} class="btn ghost" onClick=${() => runDiag(x)}>${x}</button>`)}
-          <${ConfirmBtn} danger=${true} confirm=${'Rebuild ' + sb + '?會重建沙箱(數分鐘;自訂 policy 之後需 boot-stack 重補)。'} run=${() => NF.sys({ do: 'rebuild', sb })} label="rebuild" busyLabel="rebuilding"/></div>
+          <${ConfirmBtn} danger=${true} confirm=${t('Rebuild') + ' ' + sb + ' — ' + t('rebuilds the sandbox (minutes; custom policy must be re-applied via boot-stack).')} run=${() => NF.sys({ do: 'rebuild', sb })} label="rebuild" busyLabel="rebuilding"/></div>
         ${diag ? html`<div style=${{ marginTop: '12px' }}><div class="lbl" style=${{ marginBottom: '6px' }}>${diag.title}</div>
           <pre class="mono" style=${{ background: 'var(--inset)', border: '1px solid var(--line)', borderRadius: '8px', padding: '10px', fontSize: '11px', color: 'var(--ink2)', maxHeight: '220px', overflow: 'auto', whiteSpace: 'pre-wrap' }}>${diag.out}</pre></div>` : null}
       </${Panel}>`}
-      ${html`<${Panel} title="Inference" label="切換 provider / model(nemoclaw inference set)">
+      ${html`<${Panel} title="Inference" label="switch provider / model (nemoclaw inference set)">
         <${Field} label="Sandbox"><${Segmented} value=${sb} options=${SNAP_SB} onChange=${setSb}/></${Field}>
         <div class="addrow">
           <input class="inp" placeholder="provider (vllm-local / nim…)" value=${inf.provider} onInput=${e => setInf({ ...inf, provider: e.target.value })}/>
           <input class="inp" placeholder="model (nemotron-super)" value=${inf.model} onInput=${e => setInf({ ...inf, model: e.target.value })}/>
-          <${ConfirmBtn} confirm=${'把 ' + sb + ' 的推理切到 ' + (inf.provider || '?') + ' / ' + (inf.model || '?') + '?'} run=${() => NF.sys({ do: 'infset', sb, provider: inf.provider, model: inf.model })} label="Apply" busyLabel="applying"/>
+          <${ConfirmBtn} confirm=${t('Switch inference of') + ' ' + sb + ' → ' + (inf.provider || '?') + ' / ' + (inf.model || '?') + '?'} run=${() => NF.sys({ do: 'infset', sb, provider: inf.provider, model: inf.model })} label="Apply" busyLabel="applying"/>
         </div></${Panel}>`}
-      ${html`<${Panel} title="Device ops · EBG19P" label="worker-a 快速處置(需設備連線)">
-        <div class="addrow">${[['sync', '同步設定'], ['harden', '一鍵強化'], ['restart', '重啟服務'], ['block', '封鎖未授權']].map(([op, lbl]) => html`<${ConfirmBtn} key=${op} ghost=${true} confirm=${lbl + '(' + op + ')— 對真實 EBG19P 執行,確定?'} run=${() => NF.deviceAction(op)} label=${lbl} busyLabel="…"/>`)}</div>
-        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>設備不在網段時回「不可達」的優雅降級;每筆進稽核。</div></${Panel}>`}
+      ${html`<${Panel} title="Device ops · EBG19P" label="worker-a quick actions (needs device link)">
+        <div class="addrow">${[['sync', t('Sync settings')], ['harden', t('Harden')], ['restart', t('Restart services')], ['block', t('Block unauthorized')]].map(([op, lbl]) => html`<${ConfirmBtn} key=${op} ghost=${true} confirm=${lbl + ' (' + op + ') — ' + t('run against the real EBG19P, confirm?')} run=${() => NF.deviceAction(op)} label=${lbl} busyLabel="…"/>`)}</div>
+        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>${t('Off-net → graceful \'unreachable\'; every action audited.')}</div></${Panel}>`}
     </div></div></div>`;
 });
 
@@ -586,10 +639,10 @@ function posture(d) {
   const sev = re => nucF.filter(f => re.test(f.severity || '')).length;
   const certHigh = ((d.cert && d.cert.findings) || []).filter(f => /high|crit/i.test(f.severity || f.issue || '')).length;
   pen('nuclei critical', sev(/crit/i), 15, 45);
-  pen('設定安全退化 (drift)', regs, 8, 40);
+  pen('Config drift', regs, 8, 40);
   pen('affected CVE', ((d.cve && d.cve.findings) || []).length, 6, 36);
   pen('nuclei high', sev(/high/i), 8, 32);
-  pen('憑證/加密高風險', certHigh, 7, 28);
+  pen('Cert/crypto high-risk', certHigh, 7, 28);
   score = Math.max(0, Math.round(score));
   return { score, grade: score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 65 ? 'C' : score >= 50 ? 'D' : 'F', factors };
 }
@@ -598,7 +651,7 @@ const SecurityView = memo(function SecurityView({ d }) {
   const gc = P.score >= 80 ? 'var(--ok)' : P.score >= 65 ? 'var(--warn)' : 'var(--crit)';
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Security')}</h2><span class="lbl">${t('worker-b · CVE / nuclei / cert / source')}</span></div>
     <div class="grid1">
-      ${html`<${Panel} title="EBG19P security posture" label="drift · CVE · nuclei · cert 融合成一個分數">
+      ${html`<${Panel} title="EBG19P security posture" label="drift · CVE · nuclei · cert fused into one score">
         <div style=${{ display: 'flex', gap: '22px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style=${{ textAlign: 'center', minWidth: '104px' }}>
             <div style=${{ fontSize: '46px', fontWeight: 800, lineHeight: 1, color: gc }}>${P.score}</div>
@@ -608,7 +661,7 @@ const SecurityView = memo(function SecurityView({ d }) {
             ${P.factors.length ? P.factors.map(f => html`<div key=${f.label} style=${{ marginBottom: '7px' }}>
               <div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}><span class="ink2">${t(f.label)} <b>×${f.n}</b></span><span style=${{ color: 'var(--crit)' }}>−${f.penalty}</span></div>
               <div style=${{ height: '4px', background: 'var(--line)', borderRadius: '3px', overflow: 'hidden', marginTop: '3px' }}><div style=${{ width: Math.min(f.penalty * 2, 100) + '%', height: '100%', background: 'var(--crit)' }}></div></div>
-            </div>`) : html`<div class="muted">無扣分項 — 機隊安全姿態良好 ✓</div>`}
+            </div>`) : html`<div class="muted">${t('No penalties — fleet posture is healthy ✓')}</div>`}
           </div>
         </div></${Panel}>`}
       ${html`<${Panel} title="CVE findings" label="fleet scan" right=${html`<${ActionBtn} act="cve" label="Rescan" busyLabel="Scanning" ghost=${true}/>`}>
@@ -643,11 +696,11 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'detail', label: 'Detail', render: r => html`<span class="muted">${r.detail || ''}</span>` },
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
           ]}/></${Panel}>`}
-      ${(d.me && d.me.role === 'admin') ? html`<${Panel} title="Cipher policy override" label="標記為弱加密的家族(cert_cipher_policy=custom 時生效)">
+      ${(d.me && d.me.role === 'admin') ? html`<${Panel} title="Cipher policy override" label="families flagged as weak (active when cert_cipher_policy=custom)">
         <div class="addrow" style=${{ flexWrap: 'wrap' }}>${['rc4', '3des', 'cbc', 'null', 'export', 'md5', 'sha1', 'des'].map(fam => html`<span key=${fam} class="seg2" style=${{ display: 'inline-flex' }}>
           <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 1 }), 'flag ' + fam)}>flag ${fam}</button>
           <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 0 }), 'clear ' + fam)}>clear</button></span>`)}</div>
-        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>先到 Settings 把 cipher policy 設成 <b>custom</b>;個別家族開/關即時套用到 worker-a 掃描。</div></${Panel}>` : null}
+        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>${t('Set cipher policy to')} <b>custom</b> ${t('in Settings; per-family flag/clear applies live to worker-a.')}</div></${Panel}>` : null}
       ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'asuswrt-merlin')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty="No SAST hits."
           cols=${[
@@ -750,10 +803,10 @@ const ChannelPanel = memo(function ChannelPanel() {
     <div class="addrow" style=${{ flexWrap: 'wrap' }}>
       <${Segmented} value=${sb} options=${POLSB} onChange=${setSb}/>
       <input class="inp" style=${{ maxWidth: '140px' }} value=${chan} onInput=${e => setChan(e.target.value)}/>
-      <${ConfirmBtn} confirm=${'Start ' + chan + ' on ' + sb + '?會 rebuild 沙箱。'} run=${() => NF.sys({ do: 'chanstart', sb, chan })} label="Start" busyLabel="starting"/>
-      <${ConfirmBtn} danger=${true} confirm=${'Stop ' + chan + ' on ' + sb + '?會 rebuild 沙箱(保留憑證)。'} run=${() => NF.sys({ do: 'chanstop', sb, chan })} label="Stop" busyLabel="stopping"/>
+      <${ConfirmBtn} confirm=${t('Start') + ' ' + chan + ' · ' + sb + ' — ' + t('rebuilds the sandbox.')} run=${() => NF.sys({ do: 'chanstart', sb, chan })} label="Start" busyLabel="starting"/>
+      <${ConfirmBtn} danger=${true} confirm=${t('Stop') + ' ' + chan + ' · ' + sb + ' — ' + t('rebuilds the sandbox (keeps credentials).')} run=${() => NF.sys({ do: 'chanstop', sb, chan })} label="Stop" busyLabel="stopping"/>
     </div>
-    <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>Stop/Start 會 rebuild 沙箱;憑證保留。</div>
+    <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>${t('Stop/Start rebuilds the sandbox; credentials are kept.')}</div>
   </${Panel}>`;
 });
 
@@ -801,7 +854,7 @@ const SettingsView = memo(function SettingsView({ d }) {
         <${Field} label="Density"><${Segmented} value=${DENSITY} options=${[{ v: 'compact', l: t('Compact') }, { v: 'cozy', l: t('Cozy') }, { v: 'spacious', l: t('Spacious') }]} onChange=${setDensity}/></${Field}>
       </div></${Panel}>`}
       ${html`<${Panel} title="Scan schedule" label="worker cadence"><div class="formgrid">
-        ${seg('cve_interval_sec', 'worker-b CVE scan cadence')}${seg('cert_interval_sec', 'worker-a cert/crypto cadence')}${seg('nuclei_interval_sec', 'worker-b nuclei 主動掃 (nuclei-templates)')}</div></${Panel}>`}
+        ${seg('cve_interval_sec', 'worker-b CVE scan cadence')}${seg('cert_interval_sec', 'worker-a cert/crypto cadence')}${seg('nuclei_interval_sec', t('worker-b nuclei active scan (nuclei-templates)'))}</div></${Panel}>`}
       ${html`<${Panel} title="Certificate & crypto thresholds" label="what counts as weak"><div class="formgrid">
         ${seg('cert_rsa_min', 'min RSA key bits')}${seg('cert_ec_min', 'min ECDSA curve')}${seg('cert_sig_min', 'min signature alg')}
         ${seg('cert_expire_warn_days', 'expiry lead-time (days)')}${seg('cert_cipher_policy', 'cipher flagging policy')}</div></${Panel}>`}
@@ -812,13 +865,13 @@ const SettingsView = memo(function SettingsView({ d }) {
         <${Field} label="Notify channels" hint="Jira is always kept"><div class="seg2">${['email', 'telegram', 'dashboard'].map(c => html`<button key=${c} class=${'segbtn ' + (chans.includes(c) ? 'on' : '')} onClick=${() => toggleChan(c)}>${c}</button>`)}</div></${Field}>
       </div></${Panel}>`}
       ${html`<${Panel} title="Proactive team-lead" label="active patrol + reporting"><div class="formgrid">
-        <${Field} label="proactive_enabled" hint="team-lead 主動巡邏 + 主動回報"><${Toggle} on=${s.proactive_enabled !== false} onChange=${v => set('proactive_enabled', v)}/></${Field}>
-        <${Field} label="proactive_safety_net" hint="critical 確定性告警(不靠 team-lead)"><${Toggle} on=${s.proactive_safety_net !== false} onChange=${v => set('proactive_safety_net', v)}/></${Field}>
-        ${seg('patrol_interval_sec', '主動巡邏頻率')}${seg('digest_interval_sec', '主動 digest 頻率')}</div></${Panel}>`}
-      ${html`<${Panel} title="Quiet hours & scan tags" label="靜音時段(critical 仍推)+ nuclei 範圍"><div class="formgrid">
-        <${Field} label="quiet_enabled" hint="啟用靜音時段"><${Toggle} on=${s.quiet_enabled === true} onChange=${v => set('quiet_enabled', v)}/></${Field}>
-        ${seg('quiet_start', '靜音開始')}${seg('quiet_end', '靜音結束')}
-        <${Field} label="nuclei_tags" hint="逗號分隔(asus,cve,exposure…)"><input class="inp" defaultValue=${s.nuclei_tags || 'asus,cve'} onBlur=${e => set('nuclei_tags', e.target.value)}/></${Field}>
+        <${Field} label="proactive_enabled" hint="team-lead active patrol + reporting"><${Toggle} on=${s.proactive_enabled !== false} onChange=${v => set('proactive_enabled', v)}/></${Field}>
+        <${Field} label="proactive_safety_net" hint="deterministic critical alerts (independent of team-lead)"><${Toggle} on=${s.proactive_safety_net !== false} onChange=${v => set('proactive_safety_net', v)}/></${Field}>
+        ${seg('patrol_interval_sec', t('proactive patrol cadence'))}${seg('digest_interval_sec', t('proactive digest cadence'))}</div></${Panel}>`}
+      ${html`<${Panel} title="Quiet hours & scan tags" label="quiet hours (critical still pushed) + nuclei scope"><div class="formgrid">
+        <${Field} label="quiet_enabled" hint="enable quiet hours"><${Toggle} on=${s.quiet_enabled === true} onChange=${v => set('quiet_enabled', v)}/></${Field}>
+        ${seg('quiet_start', t('quiet start'))}${seg('quiet_end', t('quiet end'))}
+        <${Field} label="nuclei_tags" hint="comma-separated (asus,cve,exposure…)"><input class="inp" defaultValue=${s.nuclei_tags || 'asus,cve'} onBlur=${e => set('nuclei_tags', e.target.value)}/></${Field}>
       </div></${Panel}>`}
     </div></div>`;
 });
@@ -870,13 +923,13 @@ const ProactiveView = memo(function ProactiveView({ d }) {
       <span class="lbl">active patrol + reporting</span></div>
     <div class="grid">
       <div class="col">
-        ${html`<${Panel} title="Patrol status" label="team-lead 主動巡邏" right=${html`<${ActionBtn} act="patrol" label="Patrol now" busyLabel="Triggering" ghost=${true}/>`}>
+        ${html`<${Panel} title="Patrol status" label="team-lead active patrol" right=${html`<${ActionBtn} act="patrol" label="Patrol now" busyLabel="Triggering" ghost=${true}/>`}>
           <div class="formgrid">
             <${Field} label="Last patrol"><div class="mono ink2">${p.last_patrol || '—'}</div></${Field}>
             <${Field} label="Cadence"><div class="mono ink2">patrol ${fmtSec(p.patrol_interval_sec)} · digest ${fmtSec(p.digest_interval_sec)}</div></${Field}>
-            <${Field} label="Safety net"><span class=${'pill2 ' + (p.safety_net ? 'g' : 'w')}>${p.safety_net ? 'on · 保證送達' : 'off'}</span></${Field}>
+            <${Field} label="Safety net"><span class=${'pill2 ' + (p.safety_net ? 'g' : 'w')}>${p.safety_net ? t('on · guaranteed delivery') : 'off'}</span></${Field}>
             <${Field} label="Last cycle"><div><b style=${{ color: (p.last_critical || 0) > 0 ? 'var(--crit)' : 'var(--ink2)' }}>${p.last_critical || 0}</b> <span class="muted">critical ·</span> ${p.last_routine || 0} <span class="muted">routine</span></div></${Field}>
-            <${Field} label="Critical alerts" hint="維護時暫時靜音主動打斷(仍巡邏+記錄)">
+            <${Field} label="Critical alerts" hint="mute proactive interrupts during maintenance (still patrols + logs)">
               ${(p.snooze_until && p.snooze_until * 1000 > Date.now())
                 ? html`<span class="pill2 w">snoozed → ${new Date(p.snooze_until * 1000).toLocaleTimeString()}</span> <${ActionBtn} act="snooze_off" label="Resume" busyLabel="…" ghost=${true}/>`
                 : html`<span class="pill2 g">active</span> <${ActionBtn} act="snooze30" label="Snooze 30m" busyLabel="…" ghost=${true}/> <${ActionBtn} act="snooze120" label="2h" busyLabel="…" ghost=${true}/>`}
@@ -886,13 +939,13 @@ const ProactiveView = memo(function ProactiveView({ d }) {
         </${Panel}>`}
       </div>
       <div class="col">
-        ${html`<${Panel} title="Patrol log" label="最近巡邏 · delta 事件">
-          <${DataTable} rows=${log} pageSize=${10} empty="尚無巡邏記錄(loop 未跑或剛啟動)。"
+        ${html`<${Panel} title="Patrol log" label="recent patrols · delta events">
+          <${DataTable} rows=${log} pageSize=${10} empty="No patrol log yet (loop idle or just started)."
             cols=${[
               { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
-              { k: 'ev', label: '事件', render: r => { const c = (r.critical || []).length, rt = (r.routine || []).length;
+              { k: 'ev', label: 'Events', render: r => { const c = (r.critical || []).length, rt = (r.routine || []).length;
                 return html`${c ? html`<span class="pill2 c">${c} critical</span> ` : null}${rt ? html`<span class="pill2">${rt} routine</span>` : null}${!c && !rt ? html`<span class="muted">no change</span>` : null}`; } },
-              { k: 'sent', label: '送出', align: 'right', render: r => html`${r.safety_net_fired ? html`<span class="pill2 g">safety-net</span> ` : null}${r.digest_sent ? html`<span class="pill2 a">digest</span>` : null}${!r.safety_net_fired && !r.digest_sent ? html`<span class="muted">–</span>` : null}` },
+              { k: 'sent', label: 'Sent', align: 'right', render: r => html`${r.safety_net_fired ? html`<span class="pill2 g">safety-net</span> ` : null}${r.digest_sent ? html`<span class="pill2 a">digest</span>` : null}${!r.safety_net_fired && !r.digest_sent ? html`<span class="muted">–</span>` : null}` },
             ]}/>
         </${Panel}>`}
       </div>
@@ -907,9 +960,9 @@ const FlowView = memo(function FlowView({ d }) {
   return html`<div class="viewfade">
     <div class="viewhd"><h2>${t('Flow')}</h2>
       <span class=${'pill2 ' + (active.size ? 'a' : 'g')}>${active.size ? active.size + ' working' : 'idle'}</span>
-      <span class="lbl">誰委派誰、正在做什麼 · 即時</span></div>
+      <span class="lbl">${t('who delegated whom · live')}</span></div>
     <div class="grid1">
-      ${html`<${Panel} title="Fleet activity" label="正在工作的節點會亮起">
+      ${html`<${Panel} title="Fleet activity" label="working nodes light up">
         <div style=${{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           ${nodes.map(n => html`<div key=${n.id} style=${{ padding: '11px 15px', borderRadius: '11px', border: '1px solid ' + (active.has(n.id) ? 'var(--acc)' : 'var(--line)'), background: active.has(n.id) ? 'rgba(57,135,229,.12)' : 'var(--panel2, var(--panel))', minWidth: '132px', transition: 'all .2s' }}>
             <div class="mono" style=${{ fontWeight: 700, fontSize: '13px' }}>${n.label}</div>
@@ -917,8 +970,8 @@ const FlowView = memo(function FlowView({ d }) {
             <div style=${{ fontSize: '11.5px', marginTop: '5px', fontWeight: 600, color: active.has(n.id) ? 'var(--warn)' : 'var(--ink3, var(--muted))' }}>${active.has(n.id) ? '● working' : '○ idle'}</div>
           </div>`)}
         </div></${Panel}>`}
-      ${html`<${Panel} title="Delegation timeline" label="最近的委派 / 交接 (peer → node)" right=${html`<${ActionBtn} act="patrol" label="Trigger patrol" busyLabel="…" ghost=${true}/>`}>
-        <${DataTable} rows=${flow} pageSize=${12} empty="尚無工作流事件 — 委派 / 掃描觸發後會出現(team-lead → worker → 狀態)。"
+      ${html`<${Panel} title="Delegation timeline" label="recent delegations / handoffs (peer → node)" right=${html`<${ActionBtn} act="patrol" label="Trigger patrol" busyLabel="…" ghost=${true}/>`}>
+        <${DataTable} rows=${flow} pageSize=${12} empty="No workflow events yet — appear after a delegation/scan (team-lead → worker → status)."
           cols=${[
             { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
             { k: 'hop', label: 'Handoff', render: r => html`<span><b class="ink2">${r.peer || '?'}</b> <span class="muted">→</span> <b class="ink2">${r.node || '?'}</b></span>` },
@@ -937,35 +990,35 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
   return html`<div class="viewfade">
     <div class="viewhd"><h2>Change control</h2>
       <span class=${'pill2 ' + (g.up ? 'g' : 'w')}>${g.up ? 'worker-c up' : 'worker-c not deployed'}</span>
-      <span class="lbl">worker-c · 變更治理官 · zone C</span></div>
+      <span class="lbl">${t('worker-c · change-governance · zone C')}</span></div>
     <div class="grid1">
-      ${html`<${Panel} title="Review gate" label="a/b 產出的品質閘 · reject 綁定重做">
+      ${html`<${Panel} title="Review gate" label="quality gate on a/b output · reject = binding redo">
         <div style=${{ display: 'flex', gap: '22px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px' }}>
-          <div style=${{ textAlign: 'center' }}><div style=${{ fontSize: '30px', fontWeight: 800, color: rejects ? 'var(--crit)' : 'var(--ok)' }}>${rejects}</div><div class="muted" style=${{ fontSize: '11px' }}>rejected → 退回重做</div></div>
+          <div style=${{ textAlign: 'center' }}><div style=${{ fontSize: '30px', fontWeight: 800, color: rejects ? 'var(--crit)' : 'var(--ok)' }}>${rejects}</div><div class="muted" style=${{ fontSize: '11px' }}>${t('rejected → sent back')}</div></div>
           <div style=${{ textAlign: 'center' }}><div style=${{ fontSize: '30px', fontWeight: 800, color: 'var(--ink2)' }}>${reviews.length}</div><div class="muted" style=${{ fontSize: '11px' }}>total verdicts</div></div>
-          <div class="muted" style=${{ fontSize: '12px', maxWidth: '340px' }}>worker-c 審 worker-a remediation + worker-b CVE 決策,錨定核准 baseline。reject → team-lead 帶 required_fixes 退回重做,2 次不過升級人。人 > worker-c > a/b。</div>
+          <div class="muted" style=${{ fontSize: '12px', maxWidth: '340px' }}>${t('worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.')}</div>
         </div>
-        <${DataTable} rows=${reviews} pageSize=${8} empty="尚無審查判決(worker-c 未部署或尚無委派)。"
+        <${DataTable} rows=${reviews} pageSize=${8} empty="No review verdicts yet (worker-c not deployed / no delegation)."
           cols=${[
             { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
             { k: 'target', label: 'Target', render: r => html`<span class="mono">${r.target || ''} · ${r.kind || ''}</span>` },
             { k: 'ref', label: 'Subject', render: r => html`<span class="mono muted">${r.ref || ''}</span>` },
             { k: 'verdict', label: 'Verdict', align: 'right', render: r => html`${vPill(r.verdict)}${r.escalate ? html` <span class="pill2 c">→ human</span>` : r.redo > 0 ? html` <span class="pill2 w">redo ${r.redo}</span>` : null}` },
           ]}/></${Panel}>`}
-      ${html`<${Panel} title="Config backups" label="known-good 版本" right=${html`<${ActionBtn} act="backup" label="Backup now" busyLabel="…" ghost=${true}/>`}>
+      ${html`<${Panel} title="Config backups" label="known-good versions" right=${html`<${ActionBtn} act="backup" label="Backup now" busyLabel="…" ghost=${true}/>`}>
         <div style=${{ display: 'flex', gap: '22px', flexWrap: 'wrap', marginBottom: '9px', fontSize: '12px' }}>
           <span class="muted">count <b class="ink2">${g.backup_count || 0}</b></span>
           <span class="muted">latest <b class="mono ink2">${(g.backups || [])[0] || '—'}</b></span>
         </div>
-        <${DataTable} rows=${(g.backups || []).map(b => ({ id: b }))} pageSize=${6} empty="尚無備份(需真機 + EBG19P_CRED)。"
+        <${DataTable} rows=${(g.backups || []).map(b => ({ id: b }))} pageSize=${6} empty="No backups yet (needs device + EBG19P_CRED)."
           cols=${[{ k: 'id', label: 'Backup snapshot', render: r => html`<span class="mono">${r.id}</span>` }]}/></${Panel}>`}
-      ${html`<${Panel} title="Firmware" label="生命週期 · urgency 由 CVE 驅動">
+      ${html`<${Panel} title="Firmware" label="lifecycle · urgency driven by CVEs">
         <div style=${{ fontSize: '13px' }}>
           <div style=${{ marginBottom: '5px' }}>${t('current')} <b class="mono ink2">${(() => { const c = g.firmware && g.firmware.current; return (!c || /unknown|未知/i.test(c)) ? t('not available') : c; })()}</b> ${fwUrgent ? html`<span class="pill2 c">update urgent</span>` : html`<span class="pill2 g">current</span>`}</div>
-          ${affCves.length ? html`<div class="muted" style=${{ fontSize: '12px' }}>CVE-driven:worker-b 判 ${affCves.length} 個 affected → <span class="mono">${affCves.slice(0, 3).join(', ')}${affCves.length > 3 ? '…' : ''}</span>(韌體更新可修)</div>` : html`<div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || 'worker-c 未部署'}</div>`}
+          ${affCves.length ? html`<div class="muted" style=${{ fontSize: '12px' }}>${t('CVE-driven: worker-b flags')} ${affCves.length} affected → <span class="mono">${affCves.slice(0, 3).join(', ')}${affCves.length > 3 ? '…' : ''}</span> ${t('(firmware update can fix)')}</div>` : html`<div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || t('worker-c not deployed')}</div>`}
         </div></${Panel}>`}
-      ${html`<${Panel} title="Skills · curator (SkillOS)" label="技能庫治理 · arXiv 2605.06614" right=${html`<span class="lbl">${g.skills_count || 0} skills</span>`}>
-        <${DataTable} rows=${g.curations || []} pageSize=${6} empty="尚無技能治理判決(worker-c 未部署或無 insert/update/delete)。"
+      ${html`<${Panel} title="Skills · curator (SkillOS)" label="skill-repo governance · arXiv 2605.06614" right=${html`<span class="lbl">${g.skills_count || 0} skills</span>`}>
+        <${DataTable} rows=${g.curations || []} pageSize=${6} empty="No skill-curation verdicts yet (worker-c not deployed)."
           cols=${[
             { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
             { k: 'op', label: 'Op', render: r => html`<span class="mono">${r.op || ''} ${r.name || ''}</span>` },

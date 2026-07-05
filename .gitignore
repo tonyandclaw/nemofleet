@@ -44,3 +44,4 @@ docs/assets/*
 .DS_Store
 *.swp
 .claude/
+tests/ui/node_modules/
