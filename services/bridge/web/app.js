@@ -9,6 +9,7 @@ const SERIES = { allowed: '#3987e5', denied: '#e66767' };
 function toast(msg, kind = 'i') { dispatchEvent(new CustomEvent('nftoast', { detail: { msg, kind, id: Date.now() + Math.random() } })); }
 function reloadNow() { dispatchEvent(new CustomEvent('nfreload')); }
 function openDrawer(detail) { dispatchEvent(new CustomEvent('nfdrawer', { detail })); }
+function statusBullet(ok, onLabel, offLabel) { return html`<span style=${{ color: ok ? 'var(--good)' : 'var(--ink3)', fontSize: '9px' }}>${ok ? '●' : '○'}</span> ${ok ? onLabel : offLabel}`; }
 function fmtVal(v) { if (v == null || v === '') return '—'; if (Array.isArray(v)) return v.length ? v.map(fmtVal).join(', ') : '—'; if (typeof v === 'object') return JSON.stringify(v); return String(v); }
 function rowDrawer(title, row) { openDrawer({ title, rows: Object.entries(row).filter(([k]) => k[0] !== '_').map(([k, v]) => ({ k, v: fmtVal(v), mono: true })) }); }
 let THEME = localStorage.getItem('nf-theme') || 'dark';
@@ -332,6 +333,39 @@ const I18N = {
   'Only cross-agent channel — worker_bridge (/32 + X-Bridge-Token) → :9099; A2A rides the same governed channel.': { en: 'Only cross-agent channel — worker_bridge (/32 + X-Bridge-Token) → :9099; A2A rides the same governed channel.', zh: '唯一跨 agent 通道 — worker_bridge(/32 + X-Bridge-Token)→ :9099;A2A 走同一條受治理通道。' },
   'Single source of knowledge — knowledge/ (approved baseline + security keys); version-hash aligned fleet-wide.': { en: 'Single source of knowledge — knowledge/ (approved baseline + security keys); version-hash aligned fleet-wide.', zh: '知識單一權威 — knowledge/(核准 baseline + 安全鍵);version-hash 全隊對齊。' },
   'Governed self-evolution — new skills pass worker-c /skill-review (SkillOS quality gate) before landing.': { en: 'Governed self-evolution — new skills pass worker-c /skill-review (SkillOS quality gate) before landing.', zh: '受治理自我進化 — 新技能落地前過 worker-c /skill-review(SkillOS 品質閘)。' },
+  'per-family weak-crypto flags': { en: 'per-family weak-crypto flags', zh: '逐一標記弱加密套件' },
+  'flagged': { en: 'flagged', zh: '已標記' },
+  'policy: ': { en: 'policy: ', zh: '政策:' },
+  'Custom policy is live': { en: 'Custom policy is live', zh: '自訂政策已生效' },
+  'Active policy': { en: 'Active policy', zh: '目前政策' },
+  'worker-a flags the families switched on below on its next cert scan.': { en: 'worker-a flags the families switched on below on its next cert scan.', zh: 'worker-a 下次憑證掃描時會把下方開啟的套件標為弱。' },
+  'These per-family flags only bite when the cipher policy is set to custom — change it in Settings → Certificate & crypto.': { en: 'These per-family flags only bite when the cipher policy is set to custom — change it in Settings → Certificate & crypto.', zh: '這些逐項標記只有在加密政策設為 custom 時才生效 — 到「設定 → 憑證與加密」切換。' },
+  'flagged as weak — click to allow': { en: 'flagged as weak — click to allow', zh: '已標為弱 — 點擊改為允許' },
+  'allowed — click to flag as weak': { en: 'allowed — click to flag as weak', zh: '允許中 — 點擊標為弱' },
+  'weak': { en: 'weak', zh: '弱' },
+  'allowed': { en: 'allowed', zh: '允許' },
+  'Biased keystream → plaintext recovery': { en: 'Biased keystream → plaintext recovery', zh: '金鑰流有偏差 → 可還原明文' },
+  'Stream cipher with keystream biases; RFC 7465 prohibits it in TLS. Enables cookie / plaintext recovery — considered broken in practice since 2013.': { en: 'Stream cipher with keystream biases; RFC 7465 prohibits it in TLS. Enables cookie / plaintext recovery — considered broken in practice since 2013.', zh: '串流加密、金鑰流有統計偏差;RFC 7465 已在 TLS 禁用。可還原 cookie / 明文 — 2013 年起實務上視為破解。' },
+  '64-bit block → Sweet32 birthday attack': { en: '64-bit block → Sweet32 birthday attack', zh: '64-bit 區塊 → Sweet32 生日攻擊' },
+  'CVE-2016-2183 (Sweet32): a birthday attack recovers plaintext from long-lived connections. NIST disallowed 3DES for TLS after 2023.': { en: 'CVE-2016-2183 (Sweet32): a birthday attack recovers plaintext from long-lived connections. NIST disallowed 3DES for TLS after 2023.', zh: 'CVE-2016-2183(Sweet32):生日攻擊可從長連線還原明文。NIST 於 2023 後禁止 3DES 用於 TLS。' },
+  '56-bit key → brute-forceable': { en: '56-bit key → brute-forceable', zh: '56-bit 金鑰 → 可暴力破解' },
+  'Single DES has a 56-bit key, exhaustible with modest hardware in hours. Never acceptable for transport security.': { en: 'Single DES has a 56-bit key, exhaustible with modest hardware in hours. Never acceptable for transport security.', zh: '單 DES 金鑰僅 56-bit,一般硬體數小時即可窮舉。傳輸安全上絕不可接受。' },
+  'No encryption → cleartext on the wire': { en: 'No encryption → cleartext on the wire', zh: '不加密 → 明文傳輸' },
+  'eNULL suites authenticate the peer but do not encrypt; the payload travels in the clear.': { en: 'eNULL suites authenticate the peer but do not encrypt; the payload travels in the clear.', zh: 'eNULL 套件只驗證對端但不加密;內容以明文傳送。' },
+  '40/512-bit → FREAK / Logjam downgrade': { en: '40/512-bit → FREAK / Logjam downgrade', zh: '40/512-bit → FREAK / Logjam 降級' },
+  '1990s export-grade crypto. FREAK (CVE-2015-0204) and Logjam force a downgrade to key sizes that are broken offline.': { en: '1990s export-grade crypto. FREAK (CVE-2015-0204) and Logjam force a downgrade to key sizes that are broken offline.', zh: '1990 年代出口級加密。FREAK(CVE-2015-0204)與 Logjam 會強制降級到可離線破解的金鑰長度。' },
+  'MD5 MAC → collision-broken hash': { en: 'MD5 MAC → collision-broken hash', zh: 'MD5 MAC → 雜湊已可碰撞' },
+  'Record MAC built on MD5. MD5 is collision-broken and unfit for message integrity.': { en: 'Record MAC built on MD5. MD5 is collision-broken and unfit for message integrity.', zh: '以 MD5 建的紀錄 MAC。MD5 已可碰撞,不適合做訊息完整性。' },
+  'SHA-1 MAC → deprecated hash': { en: 'SHA-1 MAC → deprecated hash', zh: 'SHA-1 MAC → 已淘汰雜湊' },
+  'HMAC-SHA1 record MAC. SHA-1 is deprecated (SHATTERED collision, 2017) and being removed from TLS.': { en: 'HMAC-SHA1 record MAC. SHA-1 is deprecated (SHATTERED collision, 2017) and being removed from TLS.', zh: 'HMAC-SHA1 紀錄 MAC。SHA-1 已淘汰(2017 SHATTERED 碰撞),正從 TLS 移除。' },
+  'No server authentication → trivial MITM': { en: 'No server authentication → trivial MITM', zh: '無伺服器驗證 → 易遭中間人' },
+  'Anonymous (A)DH / (A)ECDH suites skip peer authentication, so an active attacker MITMs the handshake undetected.': { en: 'Anonymous (A)DH / (A)ECDH suites skip peer authentication, so an active attacker MITMs the handshake undetected.', zh: '匿名 (A)DH / (A)ECDH 套件跳過對端驗證,主動攻擊者可無聲中間人握手。' },
+  'Legacy 64-bit block cipher': { en: 'Legacy 64-bit block cipher', zh: '舊式 64-bit 區塊加密' },
+  'Not broken, but a legacy 64-bit-block cipher. Flagged under strict cipher-suite hygiene.': { en: 'Not broken, but a legacy 64-bit-block cipher. Flagged under strict cipher-suite hygiene.', zh: '未被破解,但屬舊式 64-bit 區塊加密。在嚴格套件衛生政策下標記。' },
+  'Regional legacy cipher': { en: 'Regional legacy cipher', zh: '區域性舊式加密' },
+  'Korean legacy block cipher; non-standard for modern TLS. Flagged only under a strict minimal-suite policy.': { en: 'Korean legacy block cipher; non-standard for modern TLS. Flagged only under a strict minimal-suite policy.', zh: '韓國舊式區塊加密;非現代 TLS 標準。僅在嚴格最小套件政策下標記。' },
+  'Sound but non-preferred vs AES': { en: 'Sound but non-preferred vs AES', zh: '安全但不如 AES 優先' },
+  'Cryptographically sound but not preferred over AES; flagged only when you want a strictly minimal cipher suite.': { en: 'Cryptographically sound but not preferred over AES; flagged only when you want a strictly minimal cipher suite.', zh: '密碼學上安全但不比 AES 優先;僅在你要嚴格最小套件時標記。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -575,7 +609,7 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
   return html`<${Panel} title="Agent fleet" label=${t('Hermes harness') + ' ×' + nodes.length}>
     <div class="nodes">${nodes.map(n => html`<div key=${n.name} class="node clickcard" onClick=${() => openDrawer({ title: t('Node detail'), sub: n.name, rows: [
         { k: 'name', v: n.name, mono: true }, { k: 'role', v: n.role }, { k: 'zone', v: n.zone || '—' }, { k: 'port', v: ':' + n.port, mono: true },
-        { k: 'status', v: n.up ? '● up' : '○ down' }, { k: 'tag', v: n.tag }, { k: 'caps', v: (n.caps || []).join(', ') || '—' } ] })}>
+        { k: 'status', v: statusBullet(n.up, t('online'), t('offline')) }, { k: 'tag', v: n.tag }, { k: 'caps', v: (n.caps || []).join(', ') || '—' } ] })}>
       <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></span>
       <div><div class="nm">${n.name} <span class=${'tag ' + (n.tag === 'lead' ? 'a' : 'g')}>${t(n.tag)}</span></div><div class="role">${n.role}</div></div>
       <div class="rt"><${Dot} s=${n.up ? 'on' : 'off'}/> :${n.port}<br/><span class="muted">${n.zone || ''}</span></div>
@@ -584,7 +618,7 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
     <div class="lbl" style=${{ marginBottom: '10px' }}>${t('Managed device')}${devices.length > 1 ? ' · ' + devices.length : ''}</div>
     <div class="device clickcard" onClick=${() => openDrawer({ title: t('Device detail'), sub: dev.model || 'EBG19P', rows: [
         { k: 'asset', v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: 'model', v: dev.model || 'EBG19P' }, { k: 'firmware', v: dev.firmware || '—', mono: true },
-        { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: dev.online === true ? 'yes' : 'no' } ] })}><div class="metrics">
+        { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: statusBullet(dev.online === true, t('online'), t('offline')) } ] })}><div class="metrics">
       ${[['CPU', dev.cpu, '%'], ['MEM', dev.mem, '%'], ['TEMP', dev.temp, '°C']].map(([k, v, u]) =>
     html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div></div>`)}
     </div></div>
@@ -711,6 +745,47 @@ function posture(d) {
   score = Math.max(0, Math.round(score));
   return { score, grade: score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 65 ? 'C' : score >= 50 ? 'D' : 'F', factors };
 }
+// Cipher families exactly match worker-a's CIPHER_FAMS (OpenSSL cipher-string tokens) — the old
+// panel sent lowercase names the worker rejected with "未知套件", so every toggle silently failed.
+const CIPHER_FAMS = [
+  { k: 'RC4', why: 'Biased keystream → plaintext recovery', detail: 'Stream cipher with keystream biases; RFC 7465 prohibits it in TLS. Enables cookie / plaintext recovery — considered broken in practice since 2013.' },
+  { k: '3DES', why: '64-bit block → Sweet32 birthday attack', detail: 'CVE-2016-2183 (Sweet32): a birthday attack recovers plaintext from long-lived connections. NIST disallowed 3DES for TLS after 2023.' },
+  { k: 'DES', why: '56-bit key → brute-forceable', detail: 'Single DES has a 56-bit key, exhaustible with modest hardware in hours. Never acceptable for transport security.' },
+  { k: 'NULL', why: 'No encryption → cleartext on the wire', detail: 'eNULL suites authenticate the peer but do not encrypt; the payload travels in the clear.' },
+  { k: 'EXPORT', why: '40/512-bit → FREAK / Logjam downgrade', detail: '1990s export-grade crypto. FREAK (CVE-2015-0204) and Logjam force a downgrade to key sizes that are broken offline.' },
+  { k: '-MD5', why: 'MD5 MAC → collision-broken hash', detail: 'Record MAC built on MD5. MD5 is collision-broken and unfit for message integrity.' },
+  { k: '@SHA1MAC', why: 'SHA-1 MAC → deprecated hash', detail: 'HMAC-SHA1 record MAC. SHA-1 is deprecated (SHATTERED collision, 2017) and being removed from TLS.' },
+  { k: 'anon', why: 'No server authentication → trivial MITM', detail: 'Anonymous (A)DH / (A)ECDH suites skip peer authentication, so an active attacker MITMs the handshake undetected.' },
+  { k: 'IDEA', why: 'Legacy 64-bit block cipher', detail: 'Not broken, but a legacy 64-bit-block cipher. Flagged under strict cipher-suite hygiene.' },
+  { k: 'SEED', why: 'Regional legacy cipher', detail: 'Korean legacy block cipher; non-standard for modern TLS. Flagged only under a strict minimal-suite policy.' },
+  { k: 'CAMELLIA', why: 'Sound but non-preferred vs AES', detail: 'Cryptographically sound but not preferred over AES; flagged only when you want a strictly minimal cipher suite.' },
+];
+const CipherPolicyPanel = memo(function CipherPolicyPanel({ d }) {
+  const [open, setOpen] = useState('');
+  const cur = new Set((d.settings && d.settings.cert_cipher_custom) || []);
+  const pol = (d.settings && d.settings.cert_cipher_policy) || 'standard';
+  const active = pol === 'custom';
+  const flaggedN = CIPHER_FAMS.filter(f => cur.has(f.k)).length;
+  return html`<${Panel} title="Cipher policy override" label="per-family weak-crypto flags"
+    right=${html`<span class=${'pill2 ' + (active ? 'c' : 'g')}>${active ? flaggedN + ' ' + t('flagged') : t('policy: ') + pol}</span>`}>
+    <div class=${'certpol-banner ' + (active ? 'on' : 'off')}>
+      <span class="certpol-ico">${active ? '⚑' : 'ⓘ'}</span>
+      <div><b>${active ? t('Custom policy is live') : t('Active policy') + ': ' + pol}</b>
+        <div class="muted" style=${{ fontSize: '11.5px', marginTop: '2px' }}>${active
+          ? t('worker-a flags the families switched on below on its next cert scan.')
+          : t('These per-family flags only bite when the cipher policy is set to custom — change it in Settings → Certificate & crypto.')}</div></div>
+    </div>
+    <div class="cipherlist">${CIPHER_FAMS.map((f) => { const on = cur.has(f.k); const isOpen = open === f.k; return html`<div key=${f.k} class=${'cipherrow' + (isOpen ? ' open' : '')}>
+      <button class=${'tglsw' + (on ? ' on' : '')} role="switch" aria-checked=${on} title=${on ? t('flagged as weak — click to allow') : t('allowed — click to flag as weak')}
+        onClick=${() => run(NF.certPolicy({ fam: f.k, on: on ? 0 : 1 }), (on ? 'clear ' : 'flag ') + f.k)}><span></span></button>
+      <div class="ciphermain" onClick=${() => setOpen(isOpen ? '' : f.k)}>
+        <div class="cipherhd"><code>${f.k}</code><span class="muted">${t(f.why)}</span><span class="cipherexp">${isOpen ? '−' : 'ⓘ'}</span></div>
+        ${isOpen ? html`<div class="cipherdetail">${t(f.detail)}</div>` : null}
+      </div>
+      <span class=${'pill2 ' + (on ? 'c' : 'g')}>${on ? t('weak') : t('allowed')}</span>
+    </div>`; })}</div>
+  </${Panel}>`;
+});
 const SecurityView = memo(function SecurityView({ d }) {
   const P = posture(d);
   const gc = P.score >= 80 ? 'var(--ok)' : P.score >= 65 ? 'var(--warn)' : 'var(--crit)';
@@ -764,11 +839,7 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'detail', label: 'Detail', render: r => html`<span class="muted">${r.detail || ''}</span>` },
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
           ]}/></${Panel}>`; })()}
-      ${(d.me && d.me.role === 'admin') ? html`<${Panel} title="Cipher policy override" label="families flagged as weak (active when cert_cipher_policy=custom)">
-        <div class="addrow" style=${{ flexWrap: 'wrap' }}>${['rc4', '3des', 'cbc', 'null', 'export', 'md5', 'sha1', 'des'].map(fam => html`<span key=${fam} class="seg2" style=${{ display: 'inline-flex' }}>
-          <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 1 }), 'flag ' + fam)}>flag ${fam}</button>
-          <button class="segbtn" onClick=${() => run(NF.certPolicy({ fam, on: 0 }), 'clear ' + fam)}>clear</button></span>`)}</div>
-        <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>${t('Set cipher policy to')} <b>custom</b> ${t('in Settings; per-family flag/clear applies live to worker-a.')}</div></${Panel}>` : null}
+      ${(d.me && d.me.role === 'admin') ? html`<${CipherPolicyPanel} d=${d}/>` : null}
       ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'asuswrt-merlin')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty="No SAST hits."
           cols=${[
@@ -1225,13 +1296,13 @@ function App() {
           <${ActionBtn} act="refresh" label="↻ Refresh" busyLabel="…" ghost=${true}/>
           <div class="fleetpill live">
             ${d.nodes.map(nd => html`<span key=${nd.name} class="seg nodeseg" title=${t('Node detail')} onClick=${() => openDrawer({ title: t('Node detail'), sub: nd.name, rows: [
-              { k: t('name'), v: nd.name, mono: true }, { k: t('status'), v: nd.up ? '● ' + t('online') : '○ ' + t('offline') },
+              { k: t('name'), v: nd.name, mono: true }, { k: t('status'), v: statusBullet(nd.up, t('online'), t('offline')) },
               { k: t('role'), v: nd.role || '—' }, { k: t('zone'), v: nd.zone || '—' }, { k: t('port'), v: ':' + nd.port, mono: true },
               { k: t('tag'), v: nd.tag || '—' }, { k: t('caps'), v: (nd.caps || []).join(', ') || '—' } ] })}><${Dot} s=${nd.up ? 'on' : 'off'}/>${nd.name}</span>`)}
             <span class="seg nodeseg" title=${t('Inference detail')} onClick=${() => openDrawer({ title: t('Inference detail'), sub: 'NIM', rows: [
               { k: t('model'), v: d.inference.model || '—', mono: true },
               { k: t('provider'), v: d.inference.provider || 'nim', mono: true },
-              { k: t('status'), v: d.inference.reachable !== false ? '● ' + t('reachable') : '○ ' + t('unreachable') },
+              { k: t('status'), v: statusBullet(d.inference.reachable !== false, t('reachable'), t('unreachable')) },
               { k: t('endpoint'), v: d.inference.endpoint || d.inference.base_url || 'inference.local/v1', mono: true } ] })}>NIM · ${d.inference.model} <${Dot} s=${d.inference.reachable !== false ? 'on' : 'off'}/></span>
             <span class="seg clock">${clock}</span>
           </div>

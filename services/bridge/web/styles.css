@@ -384,3 +384,25 @@ html[data-density="spacious"] .kpis{gap:20px}
 .archlayer-h{display:flex;align-items:center;gap:8px;font-size:14px}
 .archrules{margin:0;padding-left:18px;color:var(--ink2);font-size:12.5px}
 .archrules li{margin:6px 0}
+
+/* ── cipher policy override: context banner + per-family toggle rows + detail ── */
+.certpol-banner{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border-radius:10px;margin-bottom:12px;border:1px solid}
+.certpol-banner.on{background:var(--crit-bg);border-color:color-mix(in srgb,var(--crit) 34%,transparent)}
+.certpol-banner.off{background:var(--panel2);border-color:var(--line2)}
+.certpol-ico{font-size:16px;line-height:1.3;flex:none}
+.certpol-banner.on .certpol-ico{color:var(--crit)}.certpol-banner.off .certpol-ico{color:var(--accent)}
+.cipherlist{display:flex;flex-direction:column;gap:2px}
+.cipherrow{display:flex;align-items:flex-start;gap:11px;padding:9px 8px;border-radius:8px;transition:background .1s}
+.cipherrow:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.cipherrow.open{background:var(--panel2)}
+.ciphermain{flex:1;min-width:0;cursor:pointer}
+.cipherhd{display:flex;align-items:center;gap:9px;font-size:12.5px}
+.cipherhd code{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink);background:var(--chip);border:1px solid var(--line);padding:1px 7px;border-radius:5px;flex:none}
+.cipherexp{margin-left:auto;color:var(--ink3);font-size:12px}
+.cipherdetail{font-size:11.5px;color:var(--ink2);line-height:1.55;margin-top:7px;padding-left:2px;border-left:2px solid var(--line2);padding-left:9px}
+/* toggle switch */
+.tglsw{flex:none;width:34px;height:20px;border-radius:11px;border:1px solid var(--line2);background:var(--inset);position:relative;cursor:pointer;transition:.14s;margin-top:1px}
+.tglsw>span{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--ink3);transition:.14s}
+.tglsw.on{background:color-mix(in srgb,var(--crit) 32%,transparent);border-color:var(--crit)}
+.tglsw.on>span{left:16px;background:var(--crit)}
+.tglsw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
