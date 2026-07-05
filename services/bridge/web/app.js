@@ -366,6 +366,11 @@ const I18N = {
   'Korean legacy block cipher; non-standard for modern TLS. Flagged only under a strict minimal-suite policy.': { en: 'Korean legacy block cipher; non-standard for modern TLS. Flagged only under a strict minimal-suite policy.', zh: '韓國舊式區塊加密;非現代 TLS 標準。僅在嚴格最小套件政策下標記。' },
   'Sound but non-preferred vs AES': { en: 'Sound but non-preferred vs AES', zh: '安全但不如 AES 優先' },
   'Cryptographically sound but not preferred over AES; flagged only when you want a strictly minimal cipher suite.': { en: 'Cryptographically sound but not preferred over AES; flagged only when you want a strictly minimal cipher suite.', zh: '密碼學上安全但不比 AES 優先;僅在你要嚴格最小套件時標記。' },
+  'asset': { en: 'asset', zh: '資產' },
+  'firmware': { en: 'firmware', zh: '韌體' },
+  'CPU': { en: 'CPU', zh: 'CPU' },
+  'MEM': { en: 'MEM', zh: 'MEM' },
+  'TEMP': { en: 'TEMP', zh: 'TEMP' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -608,8 +613,8 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
   const dev = devices[0] || {};
   return html`<${Panel} title="Agent fleet" label=${t('Hermes harness') + ' ×' + nodes.length}>
     <div class="nodes">${nodes.map(n => html`<div key=${n.name} class="node clickcard" onClick=${() => openDrawer({ title: t('Node detail'), sub: n.name, rows: [
-        { k: 'name', v: n.name, mono: true }, { k: 'role', v: n.role }, { k: 'zone', v: n.zone || '—' }, { k: 'port', v: ':' + n.port, mono: true },
-        { k: 'status', v: statusBullet(n.up, t('online'), t('offline')) }, { k: 'tag', v: n.tag }, { k: 'caps', v: (n.caps || []).join(', ') || '—' } ] })}>
+        { k: t('name'), v: n.name, mono: true }, { k: t('role'), v: n.role }, { k: t('zone'), v: n.zone || '—' }, { k: t('port'), v: ':' + n.port, mono: true },
+        { k: t('status'), v: statusBullet(n.up, t('online'), t('offline')) }, { k: t('tag'), v: n.tag }, { k: t('caps'), v: (n.caps || []).join(', ') || '—' } ] })}>
       <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></span>
       <div><div class="nm">${n.name} <span class=${'tag ' + (n.tag === 'lead' ? 'a' : 'g')}>${t(n.tag)}</span></div><div class="role">${n.role}</div></div>
       <div class="rt"><${Dot} s=${n.up ? 'on' : 'off'}/> :${n.port}<br/><span class="muted">${n.zone || ''}</span></div>
@@ -617,8 +622,8 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
     <hr class="sep" style=${{ margin: '14px 0 12px' }}/>
     <div class="lbl" style=${{ marginBottom: '10px' }}>${t('Managed device')}${devices.length > 1 ? ' · ' + devices.length : ''}</div>
     <div class="device clickcard" onClick=${() => openDrawer({ title: t('Device detail'), sub: dev.model || 'EBG19P', rows: [
-        { k: 'asset', v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: 'model', v: dev.model || 'EBG19P' }, { k: 'firmware', v: dev.firmware || '—', mono: true },
-        { k: 'CPU', v: (dev.cpu ?? '—') + ' %' }, { k: 'MEM', v: (dev.mem ?? '—') + ' %' }, { k: 'TEMP', v: (dev.temp ?? '—') + ' °C' }, { k: 'online', v: statusBullet(dev.online === true, t('online'), t('offline')) } ] })}><div class="metrics">
+        { k: t('asset'), v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: t('model'), v: dev.model || 'EBG19P' }, { k: t('firmware'), v: dev.firmware || '—', mono: true },
+        { k: t('CPU'), v: dev.cpu == null ? '—' : dev.cpu + ' %' }, { k: t('MEM'), v: dev.mem == null ? '—' : dev.mem + ' %' }, { k: t('TEMP'), v: dev.temp == null ? '—' : dev.temp + ' °C' }, { k: t('online'), v: statusBullet(dev.online === true, t('online'), t('offline')) } ] })}><div class="metrics">
       ${[['CPU', dev.cpu, '%'], ['MEM', dev.mem, '%'], ['TEMP', dev.temp, '°C']].map(([k, v, u]) =>
     html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div></div>`)}
     </div></div>
