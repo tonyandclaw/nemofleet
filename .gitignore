@@ -45,3 +45,6 @@ docs/assets/*
 *.swp
 .claude/
 tests/ui/node_modules/
+
+# nuclei binary + templates cache (fetched by worker-b-install-nuclei.sh)
+.cache/

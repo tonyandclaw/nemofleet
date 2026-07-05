@@ -121,6 +121,10 @@ ensure_xagent() {
   local ALLOW_DEV="$(dirname "$BRIDGE")/scripts/worker-b-allow-device.sh"
   [ -n "$CT_O2" ] && [ -x "$ALLOW_DEV" ] && \
     { bash "$ALLOW_DEV" >>"$LOG" 2>&1 && ok "worker-b nuclei egress 已套用(裝置 + nuclei binary)" || bad "nuclei egress 套用失敗(看 $LOG)"; }
+  # worker-b nuclei 安裝:把 arm64 binary + templates docker cp 進沙箱 + 允許執行(host 抓、沙箱只執行)。重建後重套。
+  local INST_NUCLEI="$(dirname "$BRIDGE")/scripts/worker-b-install-nuclei.sh"
+  [ -n "$CT_O2" ] && [ -x "$INST_NUCLEI" ] && \
+    { bash "$INST_NUCLEI" >>"$LOG" 2>&1 && ok "worker-b nuclei 已安裝(binary + templates)" || bad "nuclei 安裝失敗(看 $LOG)"; }
   # policy:渲染兩節點 IP + /32 收斂(節點 A + 節點 B);兩個 /32 都在才算當前版(同名 preset 升級替換)
   if [ -f "$CONFIG_DIR/presets/worker-bridge-preset.yaml" ]; then
     local P; P=$(openshell policy get team-lead --full 2>/dev/null)

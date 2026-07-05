@@ -12,6 +12,9 @@ import subprocess
 NUCLEI_INTERVAL = int(os.environ.get("BRIDGE_NUCLEI_INTERVAL", "86400"))
 NUCLEI_TARGET = os.environ.get("EBG19P_TARGET", "").strip()
 NUCLEI_TAGS = os.environ.get("BRIDGE_NUCLEI_TAGS", "asus").strip()
+# Templates are pre-seeded into the sandbox at a fixed path (worker-b-install-nuclei.sh docker cp's
+# them there) so a scan never has to phone home to update templates — the sandbox is deny-by-default.
+NUCLEI_TEMPLATES = os.environ.get("NUCLEI_TEMPLATES_DIR", "/usr/local/share/nuclei-templates").strip()
 LAST_NUCLEI = {}
 _deps = {"zone_has": lambda c: False, "load_settings": lambda: {},
          "open_jira": lambda *a, **k: None, "zone": "?"}
@@ -67,9 +70,15 @@ def run_nuclei_scan(trigger="api"):
     settings = _deps["load_settings"]()
     tags = (settings.get("nuclei_tags") or NUCLEI_TAGS or "asus").strip()
     cmd = ["nuclei", "-u", url, "-tags", tags, "-severity", "low,medium,high,critical",
-           "-jsonl", "-silent", "-nc", "-timeout", "10", "-retries", "1", "-rate-limit", "50"]
+           "-jsonl", "-silent", "-nc", "-timeout", "10", "-retries", "1", "-rate-limit", "50",
+           "-duc"]  # disable the auto template-update check (no phone-home in the governed sandbox)
+    if os.path.isdir(NUCLEI_TEMPLATES):
+        cmd += ["-t", NUCLEI_TEMPLATES]        # pinned, pre-seeded template set
+    # nuclei writes its config/cache under $HOME; the sandbox service user's HOME may be unwritable,
+    # so point it at /tmp which always is.
+    env = dict(os.environ, HOME=os.environ.get("NUCLEI_HOME", "/tmp"))
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
     except subprocess.TimeoutExpired:
         LAST_NUCLEI = {"available": True, "target": url, "note": "nuclei 逾時(600s)", "count": 0, "findings": [], "ts": now}
         return LAST_NUCLEI
