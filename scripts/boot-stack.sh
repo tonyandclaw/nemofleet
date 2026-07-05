@@ -87,7 +87,7 @@ deploy_oc_endpoint() {
     local EBGT=""; [ "$zone" = "B" ] && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGT="$(cut -d'|' -f1 "$HOME/.config/nemoclaw/ebg19p.cred" 2>/dev/null | tr -d ' \n\r')"
     # worker-c(zone C)當 SkillOS curator → 給它整個技能庫來治理
     local SKR=""; [ "$zone" = "C" ] && { docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-skills' >>"$LOG" 2>&1; docker cp "$NEMOFLEET_ROOT/skills" "$ct:/usr/local/share/nemofleet-skills" >>"$LOG" 2>&1; SKR=/usr/local/share/nemofleet-skills; }
-    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
+    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
     sleep 2
     docker exec "$ct" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
       && ok "worker 端點 :9099 已部署(zone $zone @ ${ct##*openshell-})" || bad "端點未起($ct;cat /tmp/worker-itops.log)"

@@ -467,3 +467,6 @@ html[data-density="spacious"] .kpis{gap:20px}
 .tglsw.ro{opacity:.75;cursor:not-allowed}
 .tglsw.ro.on{background:color-mix(in srgb,var(--warn) 30%,transparent);border-color:var(--warn)}
 .tglsw.ro.on>span{background:var(--warn)}
+
+/* ── SAST source-of-truth config ── */
+.sastsrc{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}

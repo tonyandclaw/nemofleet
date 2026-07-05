@@ -428,6 +428,13 @@ const I18N = {
   'Tier': { en: 'Tier', zh: '層級' },
   'This tier flags the families highlighted below. Switch to custom to edit them individually.': { en: 'This tier flags the families highlighted below. Switch to custom to edit them individually.', zh: '此層級會標記下方反白的套件。切到 custom 才能逐項編輯。' },
   'set by the tier — switch to custom to edit': { en: 'set by the tier — switch to custom to edit', zh: '由層級決定 — 切到 custom 才能編輯' },
+  'Source of truth': { en: 'Source of truth', zh: '原始碼來源' },
+  'not synced': { en: 'not synced', zh: '未同步' },
+  'Set SAST source to': { en: 'Set SAST source to', zh: '將 SAST 原始碼來源設為' },
+  'Sync & scan': { en: 'Sync & scan', zh: '同步並掃描' },
+  'source updated — re-syncing': { en: 'source updated — re-syncing', zh: '來源已更新 — 重新同步中' },
+  'worker-b syncs the pinned ref and scans it — a GitHub repo or a folder mounted into the sandbox. No demo fallback: if it can’t sync, it says so.': { en: 'worker-b syncs the pinned ref and scans it — a GitHub repo or a folder mounted into the sandbox. No demo fallback: if it can’t sync, it says so.', zh: 'worker-b 同步釘死的 ref 再掃描 —— GitHub repo 或掛載進沙箱的資料夾。無 demo 退回:同步不到就明說。' },
+  'No SAST hits — configure a source above, or the pinned ref is clean.': { en: 'No SAST hits — configure a source above, or the pinned ref is clean.', zh: '無 SAST 命中 — 於上方設定來源,或釘死的 ref 本身乾淨。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -862,6 +869,28 @@ const CipherPolicyPanel = memo(function CipherPolicyPanel({ d }) {
     </div>`; })}</div>
   </${Panel}>`;
 });
+// worker-b SAST source of truth — a GitHub URL / owner-repo, or a folder mounted into the sandbox.
+const SastSource = memo(function SastSource({ d }) {
+  const curSrc = (d.settings && d.settings.sast_src) || '';
+  const curRef = (d.settings && d.settings.sast_ref) || 'master';
+  const [src, setSrc] = useState(curSrc);
+  const [ref, setRef] = useState(curRef);
+  useEffect(() => { setSrc(curSrc); setRef(curRef); }, [curSrc, curRef]);
+  const prov = (d.source && d.source.sast_source) || 'not-synced';
+  const synced = prov && prov !== 'not-synced';
+  const save = () => run(Promise.all([NF.config('sast_src', src.trim()), NF.config('sast_ref', (ref.trim() || 'master'))])
+    .then(() => ({ ok: true, msg: t('source updated — re-syncing') })), 'sast-source');
+  return html`<div class="sastsrc">
+    <div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '8px' }}>${t('Source of truth')}
+      <span class=${'pill2 ' + (synced ? 'g' : 'w')}>${synced ? prov : t('not synced')}</span></div>
+    <div class="addrow" style=${{ flexWrap: 'wrap', marginTop: '8px' }}>
+      <input class="inp" style=${{ flex: '1 1 320px' }} placeholder="https://github.com/OWNER/REPO.git  ·  or /mounted/folder" value=${src} onInput=${e => setSrc(e.target.value)}/>
+      <input class="inp" style=${{ maxWidth: '150px' }} placeholder="ref (branch / tag / sha)" value=${ref} onInput=${e => setRef(e.target.value)}/>
+      <${ConfirmBtn} confirm=${t('Set SAST source to') + ' ' + (src || '—') + ' @ ' + (ref || 'master') + '?'} run=${save} label=${t('Sync & scan')} busyLabel="…"/>
+    </div>
+    <div class="muted" style=${{ fontSize: '10.5px', marginTop: '7px' }}>${t('worker-b syncs the pinned ref and scans it — a GitHub repo or a folder mounted into the sandbox. No demo fallback: if it can’t sync, it says so.')}</div>
+  </div>`;
+});
 const SecurityView = memo(function SecurityView({ d }) {
   const P = posture(d);
   const gc = P.score >= 80 ? 'var(--ok)' : P.score >= 65 ? 'var(--warn)' : 'var(--crit)';
@@ -916,8 +945,9 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
           ]}/></${Panel}>`; })()}
       ${(d.me && d.me.role === 'admin') ? html`<${CipherPolicyPanel} d=${d}/>` : null}
-      ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'asuswrt-merlin')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
-        <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty="No SAST hits." onRow=${sastDrawer}
+      ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'not synced')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
+        <${SastSource} d=${d}/>
+        <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty=${t('No SAST hits — configure a source above, or the pinned ref is clean.')} onRow=${sastDrawer}
           cols=${[
             { k: 'cwe', label: 'CWE', render: r => html`<span class="mono cvelink">${r.cwe || '—'}</span>` },
             { k: 'file', label: 'File', render: r => html`<span class="mono" style=${{ wordBreak: 'break-all' }}>${r.upstream_path || r.file || ''}</span>` },

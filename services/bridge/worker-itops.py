@@ -192,6 +192,8 @@ SETTINGS_DEFAULTS = {
   "cert_rsa_min": 2048,          # RSA 金鑰最低位元
   "cert_sig_min": "sha256",      # 可接受最低簽章演算法(低於 → 弱):sha1|sha256|sha384
   "cert_ec_min": 256,            # ECDSA 曲線最低強度(256/384/521;低於 → 弱)
+  "sast_src": os.environ.get("SRC_REPO", ""),   # worker-b SAST 原始碼來源:GitHub URL / owner-repo / 掛載資料夾(空=未設定→不掃、無 demo)
+  "sast_ref": os.environ.get("SRC_REF", "master"),  # 釘死的 ref(branch / tag / commit sha)
   "cert_cipher_policy": "standard",  # 弱加密套件政策:lax|standard|strict|custom
   "cert_cipher_custom": ["RC4", "3DES", "DES", "NULL", "EXPORT", "-MD5"],  # policy=custom 時要標的套件家族
   "cert_overrides": {},          # 每設備覆寫:{asset:{cert_rsa_min,cert_sig_min,cert_cipher_policy,cert_expire_warn_days}}
@@ -965,26 +967,9 @@ def monitor_scan():
 # 對「現在拿得到原始碼」的這台 ASUS 設備,植入一小段韌體 source(含已知弱點樣式)讓 worker 讀。
 SRC_DIR = f"{WD}/source"
 SRC_ASSET = "lab-asus-ebg19p-01"
+# 組織安全基準(設計合規掃描讀它,對照現況設定 + 真實原始碼做符合性檢查)。這是真實的組織自訂安全需求,
+# 不是掃描標的的 demo 原始碼(那些造假的 diag.c/auth.c/packages.manifest 已移除 —— SAST 只掃真實同步進來的碼)。
 SRC_FILES = {
-  "packages.manifest": ("# 由韌體 build 清單產出(SBOM 來源)\n"
-                        "dropbear 2022.83-3\nopenssl 3.0.12-1\nbusybox 1.36.1\nuhttpd 2023-06-25-34a8a74d-2\n"),
-  "diag.c": ("/* diag.c — LuCI 網路診斷:ping 工具(節錄) */\n"
-             "#include <stdlib.h>\n#include <stdio.h>\n\n"
-             "/* host 來自 Web UI 表單 */\n"
-             "int do_ping(const char *host) {\n"
-             "    char cmd[256];\n"
-             "    sprintf(cmd, \"ping -c 3 %s\", host);  /* host 未驗證 */\n"
-             "    return system(cmd);                   /* CWE-78: 命令注入,host 直接進 shell */\n"
-             "}\n"),
-  "auth.c": ("/* auth.c — 管理介面登入(節錄) */\n"
-             "#include <string.h>\n\n"
-             "static const char *ADMIN_PASSWORD = \"Aa123456\";  /* CWE-798: 硬編憑證 */\n\n"
-             "int check_login(const char *pw) {\n"
-             "    return strcmp(pw, ADMIN_PASSWORD) == 0;\n"
-             "}\n"),
-  # 設計文件(節錄):機器可驗的安全設計需求。worker 讀它對照「現況設定 + 原始碼」做符合性掃描。
-  # 註:設計/政策文件本質為「組織自訂安全基準」(廠商韌體 repo 不含此類文件,故非從 repo 抓);
-  #     但其 [code CWE] 條款對照『真實 SAST 命中』、CVE 態勢對照『真實上游 Changelog-NG.txt』,證據皆為真。
   "SECURITY-DESIGN.md": (
       "# 組織安全基準(節錄)— 適用 asuswrt-merlin 上游韌體線;已核准 v1.3(2026-03 security review 通過)\n"
       "# 來源:組織安全團隊自訂;CVE 態勢交叉比對上游真實 Changelog-NG.txt(backport 已修則不重複開單)。\n"
@@ -1053,9 +1038,39 @@ SRC_FIXES = {
 # ── worker-b 自主上游分析:從韌體 repo 抽 SBOM + 真實含 sink 的原始碼(治理 egress;結果快取於 WD)──
 #   設計:不靠 host 注入,zone B 容器自己經 egress 連 upstream repo(api/raw github)。結果寫快取檔,
 #   12h 新鮮度守門避免每次掃描都打 github。抓取失敗 → 沿用既有快取(graceful)。
-SRC_REPO = os.environ.get("SRC_REPO", "gnuton/asuswrt-merlin.ng")
+SRC_REPO = os.environ.get("SRC_REPO", "")   # set at scan time from the sast_src setting (owner/repo)
 SRC_REF = os.environ.get("SRC_REF", "master")
 UPSTREAM_TTL = int(os.environ.get("SRC_FETCH_TTL", str(12 * 3600)))
+
+
+def _src_location():
+    """Where worker-b's SAST source lives — a GitHub URL / owner-repo, or an absolute folder path.
+    GUI-configurable (sast_src setting), env fallback, else empty (= not configured → no scan, no demo)."""
+    try:
+        v = (load_settings().get("sast_src") or "").strip()
+    except Exception:
+        v = ""
+    return v or os.environ.get("SRC_REPO", "").strip()
+
+
+def _src_ref():
+    try:
+        v = (load_settings().get("sast_ref") or "").strip()
+    except Exception:
+        v = ""
+    return v or os.environ.get("SRC_REF", "master").strip() or "master"
+
+
+def _parse_gh(loc):
+    """A github URL or 'owner/repo' → 'owner/repo'; anything else (e.g. a folder path) → None."""
+    if not loc:
+        return None
+    m = re.search(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$", loc)
+    if m:
+        return m.group(1)
+    if re.match(r"^[\w.-]+/[\w.-]+$", loc):   # already owner/repo
+        return loc
+    return None
 _SAST_SINK_DIRS = ["release/src/router/rc", "release/src/router/httpd", "release/src/router/shared",
                    "release/src/router/networkmap", "release/src/router/httpd/sysdeps", "release/src/router/rc/sysdeps"]
 def _gh_json(url):
@@ -1387,60 +1402,64 @@ def run_source_scan():
         return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
                 "note": "原始碼分析(SBOM/SAST/設計文件)為資安節點(zone B)職責;本節點為運維,不做。",
                 "sbom": [], "cve_with_source": [], "sast_findings": [], "jira_opened": []}
-    base = f"{SRC_DIR}/{SRC_ASSET}"
+    global SRC_REPO, SRC_REF
+    base = f"{SRC_DIR}/{SRC_ASSET}"; real_dir = f"{base}/real"
     os.makedirs(base, exist_ok=True)
-    # worker-b 自主:掃描前自己經 egress 從 upstream 韌體 repo 抽 SBOM + 真實含 sink 的原始碼(12h 快取)。
-    # 抓取失敗不致命 → 沿用既有快取/退回 demo(graceful)。
-    upstream = {"sbom": None, "sast": None}
-    try:
-        upstream["sbom"] = fetch_upstream_sbom()
-    except Exception as e:
-        print(f"[SOURCE SCAN] upstream SBOM fetch 失敗,沿用快取/demo: {e}", flush=True)
-    try:
-        upstream["sast"] = fetch_upstream_sast()
-    except Exception as e:
-        print(f"[SOURCE SCAN] upstream SAST fetch 失敗,沿用快取/demo: {e}", flush=True)
-    # 真實原始碼:worker-b 抓到的含 sink C 檔放在 base/real/(附 manifest)。
-    # 有真檔時 → 移除 demo C 檔、只掃真檔(設計文件/manifest 仍寫)。
-    real_dir = f"{base}/real"
-    sast_source = "demo:contrived"
-    try:
-        _rm = f"{WD}/source-sast-manifest.json"
-        _has_real = os.path.isdir(real_dir) and any(
-            fn.endswith((".c", ".h")) for _d, _s, _fs in os.walk(real_dir) for fn in _fs)
-        if _has_real:
-            _mj = json.load(open(_rm, encoding="utf-8")) if os.path.exists(_rm) else {}
-            sast_source = "asuswrt-merlin.ng@" + str(_mj.get("ref", "?"))
-    except Exception:
-        _has_real = False
-    for name, content in SRC_FILES.items():
-        if _has_real and name.endswith((".c", ".h")):
-            # 真檔模式:清掉舊的 demo C 檔,改用真實 repo 檔
-            try: os.remove(f"{base}/{name}")
-            except OSError: pass
-            continue
-        with open(f"{base}/{name}", "w", encoding="utf-8") as f:
-            f.write(content)
+    # org security baseline (real; input to the design-compliance check) — not a scan target, not demo.
+    for _n, _c in SRC_FILES.items():
+        try:
+            with open(f"{base}/{_n}", "w", encoding="utf-8") as _f:
+                _f.write(_c)
+        except Exception:
+            pass
+    loc = _src_location(); ref = _src_ref()
+    gh = _parse_gh(loc)
+    folder = loc if (loc and os.path.isdir(loc)) else None
+    _empty = lambda note: {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+                           "note": note, "sast_source": "not-synced", "sbom_source": "not-synced", "src": loc,
+                           "sbom": [], "sbom_packages": 0, "cve_with_source": [], "sast_findings": [], "jira_opened": []}
+    # 來源未設定 / 不可用 → 誠實回空,絕不塞 demo。
+    if not gh and not folder:
+        return _empty("SAST 原始碼來源未設定 — 到「設定 → 原始碼來源」填 GitHub URL 或已掛載到 worker-b 的資料夾路徑。"
+                      if not loc else
+                      f"原始碼來源 '{loc}' 無法使用(非 GitHub URL / owner/repo,或資料夾未掛載進 worker-b 沙箱)。")
+    # ── 確定性 sync:把真實原始碼放進 real_dir(github: 抓;folder: 複製)──────────────
+    commit = ref
+    if gh:
+        SRC_REPO, SRC_REF = gh, ref     # the fetchers read these globals
+        try: fetch_upstream_sbom()
+        except Exception as e: print(f"[SOURCE SCAN] SBOM fetch 失敗: {e}", flush=True)
+        try:
+            _m = fetch_upstream_sast(); commit = (_m or {}).get("commit") or ref
+        except Exception as e: print(f"[SOURCE SCAN] SAST fetch 失敗: {e}", flush=True)
+    elif folder:
+        sh(f"rm -rf {real_dir}"); os.makedirs(real_dir, exist_ok=True)
+        n = 0
+        for dp, _s, fs in os.walk(folder):
+            for fn in fs:
+                if fn.endswith((".c", ".h", ".py", ".sh", ".lua")) and n < 400:
+                    try: shutil.copy(os.path.join(dp, fn), os.path.join(real_dir, f"{n:03d}_{fn}")); n += 1
+                    except Exception: pass
+        commit = "folder"
     sh(f"chown -R 998:998 {SRC_DIR}")
-    # SBOM:優先用真實韌體原始碼 SBOM(host 從 asuswrt-merlin.ng 抽元件版本),否則退回 demo manifest
-    pkgs = {}; sbom_source = "demo:packages.manifest"
+    _has_real = os.path.isdir(real_dir) and any(
+        fn.endswith((".c", ".h", ".py", ".sh", ".lua")) for _d, _s, _fs in os.walk(real_dir) for fn in _fs)
+    if not _has_real:   # sync 後沒東西可掃 → 說出來,不捏造
+        return _empty(f"原始碼來源 '{loc}' 同步後無可掃檔案(fetch 失敗或 repo/資料夾無程式碼);未塞任何 demo。")
+    sast_source = (gh + "@" + str(commit)[:10]) if gh else ("folder:" + folder)
+    # ── SBOM:只用真實抽取結果,無 demo manifest 退回 ─────────────────────────────────
+    pkgs = {}; sbom_source = "not-synced"
     _rsb = f"{WD}/source-sbom.json"
     try:
-        if os.path.exists(_rsb) and (time.time() - os.path.getmtime(_rsb)) < 30 * 86400:
+        if gh and os.path.exists(_rsb) and (time.time() - os.path.getmtime(_rsb)) < 30 * 86400:
             _rj = json.load(open(_rsb, encoding="utf-8"))
             for p in _rj.get("packages", []):
                 if p.get("name") and p.get("version"):
                     pkgs[p["name"]] = p["version"]
             if pkgs:
-                sbom_source = "asuswrt-merlin.ng@" + str(_rj.get("ref", "?"))
+                sbom_source = gh + "@" + str(_rj.get("ref", ref))
     except Exception:
         pkgs = {}
-    if not pkgs:
-        mp = f"{base}/packages.manifest"
-        for line in (open(mp, encoding="utf-8") if os.path.exists(mp) else []):
-            line = line.strip()
-            if line and not line.startswith("#") and len(line.split()) >= 2:
-                pkgs[line.split()[0]] = line.split()[1]
     sbom = [{"name": n, "version": v} for n, v in pkgs.items()]
     # CVE 現在對這台是「定論」(之前無 SBOM → unknown_inventory_gap)
     cve_now = []
@@ -1482,7 +1501,7 @@ def run_source_scan():
     cve_reconciled = _reconcile_advisories(cve_now, adv)
     # 原始碼 SAST(pattern-based,危險樣式供人審)
     sast = []
-    for dp, _, files in os.walk(SRC_DIR):
+    for dp, _, files in os.walk(real_dir):   # 只掃真實同步進來的原始碼(real_dir),永不掃 demo
         for fn in files:
             if not fn.endswith((".c", ".h", ".py", ".sh", ".lua")):   # 只掃程式碼;manifest/設計文件不是 SAST 對象
                 continue
@@ -1598,10 +1617,12 @@ def run_source_scan():
                              kind="sast", asset=SRC_ASSET)
         if t:
             tickets.append(t)
-    _up = upstream.get("sbom") or {}
+    _syncts = None
+    try: _syncts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(f"{WD}/source-sast-manifest.json")))
+    except Exception: pass
     report = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "asset": SRC_ASSET,
-              "analysis_by": "worker-b · 自主上游抓取(治理 egress)", "upstream_repo": f"{SRC_REPO}@{SRC_REF}",
-              "upstream_fetched_ts": _up.get("ts"),
+              "analysis_by": "worker-b · 自主上游抓取(治理 egress)", "upstream_repo": sast_source,
+              "upstream_fetched_ts": _syncts,
               "sbom_packages": len(sbom), "sbom_source": sbom_source, "sbom": sbom, "cve_with_source": cve_now,
               "cve_feed": live_src,
               "advisories_source": (f"Changelog-NG.txt@{SRC_REF}" if adv else None),
