@@ -376,6 +376,7 @@ const I18N = {
   'idle': { en: 'idle', zh: '閒置' },
   'started': { en: 'started', zh: '開始於' },
   'no activity yet': { en: 'no activity yet', zh: '尚無活動' },
+  'control plane · provisions the sandboxes · policy · routes inference': { en: 'control plane · provisions the sandboxes · policy · routes inference', zh: '控制面 · 佈建各沙箱 · 政策 · 路由推理' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -1201,10 +1202,13 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
       <div class="archmap">
         <div class="archrow"><div class="archbox human">${t('Human')} <span class="muted">· Telegram / Email · approval_token</span></div></div>
         <div class="archconn">↓ ${t('request')} · ↑ ${t('report / escalate')}</div>
-        <div class="archrow"><div class="archbox lead">${dot((nodes.find(n => n.tag === 'lead') || {}).up)} <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div>
-        <div class="archconn">↓ worker_bridge (/32 + token) · A2A · :9099</div>
-        <div class="archrow archworkers">${['ops', 'sec', 'gov'].map((tag) => { const n = nodes.find(x => x.tag === tag) || {}; const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C';
-          return html`<div key=${tag} class=${'archbox w-' + tag}>${dot(n.up)} <b>${nm}</b> <span class="tag ${'g'}">${t(tag)}</span><div class="muted" style=${{ fontSize: '11px', marginTop: '3px' }}>zone ${zn}</div></div>`; })}</div>
+        <div class="archplane">
+          <div class="archplane-hd"><span class="archplane-mark">◆</span> <b>Nemoclaw</b> <span class="muted">· ${t('control plane · provisions the sandboxes · policy · routes inference')}</span></div>
+          <div class="archrow"><div class="osh"><span class="oshtag">openshell</span><div class="archbox lead">${dot((nodes.find(n => n.tag === 'lead') || {}).up)} <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div></div>
+          <div class="archconn">↓ worker_bridge (/32 + token) · A2A · :9099</div>
+          <div class="archrow archworkers">${['ops', 'sec', 'gov'].map((tag) => { const n = nodes.find(x => x.tag === tag) || {}; const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C';
+            return html`<div key=${tag} class="osh"><span class="oshtag">openshell</span><div class=${'archbox w-' + tag}>${dot(n.up)} <b>${nm}</b> <span class="tag ${'g'}">${t(tag)}</span><div class="muted" style=${{ fontSize: '11px', marginTop: '3px' }}>zone ${zn}</div></div></div>`; })}</div>
+        </div>
         <div class="archconn">↓ ${t('scoped egress · L7 deny-by-default')}</div>
         <div class="archrow"><div class="archbox device">${dot((d.devices && d.devices[0] && d.devices[0].online) === true)} ASUS EBG19P <span class="muted">· ${t('real device')}</span></div>
           <div class="archbox ext">GitHub · NVD · OSV <span class="muted">· ${t('upstream intel')}</span></div>
