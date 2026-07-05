@@ -5,7 +5,7 @@
 # 這是唯一讓 Hermes 能驅動 worker 的入口(白名單意圖、scoped policy);非此即兩沙箱隔離。
 # 認證:環境變數 BRIDGE_TOKEN 有值時,POST /fix 與 GET /last 需帶 X-Bridge-Token(boot-stack 注入並同步渲染進 Hermes SKILL)。
 # 持久化:最近一次修復結果落盤 WD/last-fix.json,容器重啟後 GET /last 仍有東西。
-import json, os, re, subprocess, threading, time, difflib, hmac
+import json, os, re, subprocess, threading, time, difflib, hmac, shutil
 import urllib.request as _urlreq
 import socket as _socket
 from urllib.parse import quote as _q
