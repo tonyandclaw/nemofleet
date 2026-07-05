@@ -460,7 +460,7 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
         { k: 'status', v: n.up ? '● up' : '○ down' }, { k: 'tag', v: n.tag }, { k: 'caps', v: (n.caps || []).join(', ') || '—' } ] })}>
       <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></span>
       <div><div class="nm">${n.name} <span class=${'tag ' + (n.tag === 'lead' ? 'a' : 'g')}>${t(n.tag)}</span></div><div class="role">${n.role}</div></div>
-      <div class="rt"><${Dot} up=${n.up}/> :${n.port}<br/><span class="muted">${n.zone || ''}</span></div>
+      <div class="rt"><${Dot} s=${n.up ? 'on' : 'off'}/> :${n.port}<br/><span class="muted">${n.zone || ''}</span></div>
     </div>`)}</div>
     <hr class="sep" style=${{ margin: '14px 0 12px' }}/>
     <div class="lbl" style=${{ marginBottom: '10px' }}>${t('Managed device')}${devices.length > 1 ? ' · ' + devices.length : ''}</div>
@@ -471,7 +471,7 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
     html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div></div>`)}
     </div></div>
     <div style=${{ fontSize: '12px', color: 'var(--ink2)', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <${Dot} up=${dev.online === true}/> ASUS ExpertWiFi <b style=${{ color: 'var(--ink)' }}>${dev.model || 'EBG19P'}</b>
+      <${Dot} s=${dev.online === true ? 'on' : 'off'}/> ASUS ExpertWiFi <b style=${{ color: 'var(--ink)' }}>${dev.model || 'EBG19P'}</b>
       <span class="mono muted" style=${{ marginLeft: 'auto' }}>${dev.firmware || ''}</span></div>
   </${Panel}>`;
 });
@@ -553,7 +553,7 @@ const FleetView = memo(function FleetView({ d }) {
         <${DataTable} rows=${d.containers} pageSize=${10} empty="No container telemetry."
           cols=${[
             { k: 'name', label: 'Name', render: r => html`<span class="mono">${r.name || r.Names || '—'}</span>` },
-            { k: 'state', label: 'State', render: r => html`<${Dot} up=${(r.state || r.status || '').toLowerCase().includes('up')}/> ${r.state || r.status || ''}` },
+            { k: 'state', label: 'State', render: r => html`<${Dot} s=${(r.state || r.status || '').toLowerCase().includes('up') ? 'on' : 'off'}/> ${r.state || r.status || ''}` },
             { k: 'image', label: 'Image', cls: 'imgcell', render: r => html`<span class="mono muted" title=${r.image || ''}>${r.image || ''}</span>` },
           ]}/></${Panel}>`}
       ${html`<${Panel} title="Diagnostics" label="on-demand · nemoclaw/openshell">
@@ -1061,12 +1061,12 @@ function App() {
             ${d.nodes.map(nd => html`<span key=${nd.name} class="seg nodeseg" title=${t('Node detail')} onClick=${() => openDrawer({ title: t('Node detail'), sub: nd.name, rows: [
               { k: t('name'), v: nd.name, mono: true }, { k: t('status'), v: nd.up ? '● ' + t('online') : '○ ' + t('offline') },
               { k: t('role'), v: nd.role || '—' }, { k: t('zone'), v: nd.zone || '—' }, { k: t('port'), v: ':' + nd.port, mono: true },
-              { k: t('tag'), v: nd.tag || '—' }, { k: t('caps'), v: (nd.caps || []).join(', ') || '—' } ] })}><${Dot} up=${nd.up}/>${nd.name}</span>`)}
+              { k: t('tag'), v: nd.tag || '—' }, { k: t('caps'), v: (nd.caps || []).join(', ') || '—' } ] })}><${Dot} s=${nd.up ? 'on' : 'off'}/>${nd.name}</span>`)}
             <span class="seg nodeseg" title=${t('Inference detail')} onClick=${() => openDrawer({ title: t('Inference detail'), sub: 'NIM', rows: [
               { k: t('model'), v: d.inference.model || '—', mono: true },
               { k: t('provider'), v: d.inference.provider || 'nim', mono: true },
               { k: t('status'), v: d.inference.reachable !== false ? '● ' + t('reachable') : '○ ' + t('unreachable') },
-              { k: t('endpoint'), v: d.inference.endpoint || d.inference.base_url || 'inference.local/v1', mono: true } ] })}>NIM · ${d.inference.model} <${Dot} up=${d.inference.reachable !== false}/></span>
+              { k: t('endpoint'), v: d.inference.endpoint || d.inference.base_url || 'inference.local/v1', mono: true } ] })}>NIM · ${d.inference.model} <${Dot} s=${d.inference.reachable !== false ? 'on' : 'off'}/></span>
             <span class="seg clock">${clock}</span>
           </div>
         </div>
