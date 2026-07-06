@@ -22,10 +22,10 @@ export const MOCK = {
   governance: { allowed: 1240, denied: 3, benign: 418, coverage: 99.8, series_allowed: [1, 2, 3, 4, 5], events: [{ ts: '14:22', target: 'api.telegram.org:443', policy: 'telegram', verdict: 'allowed' }] },
   cve: { critical: 1, serious: 2, counts: { critical: 1, affected: 84 }, findings: [{ cve: 'CVE-2024-6119', component: 'openssl', asset: 'ebg19p', severity: 'critical' }] },
   cert: { high: 0, counts: {}, findings: [] },
-  source: { sbom: 142, sast: 6, sbom_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', sast_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', cve_reconciled: 7,
+  source: { sbom: 142, sast: 6, sbom_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', sbom_list: [{ name: 'openssl', version: '3.0.12' }, { name: 'dropbear', version: '2022.83' }], sast_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', cve_reconciled: 7,
     // real backend shape — remediation is an OBJECT (a raw-object render here once black-screened the app)
     sast_list: [{ cwe: 'CWE-798 hardcoded-credential', file: 'real/001_netcfg.c', upstream_path: 'release/src/router/rc/common.c', line: 6,
-      code: 'static const char *ADMIN_PASSWORD = "x";', patch: '--- a/x.c\n+++ b/x.c\n@@ -4,1 +4,1 @@\n-bad\n+good', patch_verified: true, violates_design: 'REQ-SEC-05',
+      code: 'static const char *ADMIN_PASSWORD = "x";', patch: '--- a/x.c\n+++ b/x.c\n@@ -4,1 +4,1 @@\n-bad\n+good', patch_verified: true, violates_design: 'REQ-SEC-05', url: 'https://github.com/RMerl/asuswrt-merlin.ng/blob/b8c473/release/src/router/rc/common.c#L6',
       remediation: { risk: 'hardcoded key is extractable from firmware', fix: 'load from secrets, not source', ref: 'https://cwe.mitre.org/data/definitions/798.html' } }] },
   events: [],
   jira: { tickets: [{ id: 'NETOPS-1', summary: 'x', kind: 'cve', asset: 'ebg19p', priority: 'High' }] },

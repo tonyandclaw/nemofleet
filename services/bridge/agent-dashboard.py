@@ -361,6 +361,7 @@ def _collect_impl():
             src = read_json_in(c, "source-cve-report.json")
             if src:
                 node["source"] = {"sbom": src.get("sbom_packages"), "sbom_source": src.get("sbom_source"),
+                                  "sbom_list": (src.get("sbom") or [])[:200],   # 真實 SBOM 元件清單(供 GUI SBOM 面板)
                                   "sast_source": src.get("sast_source"), "analysis_by": src.get("analysis_by"),
                                   "upstream_repo": src.get("upstream_repo"),
                                   "advisories_source": src.get("advisories_source"), "cve_feed": src.get("cve_feed"),
@@ -376,7 +377,7 @@ def _collect_impl():
                                                  "patch_verified": s.get("patch_verified"), "violates_design": s.get("violates_design"),
                                                  "upstream_path": s.get("upstream_path"), "url": s.get("url"),
                                                  "remediation": s.get("remediation"), "patch_kind": s.get("patch_kind")}
-                                                for s in src.get("sast_findings", [])[:6]]}
+                                                for s in src.get("sast_findings", [])[:40]]}
         if "nuclei" in (h.get("caps") or []):
             try:
                 nz = json.loads(_worker_get("worker-b", "/nuclei", timeout=8) or "{}")

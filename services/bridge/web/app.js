@@ -13,6 +13,13 @@ function statusBullet(ok, onLabel, offLabel) { return html`<span style=${{ color
 // CVE id → clickable NIST NVD detail page (real advisory, opens in a new tab)
 function cveLink(id) { if (!id) return html`<span class="mono">—</span>`;
   return html`<a class="mono cvelink" href=${'https://nvd.nist.gov/vuln/detail/' + encodeURIComponent(id)} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${id}</a>`; }
+// CWE label ("CWE-78 command-injection") → link to the MITRE definition
+function cweLink(cwe) { const m = /CWE-(\d+)/.exec(cwe || ''); if (!m) return html`<span class="mono">${cwe || '—'}</span>`;
+  return html`<a class="mono cvelink" href=${'https://cwe.mitre.org/data/definitions/' + m[1] + '.html'} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${cwe}</a>`; }
+// SAST finding path → link to the exact file@commit#line on GitHub (r.url is the pinned permalink); shows the real repo path.
+function ghFile(path, url) { if (!path) return html`<span class="mono">—</span>`;
+  return url ? html`<a class="mono cvelink" style=${{ wordBreak: 'break-all' }} href=${url} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${path}</a>`
+    : html`<span class="mono" style=${{ wordBreak: 'break-all' }}>${path}</span>`; }
 function fmtVal(v) { if (v == null || v === '') return '—'; if (Array.isArray(v)) return v.length ? v.map(fmtVal).join(', ') : '—'; if (typeof v === 'object') return JSON.stringify(v); return String(v); }
 function rowDrawer(title, row) { openDrawer({ title, rows: Object.entries(row).filter(([k]) => k[0] !== '_').map(([k, v]) => ({ k, v: fmtVal(v), mono: true })) }); }
 // Render a unified diff / patch with git-style colouring: '-' lines red, '+' lines green, hunks dim.
@@ -27,9 +34,8 @@ function diffLines(patch) {
 // SAST finding detail — real worker-b pattern-SAST hit against the asuswrt-merlin source.
 function sastDrawer(r) {
   openDrawer({ title: t('SAST finding'), sub: r.cwe || 'CWE', node: html`<div class="sastdw">
-    <div class="kv"><span class="kvk">CWE</span><span class="kvv">${r.url
-      ? html`<a class="mono cvelink" href=${r.url} target="_blank" rel="noopener noreferrer">${r.cwe}</a>` : html`<span class="mono">${r.cwe || '—'}</span>`}</span></div>
-    <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv mono" style=${{ wordBreak: 'break-all' }}>${(r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : '')}</span></div>
+    <div class="kv"><span class="kvk">CWE</span><span class="kvv">${cweLink(r.cwe)}</span></div>
+    <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv">${ghFile((r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : ''), r.url)}</span></div>
     ${r.violates_design ? html`<div class="kv"><span class="kvk">${t('Design')}</span><span class="kvv"><span class="pill2 c">${t('violates approved baseline')}</span></span></div>` : null}
     ${r.code ? html`<div class="sastsec"><div class="lbl">${t('Matched code')}</div><pre class="codeblock mono">${r.code}</pre></div>` : null}
     ${r.patch ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Suggested patch')}${r.patch_verified
@@ -439,6 +445,12 @@ const I18N = {
   'No SAST hits — configure a source above, or the pinned ref is clean.': { en: 'No SAST hits — configure a source above, or the pinned ref is clean.', zh: '無 SAST 命中 — 於上方設定來源,或釘死的 ref 本身乾淨。' },
   'Risk': { en: 'Risk', zh: '風險' },
   'Fix': { en: 'Fix', zh: '修法' },
+  'packages': { en: 'packages', zh: '元件' },
+  'Version': { en: 'Version', zh: '版本' },
+  'No SBOM — configure a source in SAST below.': { en: 'No SBOM — configure a source in SAST below.', zh: '無 SBOM — 於下方 SAST 設定來源。' },
+  'violate baseline': { en: 'violate baseline', zh: '違反基準' },
+  'patch verified': { en: 'patch verified', zh: '修補已驗證' },
+  'click a row for code + patch + fix': { en: 'click a row for code + patch + fix', zh: '點一列看程式碼 + patch + 修法' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -949,13 +961,28 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
           ]}/></${Panel}>`; })()}
       ${(d.me && d.me.role === 'admin') ? html`<${CipherPolicyPanel} d=${d}/>` : null}
+      ${html`<${Panel} title="SBOM" label=${'components · ' + (d.source.sbom_source || 'not synced')}
+        right=${html`<span class="pill2 a">${(d.source.sbom || 0)} ${t('packages')}</span>`}>
+        <${DataTable} rows=${d.source.sbom_list || []} pageSize=${10} empty=${t('No SBOM — configure a source in SAST below.')}
+          cols=${[
+            { k: 'name', label: t('Component'), render: r => html`<span class="mono">${r.name || '—'}</span>` },
+            { k: 'version', label: t('Version'), align: 'right', render: r => html`<span class="mono ink2">${r.version || '—'}</span>` },
+          ]}/></${Panel}>`}
       ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'not synced')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${SastSource} d=${d}/>
-        <${DataTable} rows=${d.source.sast_list} pageSize=${8} empty=${t('No SAST hits — configure a source above, or the pinned ref is clean.')} onRow=${sastDrawer}
+        ${(() => { const sl = d.source.sast_list || []; const byCwe = {}; sl.forEach((f) => { const c = (f.cwe || '?').split(' ')[0]; byCwe[c] = (byCwe[c] || 0) + 1; });
+          const vd = sl.filter(f => f.violates_design).length; const pv = sl.filter(f => f.patch_verified).length;
+          return sl.length ? html`<div class="sastsum">
+            ${Object.entries(byCwe).sort((a, b) => b[1] - a[1]).map(([c, n]) => html`<span key=${c} class="pill2 c">${c} ×${n}</span>`)}
+            ${vd ? html`<span class="pill2 w">⚑ ${vd} ${t('violate baseline')}</span>` : null}
+            ${pv ? html`<span class="pill2 g">✓ ${pv} ${t('patch verified')}</span>` : null}
+            <span class="muted" style=${{ fontSize: '10.5px', marginLeft: 'auto' }}>${t('click a row for code + patch + fix')}</span>
+          </div>` : null; })()}
+        <${DataTable} rows=${d.source.sast_list} pageSize=${12} empty=${t('No SAST hits — configure a source above, or the pinned ref is clean.')} onRow=${sastDrawer}
           cols=${[
-            { k: 'cwe', label: 'CWE', render: r => html`<span class="mono cvelink">${r.cwe || '—'}</span>` },
-            { k: 'file', label: 'File', render: r => html`<span class="mono" style=${{ wordBreak: 'break-all' }}>${r.upstream_path || r.file || ''}</span>` },
-            { k: 'line', label: 'Line', align: 'right', render: r => html`<span class="mono">${r.line || ''}</span>` },
+            { k: 'cwe', label: 'CWE', render: r => cweLink(r.cwe) },
+            { k: 'file', label: 'File', render: r => html`${ghFile(r.upstream_path || r.file, r.url)}${r.violates_design ? html` <span class="pill2 w" style=${{ fontSize: '9px' }}>${r.violates_design}</span>` : null}` },
+            { k: 'line', label: 'Line', align: 'right', render: r => r.url ? html`<a class="mono cvelink" href=${r.url} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${r.line || ''}</a>` : html`<span class="mono">${r.line || ''}</span>` },
           ]}/></${Panel}>`}
     </div></div>`;
 });
