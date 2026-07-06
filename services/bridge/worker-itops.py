@@ -1431,6 +1431,31 @@ def _run_semgrep(scan_dir):
 
 TRIAGE_URL = os.environ.get("TRIAGE_INFERENCE_URL", "http://host.openshell.internal:8000/v1")
 TRIAGE_MODEL = os.environ.get("NEMOCLAW_MODEL", "nemotron-super")
+_SOURCE_SCANNING = {"on": False}
+
+
+def _last_source_report():
+    """The last persisted source-cve report (the dashboard reads this file too)."""
+    try:
+        return json.load(open(f"{WD}/source-cve-report.json", encoding="utf-8"))
+    except Exception:
+        return {"ts": None, "note": "尚無報告 — 背景掃描進行中,稍後刷新", "sast_findings": [], "sbom": [],
+                "sbom_packages": 0, "cve_with_source": [], "sast_source": "not-synced", "sast_engine": "pending"}
+
+
+def _bg_source_scan():
+    """Kick one source scan in the background (Semgrep is fast, the Nemotron triage is slow) so the
+    HTTP trigger never blocks minutes on inference. Deduped — a second call while one runs is a no-op."""
+    if _SOURCE_SCANNING["on"]:
+        return
+    _SOURCE_SCANNING["on"] = True
+
+    def _run():
+        try:
+            _single_flight("source", run_source_scan)
+        finally:
+            _SOURCE_SCANNING["on"] = False
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _nemotron_triage(finding):
@@ -2097,10 +2122,13 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             self._send(200, _single_flight("monitor", run_monitor))
-        elif self.path == "/source-cve":  # 有原始碼:SBOM + code 證據 CVE + SAST
+        elif self.path == "/source-cve":  # 有原始碼:SBOM + code 證據 CVE + Semgrep SAST + Nemotron 複審
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
-            self._send(200, _single_flight("source", run_source_scan))
+            # 非阻塞:立刻回上次報告(dashboard 讀持久化檔),掃描在背景跑 —— Semgrep 快但 Nemotron 複審慢,不卡 HTTP。
+            _bg_source_scan()
+            rep = _last_source_report(); rep["rescanning"] = _SOURCE_SCANNING["on"]
+            self._send(200, rep)
         elif self.path == "/cert-scan":  # 憑證 / 弱加密與協定盤點(運維節點 A;主動提醒)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
