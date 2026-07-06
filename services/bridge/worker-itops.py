@@ -1464,31 +1464,51 @@ def _nemotron_triage(finding):
     or None on any failure (a failed triage never blocks the deterministic finding)."""
     prompt = (
         "You are a security code reviewer. A static analyzer (Semgrep rule '%s') flagged a possible %s at %s:%s.\n"
-        "Matched code:\n%s\n\nSemgrep note: %s\n\n"
+        "Flagged code (verbatim):\n%s\n\nSemgrep note: %s\n\n"
         "Decide if this is a REAL, reachable vulnerability or a likely false positive — consider whether the "
-        "input is actually attacker-controlled and the sink reachable. If it is real, give a concrete, minimal "
-        "fix for THIS specific code (name the safe API / the exact change). Think briefly, then end with ONE line "
-        'of compact JSON exactly: {"verdict":"confirmed|likely|false_positive","confidence":0-100,'
-        '"why":"<=12 words","fix":"<=30 words concrete fix for this code, empty string if false positive"}'
+        "input is actually attacker-controlled and the sink reachable. If it is real, rewrite the flagged code "
+        "into a fixed version, keeping the SAME lines/indentation, changing only what's needed. Think briefly, "
+        'then end with ONE line of compact JSON exactly: {"verdict":"confirmed|likely|false_positive",'
+        '"confidence":0-100,"why":"<=12 words","fix":"<=25 words plain-language fix","fixed_code":"the flagged '
+        'code rewritten & safe, verbatim with \\n for newlines; empty string if false positive"}'
     ) % (finding.get("check_id"), finding.get("cwe"), finding.get("upstream_path") or finding.get("file"),
          finding.get("line"), (finding.get("code") or "")[:300], (finding.get("message") or "")[:200])
     body = json.dumps({"model": TRIAGE_MODEL, "messages": [{"role": "user", "content": prompt}],
-                       "max_tokens": 900, "temperature": 0.1}).encode()
+                       "max_tokens": 1100, "temperature": 0.1}).encode()
     try:
         req = _urlreq.Request(TRIAGE_URL.rstrip("/") + "/chat/completions", data=body,
                               headers={"Content-Type": "application/json"}, method="POST")
-        r = json.load(_urlreq.urlopen(req, timeout=75))
+        r = json.load(_urlreq.urlopen(req, timeout=90))
         msg = (r.get("choices") or [{}])[0].get("message") or {}
         txt = (msg.get("content") or msg.get("reasoning") or "")
-        hits = re.findall(r'\{[^{}]*"verdict"[^{}]*\}', txt, re.S)
+        hits = re.findall(r'\{.*?"verdict".*?\}', txt, re.S)
         if not hits:
             return None
         j = json.loads(hits[-1])
         return {"verdict": str(j.get("verdict", "")), "confidence": int(j.get("confidence", 0) or 0),
-                "why": str(j.get("why", ""))[:140], "fix": str(j.get("fix", ""))[:300], "by": TRIAGE_MODEL}
+                "why": str(j.get("why", ""))[:140], "fix": str(j.get("fix", ""))[:300],
+                "fixed_code": str(j.get("fixed_code", ""))[:600], "by": TRIAGE_MODEL}
     except Exception as e:
         print(f"[TRIAGE] {finding.get('check_id')} failed: {e}", flush=True)
         return None
+
+
+def _nemotron_patch(finding, fixed_code):
+    """Build a valid git-style unified diff from the flagged code and Nemotron's rewritten version.
+    We construct the diff ourselves (not the LLM) so the format is always parseable + renders as a
+    red/green patch. Advisory (patch_verified stays False — an engineer confirms per dataflow)."""
+    orig = (finding.get("code") or "").replace("\r", "").rstrip("\n")
+    fixed = str(fixed_code or "").replace("\r", "").rstrip("\n")
+    if not orig or not fixed or orig.strip() == fixed.strip():
+        return None
+    path = finding.get("upstream_path") or finding.get("file") or "file"
+    ln = finding.get("line") or 1
+    ol = orig.split("\n") or [orig]
+    fl = fixed.split("\n") or [fixed]
+    out = [f"--- a/{path}", f"+++ b/{path}", f"@@ -{ln},{len(ol)} +{ln},{len(fl)} @@"]
+    out += ["-" + x for x in ol]
+    out += ["+" + x for x in fl]
+    return "\n".join(out) + "\n"
 
 
 def _triage_findings(sast, cap=6):
@@ -1504,7 +1524,12 @@ def _triage_findings(sast, cap=6):
         seen.add(key)
         v = _nemotron_triage(s)
         if v:
-            s["triage"] = v
+            # confirmed + 有改寫碼 + 尚無確定性 patch → 用 Nemotron 的修正碼組 git-style diff(紅綠 patch)
+            if v.get("verdict") == "confirmed" and v.get("fixed_code") and not s.get("patch"):
+                p = _nemotron_patch(s, v["fixed_code"])
+                if p:
+                    s["patch"] = p; s["patch_kind"] = "nemotron-suggestion"; s["patch_verified"] = False
+            s["triage"] = {k: v[k] for k in ("verdict", "confidence", "why", "fix", "by") if k in v}  # fixed_code 不外露(只拿來組 diff)
             n += 1
     return n
 
