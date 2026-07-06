@@ -126,11 +126,14 @@ Layered controls keep the fleet governed — infrastructure is strong, and the a
   review gate** over a/b (reject → redo); device remediation is **deterministic + read-back verified**
   (not LLM-guessed); SAST is deterministic **Semgrep**, with Nemotron only **triaging** (not inventing
   findings) and gating escalation.
+- **🛑 Emergency kill-switch** — one admin action freezes the whole fleet: every agent sandbox is
+  `docker pause`d (SIGSTOP — processes stop instantly, nothing runs) and resumed on demand. The
+  dashboard + local NIM stay up as the control surface; a global banner marks a frozen fleet; audited.
 - **Data egress** — app-layer **DLP** (masks credentials/long-secrets/card numbers, audited) on
   notifications, plus the boundary credential rewriting.
 
-Known gaps (roadmap): extend DLP to the agent's own free-text sends; per-agent action budget +
-kill-switch; broaden the human-approval gate to any egress-widening policy edit; drop the residual
+Known gaps (roadmap): extend DLP to the agent's own free-text sends; per-agent action budget /
+rate-limit; broaden the human-approval gate to any egress-widening policy edit; drop the residual
 `nvidia`/`nous_research` base-image egress.
 
 ## 文件 (docs)
