@@ -1441,24 +1441,26 @@ def _nemotron_triage(finding):
         "You are a security code reviewer. A static analyzer (Semgrep rule '%s') flagged a possible %s at %s:%s.\n"
         "Matched code:\n%s\n\nSemgrep note: %s\n\n"
         "Decide if this is a REAL, reachable vulnerability or a likely false positive — consider whether the "
-        "input is actually attacker-controlled and the sink reachable. Think briefly, then end with ONE line of "
-        'compact JSON exactly: {"verdict":"confirmed|likely|false_positive","confidence":0-100,"why":"<=12 words"}'
+        "input is actually attacker-controlled and the sink reachable. If it is real, give a concrete, minimal "
+        "fix for THIS specific code (name the safe API / the exact change). Think briefly, then end with ONE line "
+        'of compact JSON exactly: {"verdict":"confirmed|likely|false_positive","confidence":0-100,'
+        '"why":"<=12 words","fix":"<=30 words concrete fix for this code, empty string if false positive"}'
     ) % (finding.get("check_id"), finding.get("cwe"), finding.get("upstream_path") or finding.get("file"),
          finding.get("line"), (finding.get("code") or "")[:300], (finding.get("message") or "")[:200])
     body = json.dumps({"model": TRIAGE_MODEL, "messages": [{"role": "user", "content": prompt}],
-                       "max_tokens": 700, "temperature": 0.1}).encode()
+                       "max_tokens": 900, "temperature": 0.1}).encode()
     try:
         req = _urlreq.Request(TRIAGE_URL.rstrip("/") + "/chat/completions", data=body,
                               headers={"Content-Type": "application/json"}, method="POST")
-        r = json.load(_urlreq.urlopen(req, timeout=60))
+        r = json.load(_urlreq.urlopen(req, timeout=75))
         msg = (r.get("choices") or [{}])[0].get("message") or {}
         txt = (msg.get("content") or msg.get("reasoning") or "")
-        hits = re.findall(r'\{[^{}]*"verdict"[^{}]*\}', txt)
+        hits = re.findall(r'\{[^{}]*"verdict"[^{}]*\}', txt, re.S)
         if not hits:
             return None
         j = json.loads(hits[-1])
         return {"verdict": str(j.get("verdict", "")), "confidence": int(j.get("confidence", 0) or 0),
-                "why": str(j.get("why", ""))[:140], "by": TRIAGE_MODEL}
+                "why": str(j.get("why", ""))[:140], "fix": str(j.get("fix", ""))[:300], "by": TRIAGE_MODEL}
     except Exception as e:
         print(f"[TRIAGE] {finding.get('check_id')} failed: {e}", flush=True)
         return None
@@ -1704,6 +1706,8 @@ def run_source_scan():
         triage_block = ""
         if tri:
             triage_block = f"\nNemotron 複審:{tri.get('verdict')}(信心 {tri.get('confidence')}%)— {tri.get('why')}"
+            if tri.get("fix"):
+                triage_block += f"\nNemotron 針對此碼的建議修法:{tri.get('fix')}"
         t = _open_jira_dedup(f"{s['cwe']} — {s.get('upstream_path') or s['file']}:{s['line']}",
                              f"Semgrep 靜態分析命中({s['cwe']} · rule {s.get('check_id')}):\n  {s.get('upstream_path') or s['file']}:{s['line']}\n  {s['code']}"
                              + triage_block + design_block + "\n"

@@ -129,6 +129,10 @@ ensure_xagent() {
   local INST_SG="$(dirname "$BRIDGE")/scripts/worker-b-install-semgrep.sh"
   [ -n "$CT_O2" ] && [ -x "$INST_SG" ] && \
     { bash "$INST_SG" >>"$LOG" 2>&1 && ok "worker-b Semgrep 已安裝(SAST 引擎 + 規則)" || bad "Semgrep 安裝失敗(看 $LOG)"; }
+  # worker-b SAST triage:scoped egress 到本地 vLLM(Nemotron 複審用;可稽核)。重建後重套。
+  local ALLOW_TRI="$(dirname "$BRIDGE")/scripts/worker-b-allow-triage.sh"
+  [ -n "$CT_O2" ] && [ -x "$ALLOW_TRI" ] && \
+    { bash "$ALLOW_TRI" >>"$LOG" 2>&1 && ok "worker-b SAST triage egress 已套用(本地 vLLM)" || bad "triage egress 套用失敗(看 $LOG)"; }
   # 最小權限:剝掉各 agent 用不到的預設 preset(brew/npm/pypi/huggingface/weather/local-inference)。重建後重套。
   local HARDEN="$(dirname "$BRIDGE")/scripts/harden-agent-policies.sh"
   [ -x "$HARDEN" ] && \

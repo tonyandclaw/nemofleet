@@ -42,7 +42,7 @@ function sastDrawer(r) {
     <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv">${ghFile((r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : ''), r.url)}</span></div>
     ${r.check_id ? html`<div class="kv"><span class="kvk">${t('Rule')}</span><span class="kvv mono">${r.check_id}${r.severity ? html` <span class="pill2 ${r.severity === 'ERROR' ? 'c' : 'w'}">${r.severity}</span>` : null}</span></div>` : null}
     ${r.message ? html`<div class="sastsec"><div class="lbl">${t('What Semgrep found')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.message}</div></div>` : null}
-    ${r.triage ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Nemotron review')} ${triagePill(r.triage)}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.triage.why || ''}</div></div>` : null}
+    ${r.triage ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Nemotron review')} ${triagePill(r.triage)}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.triage.why || ''}</div>${r.triage.fix ? html`<div style=${{ marginTop: '7px', fontSize: '12.5px' }}><b class="ink2">${t('Suggested fix')}:</b> <span class="muted">${r.triage.fix}</span></div>` : null}</div>` : null}
     ${r.violates_design ? html`<div class="kv"><span class="kvk">${t('Design')}</span><span class="kvv"><span class="pill2 c">${t('violates approved baseline')}</span></span></div>` : null}
     ${r.code ? html`<div class="sastsec"><div class="lbl">${t('Matched code')}</div><pre class="codeblock mono">${r.code}</pre></div>` : null}
     ${r.patch ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Suggested patch')}${r.patch_verified
@@ -465,6 +465,7 @@ const I18N = {
   'likely': { en: 'likely', zh: '可能' },
   'Nemotron review': { en: 'Nemotron review', zh: 'Nemotron 複審' },
   'Nemotron-reviewed': { en: 'Nemotron-reviewed', zh: 'Nemotron 已複審' },
+  'Suggested fix': { en: 'Suggested fix', zh: '建議修法' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
