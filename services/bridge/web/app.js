@@ -466,6 +466,8 @@ const I18N = {
   'Nemotron review': { en: 'Nemotron review', zh: 'Nemotron 複審' },
   'Nemotron-reviewed': { en: 'Nemotron-reviewed', zh: 'Nemotron 已複審' },
   'Suggested fix': { en: 'Suggested fix', zh: '建議修法' },
+  'which components carry the vulnerabilities': { en: 'which components carry the vulnerabilities', zh: '哪些元件帶有弱點' },
+  'No affected components — SBOM clean or scan pending.': { en: 'No affected components — SBOM clean or scan pending.', zh: '無受影響元件 — SBOM 乾淨或掃描中。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -900,6 +902,40 @@ const CipherPolicyPanel = memo(function CipherPolicyPanel({ d }) {
     </div>`; })}</div>
   </${Panel}>`;
 });
+// SBOM ↔ CVE exposure — REAL edges (cve.findings[].component → SBOM component), not fabricated deps.
+// A bipartite SVG: components on the left, their CVEs on the right, coloured by severity.
+const SEV_COL = (s) => { s = String(s || '').toLowerCase(); return /crit/.test(s) ? 'var(--crit)' : /high|serious/.test(s) ? 'var(--warn)' : /med|moder/.test(s) ? 'var(--s-yellow)' : 'var(--accent)'; };
+const SbomGraph = memo(function SbomGraph({ d }) {
+  const findings = (((d.cve && d.cve.findings) || []).filter(f => f && (f.cve || f.id)));
+  const sbomN = ((d.source && d.source.sbom_list) || []).length || (d.source && d.source.sbom) || 0;
+  const byComp = {};
+  for (const f of findings) { const c = f.component || '—'; (byComp[c] = byComp[c] || []).push({ cve: f.cve || f.id, sev: f.severity }); }
+  const comps = Object.keys(byComp).sort((a, b) => byComp[b].length - byComp[a].length).slice(0, 10);
+  const cleanN = Math.max(0, sbomN - Object.keys(byComp).length);
+  return html`<${Panel} title="SBOM ↔ CVE exposure" label=${t('which components carry the vulnerabilities')}
+    right=${cleanN ? html`<span class="pill2 g">✓ ${cleanN} ${t('clean')}</span>` : null}>
+    ${!comps.length ? html`<div class="empty">${t('No affected components — SBOM clean or scan pending.')}</div>` : (() => {
+      const cves = []; const seen = new Set();
+      comps.forEach(c => byComp[c].forEach(n => { if (!seen.has(n.cve)) { seen.add(n.cve); cves.push({ ...n, comp: c }); } }));
+      const W = 640, CH = 42, CG = 11, VH = 24, VG = 6, TOP = 14, LW = 196, RW = 172, LX = 8, RX = W - 8 - RW;
+      const compY = {}; comps.forEach((c, i) => { compY[c] = TOP + i * (CH + CG) + CH / 2; });
+      const cveY = {}; cves.forEach((n, i) => { cveY[n.cve] = TOP + i * (VH + VG) + VH / 2; });
+      const H = Math.max(comps.length * (CH + CG), cves.length * (VH + VG)) + TOP * 2;
+      return html`<div style=${{ overflowX: 'auto' }}><svg viewBox=${'0 0 ' + W + ' ' + H} style=${{ width: '100%', minWidth: '540px', height: 'auto' }} aria-label="SBOM to CVE exposure">
+        ${comps.map(c => byComp[c].map((n) => { const y1 = compY[c], y2 = cveY[n.cve], x1 = LX + LW, x2 = RX, mx = (x1 + x2) / 2;
+          return html`<path key=${c + n.cve} d=${`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke=${SEV_COL(n.sev)} stroke-width="1.3" stroke-opacity="0.45"/>`; }))}
+        ${comps.map((c) => { const y = compY[c] - CH / 2;
+          return html`<g key=${'c' + c}><rect x=${LX} y=${y} width=${LW} height=${CH} rx="9" fill="var(--panel2)" stroke="var(--line2)"/>
+            <text x=${LX + 13} y=${y + 18} fill="var(--ink)" font-size="12.5" style=${{ fontFamily: 'var(--mono)', fontWeight: 700 }}>${c}</text>
+            <text x=${LX + 13} y=${y + 33} fill="var(--ink3)" font-size="10.5">${byComp[c].length} CVE${byComp[c].length > 1 ? 's' : ''}</text></g>`; })}
+        ${cves.map((n) => { const y = cveY[n.cve] - VH / 2;
+          return html`<a key=${'v' + n.cve} href=${'https://nvd.nist.gov/vuln/detail/' + n.cve} target="_blank" rel="noopener noreferrer">
+            <rect x=${RX} y=${y} width=${RW} height=${VH} rx="6" fill=${SEV_COL(n.sev)} fill-opacity="0.14" stroke=${SEV_COL(n.sev)}/>
+            <text x=${RX + 9} y=${y + 16} fill=${SEV_COL(n.sev)} font-size="10.5" style=${{ fontFamily: 'var(--mono)' }}>${n.cve}</text></a>`; })}
+      </svg></div>`;
+    })()}
+  </${Panel}>`;
+});
 // worker-b SAST source of truth — a GitHub URL / owner-repo, or a folder mounted into the sandbox.
 const SastSource = memo(function SastSource({ d }) {
   const curSrc = (d.settings && d.settings.sast_src) || '';
@@ -983,6 +1019,7 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'name', label: t('Component'), render: r => html`<span class="mono">${r.name || '—'}</span>` },
             { k: 'version', label: t('Version'), align: 'right', render: r => html`<span class="mono ink2">${r.version || '—'}</span>` },
           ]}/></${Panel}>`}
+      ${html`<${SbomGraph} d=${d}/>`}
       ${html`<${Panel} title="SAST findings" label=${(d.source.sast_engine || 'semgrep') + ' · ' + (d.source.sast_source || 'not synced')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${SastSource} d=${d}/>
         ${(() => { const sl = d.source.sast_list || []; const byCwe = {}; sl.forEach((f) => { const c = (f.cwe || '?').split(' ')[0]; byCwe[c] = (byCwe[c] || 0) + 1; });
