@@ -13,6 +13,10 @@ function statusBullet(ok, onLabel, offLabel) { return html`<span style=${{ color
 // CVE id → clickable NIST NVD detail page (real advisory, opens in a new tab)
 function cveLink(id) { if (!id) return html`<span class="mono">—</span>`;
   return html`<a class="mono cvelink" href=${'https://nvd.nist.gov/vuln/detail/' + encodeURIComponent(id)} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${id}</a>`; }
+function triagePill(tr) { if (!tr || !tr.verdict) return null;
+  const v = tr.verdict; const cls = v === 'confirmed' ? 'c' : v === 'false_positive' ? '' : 'w';
+  const lbl = v === 'confirmed' ? t('confirmed') : v === 'false_positive' ? t('false positive') : t('likely');
+  return html`<span class=${'pill2 ' + cls} title=${(tr.why || '') + ' · ' + (tr.by || 'nemotron')}>⧉ ${lbl} ${tr.confidence != null ? tr.confidence + '%' : ''}</span>`; }
 // CWE label ("CWE-78 command-injection") → link to the MITRE definition
 function cweLink(cwe) { const m = /CWE-(\d+)/.exec(cwe || ''); if (!m) return html`<span class="mono">${cwe || '—'}</span>`;
   return html`<a class="mono cvelink" href=${'https://cwe.mitre.org/data/definitions/' + m[1] + '.html'} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${cwe}</a>`; }
@@ -38,6 +42,7 @@ function sastDrawer(r) {
     <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv">${ghFile((r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : ''), r.url)}</span></div>
     ${r.check_id ? html`<div class="kv"><span class="kvk">${t('Rule')}</span><span class="kvv mono">${r.check_id}${r.severity ? html` <span class="pill2 ${r.severity === 'ERROR' ? 'c' : 'w'}">${r.severity}</span>` : null}</span></div>` : null}
     ${r.message ? html`<div class="sastsec"><div class="lbl">${t('What Semgrep found')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.message}</div></div>` : null}
+    ${r.triage ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Nemotron review')} ${triagePill(r.triage)}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.triage.why || ''}</div></div>` : null}
     ${r.violates_design ? html`<div class="kv"><span class="kvk">${t('Design')}</span><span class="kvv"><span class="pill2 c">${t('violates approved baseline')}</span></span></div>` : null}
     ${r.code ? html`<div class="sastsec"><div class="lbl">${t('Matched code')}</div><pre class="codeblock mono">${r.code}</pre></div>` : null}
     ${r.patch ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Suggested patch')}${r.patch_verified
@@ -455,6 +460,11 @@ const I18N = {
   'click a row for code + patch + fix': { en: 'click a row for code + patch + fix', zh: '點一列看程式碼 + patch + 修法' },
   'Rule': { en: 'Rule', zh: '規則' },
   'What Semgrep found': { en: 'What Semgrep found', zh: 'Semgrep 判定' },
+  'confirmed': { en: 'confirmed', zh: '已確認' },
+  'false positive': { en: 'false positive', zh: '假陽性' },
+  'likely': { en: 'likely', zh: '可能' },
+  'Nemotron review': { en: 'Nemotron review', zh: 'Nemotron 複審' },
+  'Nemotron-reviewed': { en: 'Nemotron-reviewed', zh: 'Nemotron 已複審' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -980,11 +990,13 @@ const SecurityView = memo(function SecurityView({ d }) {
             ${Object.entries(byCwe).sort((a, b) => b[1] - a[1]).map(([c, n]) => html`<span key=${c} class="pill2 c">${c} ×${n}</span>`)}
             ${vd ? html`<span class="pill2 w">⚑ ${vd} ${t('violate baseline')}</span>` : null}
             ${pv ? html`<span class="pill2 g">✓ ${pv} ${t('patch verified')}</span>` : null}
+            ${d.source.sast_triaged ? html`<span class="pill2 a">⧉ ${d.source.sast_triaged} ${t('Nemotron-reviewed')}</span>` : null}
+            ${sl.filter(f => (f.triage || {}).verdict === 'confirmed').length ? html`<span class="pill2 c">${sl.filter(f => (f.triage || {}).verdict === 'confirmed').length} ${t('confirmed')}</span>` : null}
             <span class="muted" style=${{ fontSize: '10.5px', marginLeft: 'auto' }}>${t('click a row for code + patch + fix')}</span>
           </div>` : null; })()}
         <${DataTable} rows=${d.source.sast_list} pageSize=${12} empty=${t('No SAST hits — configure a source above, or the pinned ref is clean.')} onRow=${sastDrawer}
           cols=${[
-            { k: 'cwe', label: 'CWE', render: r => cweLink(r.cwe) },
+            { k: 'cwe', label: 'CWE', render: r => html`${cweLink(r.cwe)} ${triagePill(r.triage)}` },
             { k: 'file', label: 'File', render: r => html`${ghFile(r.upstream_path || r.file, r.url)}${r.violates_design ? html` <span class="pill2 w" style=${{ fontSize: '9px' }}>${r.violates_design}</span>` : null}` },
             { k: 'line', label: 'Line', align: 'right', render: r => r.url ? html`<a class="mono cvelink" href=${r.url} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${r.line || ''}</a>` : html`<span class="mono">${r.line || ''}</span>` },
           ]}/></${Panel}>`}

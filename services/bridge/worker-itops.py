@@ -1429,6 +1429,59 @@ def _run_semgrep(scan_dir):
     return out
 
 
+TRIAGE_URL = os.environ.get("TRIAGE_INFERENCE_URL", "http://host.openshell.internal:8000/v1")
+TRIAGE_MODEL = os.environ.get("NEMOCLAW_MODEL", "nemotron-super")
+
+
+def _nemotron_triage(finding):
+    """Nemotron reviews one Semgrep finding for real exploitability/reachability → cuts false positives.
+    Calls the LOCAL vLLM directly (no external egress, no secrets). Returns {verdict, confidence, why}
+    or None on any failure (a failed triage never blocks the deterministic finding)."""
+    prompt = (
+        "You are a security code reviewer. A static analyzer (Semgrep rule '%s') flagged a possible %s at %s:%s.\n"
+        "Matched code:\n%s\n\nSemgrep note: %s\n\n"
+        "Decide if this is a REAL, reachable vulnerability or a likely false positive — consider whether the "
+        "input is actually attacker-controlled and the sink reachable. Think briefly, then end with ONE line of "
+        'compact JSON exactly: {"verdict":"confirmed|likely|false_positive","confidence":0-100,"why":"<=12 words"}'
+    ) % (finding.get("check_id"), finding.get("cwe"), finding.get("upstream_path") or finding.get("file"),
+         finding.get("line"), (finding.get("code") or "")[:300], (finding.get("message") or "")[:200])
+    body = json.dumps({"model": TRIAGE_MODEL, "messages": [{"role": "user", "content": prompt}],
+                       "max_tokens": 700, "temperature": 0.1}).encode()
+    try:
+        req = _urlreq.Request(TRIAGE_URL.rstrip("/") + "/chat/completions", data=body,
+                              headers={"Content-Type": "application/json"}, method="POST")
+        r = json.load(_urlreq.urlopen(req, timeout=60))
+        msg = (r.get("choices") or [{}])[0].get("message") or {}
+        txt = (msg.get("content") or msg.get("reasoning") or "")
+        hits = re.findall(r'\{[^{}]*"verdict"[^{}]*\}', txt)
+        if not hits:
+            return None
+        j = json.loads(hits[-1])
+        return {"verdict": str(j.get("verdict", "")), "confidence": int(j.get("confidence", 0) or 0),
+                "why": str(j.get("why", ""))[:140], "by": TRIAGE_MODEL}
+    except Exception as e:
+        print(f"[TRIAGE] {finding.get('check_id')} failed: {e}", flush=True)
+        return None
+
+
+def _triage_findings(sast, cap=6):
+    """Run Nemotron triage over the highest-priority, de-duplicated Semgrep findings (cap the count so
+    the scan stays bounded — a firmware repo can have dozens of the same rule)."""
+    seen, n = set(), 0
+    for s in sorted(sast, key=lambda x: 0 if x.get("severity") == "ERROR" else 1):
+        if n >= cap:
+            break
+        key = (s.get("check_id"), s.get("upstream_path") or s.get("file"))
+        if key in seen:
+            continue
+        seen.add(key)
+        v = _nemotron_triage(s)
+        if v:
+            s["triage"] = v
+            n += 1
+    return n
+
+
 def run_source_scan():
     """有原始碼後:① 由 packages.manifest 生 SBOM ② 同台 CVE 由 unknown_inventory_gap 升級為 affected/not_affected(版本+SBOM 證據)
     ③ 對 source 做 pattern-based SAST,危險樣式附 file:line + code 證據。affected/SAST 命中 → 開 Jira(治理 egress)。"""
@@ -1586,6 +1639,13 @@ def run_source_scan():
     for s in sast:
         s.pop("_fp", None)
     sh(f"chown -R 998:998 {pdir}")
+    # Nemotron 複審:對高優先、去重的 Semgrep 命中判斷可達性/信心(降假陽性)。本地推理;失敗不阻斷確定性命中。
+    sast_triaged = 0
+    if sast and os.environ.get("SAST_TRIAGE", "1") != "0":
+        try:
+            sast_triaged = _triage_findings(sast, cap=int(os.environ.get("SAST_TRIAGE_CAP", "6")))
+        except Exception as e:
+            print(f"[TRIAGE] batch failed: {e}", flush=True)
     # 設計文件符合性:SECURITY-DESIGN.md 的機器可驗需求 vs「現況設定快照 + 原始碼 SAST 結果」。
     # config 類對照 ebg19p-current.conf;code 類對照 SAST 命中(發現回標違反的設計條款,進 Jira 引用)。
     design, cur = [], _conf_kv(f"{WD}/ebg19p-current.conf")
@@ -1624,7 +1684,13 @@ def run_source_scan():
                              kind="cve-affected-sbom", asset=f["asset"])
         if t:
             tickets.append(t)
+    _triage_on = os.environ.get("SAST_TRIAGE", "1") != "0"
     for s in sast:
+        tri = s.get("triage") or {}
+        # Nemotron 複審閘:啟用複審時,只有「confirmed」才自動開單 —— 其餘(likely/false_positive/未複審)
+        # 只留在報告,不製造 Jira 噪音(這就是降假陽性的關鍵)。未啟用複審則沿用「每個命中都開」。
+        if _triage_on and tri.get("verdict") != "confirmed":
+            continue
         patch_block = ""
         if s.get("patch"):
             vtag = "已驗證:套用後該樣式消失" if s.get("patch_verified") else "待人工確認"
@@ -1635,9 +1701,12 @@ def run_source_scan():
             req = next((d for d in design if d["req"] == s["violates_design"]), None)
             if req:
                 design_block = f"\n違反設計文件 {req['req']}(SECURITY-DESIGN.md):{req['desc']}"
-        t = _open_jira_dedup(f"{s['cwe']} — {s['file']}:{s['line']}",
-                             f"原始碼靜態掃描命中危險樣式({s['cwe']}):\n  {s['file']}:{s['line']}\n  {s['code']}"
-                             + design_block + "\n"
+        triage_block = ""
+        if tri:
+            triage_block = f"\nNemotron 複審:{tri.get('verdict')}(信心 {tri.get('confidence')}%)— {tri.get('why')}"
+        t = _open_jira_dedup(f"{s['cwe']} — {s.get('upstream_path') or s['file']}:{s['line']}",
+                             f"Semgrep 靜態分析命中({s['cwe']} · rule {s.get('check_id')}):\n  {s.get('upstream_path') or s['file']}:{s['line']}\n  {s['code']}"
+                             + triage_block + design_block + "\n"
                              "請工程師修(參數化/輸入驗證/移除硬編憑證),修好附回歸測試。" + patch_block,
                              kind="sast", asset=SRC_ASSET)
         if t:
@@ -1652,7 +1721,7 @@ def run_source_scan():
               "cve_feed": live_src,
               "advisories_source": (f"Changelog-NG.txt@{SRC_REF}" if adv else None),
               "advisories_fixed": len(adv), "cve_reconciled": cve_reconciled,
-              "sast_findings": sast, "sast_source": sast_source, "sast_engine": sast_engine, "patches": sum(1 for s in sast if s.get("patch")),
+              "sast_findings": sast, "sast_source": sast_source, "sast_engine": sast_engine, "sast_triaged": sast_triaged, "patches": sum(1 for s in sast if s.get("patch")),
               "patches_verified": sum(1 for s in sast if s.get("patch_verified")),
               "design_doc": f"source/{SRC_ASSET}/{DESIGN_DOC}", "design_conformance": design,
               "design_violated": design_violated, "jira_opened": tickets}

@@ -362,7 +362,7 @@ def _collect_impl():
             if src:
                 node["source"] = {"sbom": src.get("sbom_packages"), "sbom_source": src.get("sbom_source"),
                                   "sbom_list": (src.get("sbom") or [])[:200],   # 真實 SBOM 元件清單(供 GUI SBOM 面板)
-                                  "sast_source": src.get("sast_source"), "sast_engine": src.get("sast_engine"), "analysis_by": src.get("analysis_by"),
+                                  "sast_source": src.get("sast_source"), "sast_engine": src.get("sast_engine"), "sast_triaged": src.get("sast_triaged"), "analysis_by": src.get("analysis_by"),
                                   "upstream_repo": src.get("upstream_repo"),
                                   "advisories_source": src.get("advisories_source"), "cve_feed": src.get("cve_feed"),
                                   "advisories_fixed": src.get("advisories_fixed"), "cve_reconciled": src.get("cve_reconciled"),
@@ -377,7 +377,7 @@ def _collect_impl():
                                                  "patch_verified": s.get("patch_verified"), "violates_design": s.get("violates_design"),
                                                  "upstream_path": s.get("upstream_path"), "url": s.get("url"),
                                                  "remediation": s.get("remediation"), "patch_kind": s.get("patch_kind"),
-                                                 "check_id": s.get("check_id"), "message": s.get("message"), "severity": s.get("severity")}
+                                                 "check_id": s.get("check_id"), "message": s.get("message"), "severity": s.get("severity"), "triage": s.get("triage")}
                                                 for s in src.get("sast_findings", [])[:40]]}
         if "nuclei" in (h.get("caps") or []):
             try:
