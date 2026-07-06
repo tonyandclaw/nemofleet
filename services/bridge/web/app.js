@@ -917,7 +917,7 @@ const SbomGraph = memo(function SbomGraph({ d }) {
     ${!comps.length ? html`<div class="empty">${t('No affected components — SBOM clean or scan pending.')}</div>` : (() => {
       const cves = []; const seen = new Set();
       comps.forEach(c => byComp[c].forEach(n => { if (!seen.has(n.cve)) { seen.add(n.cve); cves.push({ ...n, comp: c }); } }));
-      const W = 640, CH = 42, CG = 11, VH = 24, VG = 6, TOP = 14, LW = 196, RW = 172, LX = 8, RX = W - 8 - RW;
+      const W = 640, CH = 28, CG = 6, VH = 17, VG = 4, TOP = 8, LW = 196, RW = 172, LX = 8, RX = W - 8 - RW;
       const compY = {}; comps.forEach((c, i) => { compY[c] = TOP + i * (CH + CG) + CH / 2; });
       const cveY = {}; cves.forEach((n, i) => { cveY[n.cve] = TOP + i * (VH + VG) + VH / 2; });
       const H = Math.max(comps.length * (CH + CG), cves.length * (VH + VG)) + TOP * 2;
@@ -925,13 +925,13 @@ const SbomGraph = memo(function SbomGraph({ d }) {
         ${comps.map(c => byComp[c].map((n) => { const y1 = compY[c], y2 = cveY[n.cve], x1 = LX + LW, x2 = RX, mx = (x1 + x2) / 2;
           return html`<path key=${c + n.cve} d=${`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke=${SEV_COL(n.sev)} stroke-width="1.3" stroke-opacity="0.45"/>`; }))}
         ${comps.map((c) => { const y = compY[c] - CH / 2;
-          return html`<g key=${'c' + c}><rect x=${LX} y=${y} width=${LW} height=${CH} rx="9" fill="var(--panel2)" stroke="var(--line2)"/>
-            <text x=${LX + 13} y=${y + 18} fill="var(--ink)" font-size="12.5" style=${{ fontFamily: 'var(--mono)', fontWeight: 700 }}>${c}</text>
-            <text x=${LX + 13} y=${y + 33} fill="var(--ink3)" font-size="10.5">${byComp[c].length} CVE${byComp[c].length > 1 ? 's' : ''}</text></g>`; })}
+          return html`<g key=${'c' + c}><rect x=${LX} y=${y} width=${LW} height=${CH} rx="7" fill="var(--panel2)" stroke="var(--line2)"/>
+            <text x=${LX + 12} y=${y + 12} fill="var(--ink)" font-size="11" style=${{ fontFamily: 'var(--mono)', fontWeight: 700 }}>${c}</text>
+            <text x=${LX + 12} y=${y + 23} fill="var(--ink3)" font-size="9.5">${byComp[c].length} CVE${byComp[c].length > 1 ? 's' : ''}</text></g>`; })}
         ${cves.map((n) => { const y = cveY[n.cve] - VH / 2;
           return html`<a key=${'v' + n.cve} href=${'https://nvd.nist.gov/vuln/detail/' + n.cve} target="_blank" rel="noopener noreferrer">
-            <rect x=${RX} y=${y} width=${RW} height=${VH} rx="6" fill=${SEV_COL(n.sev)} fill-opacity="0.14" stroke=${SEV_COL(n.sev)}/>
-            <text x=${RX + 9} y=${y + 16} fill=${SEV_COL(n.sev)} font-size="10.5" style=${{ fontFamily: 'var(--mono)' }}>${n.cve}</text></a>`; })}
+            <rect x=${RX} y=${y} width=${RW} height=${VH} rx="5" fill=${SEV_COL(n.sev)} fill-opacity="0.14" stroke=${SEV_COL(n.sev)}/>
+            <text x=${RX + 9} y=${y + 12} fill=${SEV_COL(n.sev)} font-size="10" style=${{ fontFamily: 'var(--mono)' }}>${n.cve}</text></a>`; })}
       </svg></div>`;
     })()}
   </${Panel}>`;
