@@ -1395,6 +1395,40 @@ def _open_jira_dedup(summary, description, kind, asset, priority="High"):
     except Exception:
         pass
     return open_jira(summary, description, kind, asset, priority)["id"]
+SEMGREP_RULES = os.environ.get("SEMGREP_RULES", "/usr/local/share/semgrep-rules")
+SEMGREP_BIN = os.environ.get("SEMGREP_BIN", "/root/.local/bin/semgrep")
+
+
+def _run_semgrep(scan_dir):
+    """Real SAST — run Semgrep (AST + taint dataflow) over scan_dir with the pinned local ruleset.
+    Deterministic + offline (no registry fetch). Returns findings in the pipeline's shape, or None if
+    semgrep isn't installed (→ caller reports 'engine not installed', never falls back to regex/demo)."""
+    exe = SEMGREP_BIN if os.path.exists(SEMGREP_BIN) else (shutil.which("semgrep") or "")
+    if not exe or not os.path.isdir(SEMGREP_RULES):
+        return None
+    # semgrep-core execvp's `pysemgrep`, so its dir must be on PATH; needs a writable HOME for cache.
+    env = dict(os.environ, HOME="/root", PATH=os.path.dirname(exe) + ":" + os.environ.get("PATH", "/usr/bin:/bin"))
+    cmd = [exe, "scan", "--config", SEMGREP_RULES, "--json", "--quiet", "--metrics=off",
+           "--no-git-ignore", "--timeout", "20", scan_dir]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=400, env=env)
+        data = json.loads(p.stdout or "{}")
+    except Exception as e:
+        print(f"[SEMGREP] scan failed: {e}", flush=True)
+        return None
+    out = []
+    for r in data.get("results", []):
+        extra = r.get("extra") or {}
+        meta = extra.get("metadata") or {}
+        cwe = meta.get("cwe")
+        cwe = (cwe[0] if isinstance(cwe, list) else cwe) or ((r.get("check_id") or "").split(".")[-1])
+        out.append({"cwe": str(cwe), "file": os.path.relpath(r.get("path", ""), WD),
+                    "line": (r.get("start") or {}).get("line"), "code": (extra.get("lines") or "").strip()[:200],
+                    "_fp": r.get("path"), "check_id": (r.get("check_id") or "").split(".")[-1],
+                    "message": (extra.get("message") or "").strip()[:400], "severity": extra.get("severity", "INFO")})
+    return out
+
+
 def run_source_scan():
     """有原始碼後:① 由 packages.manifest 生 SBOM ② 同台 CVE 由 unknown_inventory_gap 升級為 affected/not_affected(版本+SBOM 證據)
     ③ 對 source 做 pattern-based SAST,危險樣式附 file:line + code 證據。affected/SAST 命中 → 開 Jira(治理 egress)。"""
@@ -1500,21 +1534,11 @@ def run_source_scan():
         print(f"[SOURCE SCAN] advisory fetch 失敗,沿用快取: {e}", flush=True); adv = load_upstream_advisories()
     cve_reconciled = _reconcile_advisories(cve_now, adv)
     # 原始碼 SAST(pattern-based,危險樣式供人審)
-    sast = []
-    for dp, _, files in os.walk(real_dir):   # 只掃真實同步進來的原始碼(real_dir),永不掃 demo
-        for fn in files:
-            if not fn.endswith((".c", ".h", ".py", ".sh", ".lua")):   # 只掃程式碼;manifest/設計文件不是 SAST 對象
-                continue
-            fp = os.path.join(dp, fn)
-            try:
-                lines = open(fp, encoding="utf-8", errors="replace").read().splitlines()
-            except Exception:
-                continue
-            for i, ln in enumerate(lines, 1):
-                for cwe, rx in _SAST_SINKS:
-                    if rx.search(ln):
-                        sast.append({"cwe": cwe, "file": os.path.relpath(fp, WD), "line": i,
-                                     "code": ln.strip()[:120], "_fp": fp})
+    # 原始碼 SAST:用 Semgrep(AST + taint 資料流)掃真實同步進來的碼(real_dir),不是 regex pattern。
+    sast = _run_semgrep(real_dir)
+    sast_engine = "semgrep"
+    if sast is None:   # 引擎未安裝 → 誠實說,不退回 regex/demo
+        sast = []; sast_engine = "not-installed"
     # 可追溯 + 修補建議:把每個 SAST 命中對應回上游 github 真實檔(用 commit SHA 做永久行錨連結)+ 附 CWE 修法。
     trace, up_commit, up_repo = {}, None, SRC_REPO
     try:
@@ -1530,7 +1554,8 @@ def run_source_scan():
         if up:
             s["upstream_path"] = up
             s["url"] = f"https://github.com/{up_repo}/blob/{_ref_url}/{up}#L{s['line']}"
-        s["remediation"] = _CWE_REMEDIATION.get(s["cwe"].split()[0])
+        _cid = re.match(r"(CWE-\d+)", s.get("cwe", "") or "")   # semgrep cwe = "CWE-78: …" → 取 "CWE-78"
+        s["remediation"] = _CWE_REMEDIATION.get(_cid.group(1) if _cid else "")
     # B8:每個命中產可驗證 patch。demo 已知檔→整檔修正版;真實 repo 檔→對命中行產最小修補建議。
     #     patch_verified = 套用後該 sink 樣式已消失(demo 為整檔無 sink;真檔為該命中行無 sink)。
     pdir = f"{WD}/patches"
@@ -1627,7 +1652,7 @@ def run_source_scan():
               "cve_feed": live_src,
               "advisories_source": (f"Changelog-NG.txt@{SRC_REF}" if adv else None),
               "advisories_fixed": len(adv), "cve_reconciled": cve_reconciled,
-              "sast_findings": sast, "sast_source": sast_source, "patches": sum(1 for s in sast if s.get("patch")),
+              "sast_findings": sast, "sast_source": sast_source, "sast_engine": sast_engine, "patches": sum(1 for s in sast if s.get("patch")),
               "patches_verified": sum(1 for s in sast if s.get("patch_verified")),
               "design_doc": f"source/{SRC_ASSET}/{DESIGN_DOC}", "design_conformance": design,
               "design_violated": design_violated, "jira_opened": tickets}

@@ -1,0 +1,25 @@
+rules:
+  - id: nemofleet-c-command-injection
+    languages: [c]
+    severity: ERROR
+    message: >-
+      Untrusted input flows into a shell command (CWE-78). system()/popen()/execl* with a
+      non-literal argument can execute attacker-controlled commands. Use execve-family with an
+      argument vector, or strictly validate/allowlist the input.
+    metadata:
+      cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]
+      references: ["https://cwe.mitre.org/data/definitions/78.html"]
+      category: security
+    mode: taint
+    pattern-sources:
+      - pattern: nvram_safe_get(...)
+      - pattern: nvram_get(...)
+      - pattern: websGetVar(...)
+      - pattern: get_cgi(...)
+      - pattern: getenv(...)
+    pattern-sinks:
+      - pattern: system($X)
+      - pattern: popen($X, ...)
+      - patterns:
+          - pattern: $F(...)
+          - metavariable-regex: {metavariable: $F, regex: '^(execl|execlp|execv|execvp|doSystem|eval_va)$'}

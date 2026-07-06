@@ -36,6 +36,8 @@ function sastDrawer(r) {
   openDrawer({ title: t('SAST finding'), sub: r.cwe || 'CWE', node: html`<div class="sastdw">
     <div class="kv"><span class="kvk">CWE</span><span class="kvv">${cweLink(r.cwe)}</span></div>
     <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv">${ghFile((r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : ''), r.url)}</span></div>
+    ${r.check_id ? html`<div class="kv"><span class="kvk">${t('Rule')}</span><span class="kvv mono">${r.check_id}${r.severity ? html` <span class="pill2 ${r.severity === 'ERROR' ? 'c' : 'w'}">${r.severity}</span>` : null}</span></div>` : null}
+    ${r.message ? html`<div class="sastsec"><div class="lbl">${t('What Semgrep found')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.message}</div></div>` : null}
     ${r.violates_design ? html`<div class="kv"><span class="kvk">${t('Design')}</span><span class="kvv"><span class="pill2 c">${t('violates approved baseline')}</span></span></div>` : null}
     ${r.code ? html`<div class="sastsec"><div class="lbl">${t('Matched code')}</div><pre class="codeblock mono">${r.code}</pre></div>` : null}
     ${r.patch ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Suggested patch')}${r.patch_verified
@@ -451,6 +453,8 @@ const I18N = {
   'violate baseline': { en: 'violate baseline', zh: '違反基準' },
   'patch verified': { en: 'patch verified', zh: '修補已驗證' },
   'click a row for code + patch + fix': { en: 'click a row for code + patch + fix', zh: '點一列看程式碼 + patch + 修法' },
+  'Rule': { en: 'Rule', zh: '規則' },
+  'What Semgrep found': { en: 'What Semgrep found', zh: 'Semgrep 判定' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -968,7 +972,7 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'name', label: t('Component'), render: r => html`<span class="mono">${r.name || '—'}</span>` },
             { k: 'version', label: t('Version'), align: 'right', render: r => html`<span class="mono ink2">${r.version || '—'}</span>` },
           ]}/></${Panel}>`}
-      ${html`<${Panel} title="SAST findings" label=${'source · ' + (d.source.sast_source || 'not synced')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
+      ${html`<${Panel} title="SAST findings" label=${(d.source.sast_engine || 'semgrep') + ' · ' + (d.source.sast_source || 'not synced')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${SastSource} d=${d}/>
         ${(() => { const sl = d.source.sast_list || []; const byCwe = {}; sl.forEach((f) => { const c = (f.cwe || '?').split(' ')[0]; byCwe[c] = (byCwe[c] || 0) + 1; });
           const vd = sl.filter(f => f.violates_design).length; const pv = sl.filter(f => f.patch_verified).length;
