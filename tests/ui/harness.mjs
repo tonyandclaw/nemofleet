@@ -11,6 +11,8 @@ const read = (p) => readFileSync(join(WEB, p), 'utf8');
 // A fixed mock fleet state covering the interesting cases (device OFFLINE, 4 nodes, findings…).
 export const MOCK = {
   me: { email: 'tony@asus.com', role: 'admin' },
+  _me: { email: 'tony@asus.com', role: 'admin' },   // normalize() reads d._me → d.me (collect() emits _me)
+  frozen: { frozen: false, by: '', ts: '' },
   nodes: [
     { name: 'team-lead', role: 'Front desk', tag: 'lead', port: 8642, up: true, zone: '' },
     { name: 'worker-a', role: 'ops', tag: 'ops', port: 18791, up: true, zone: 'zone A', caps: ['monitor', 'fix', 'cert'] },

@@ -590,6 +590,7 @@ def _collect_impl():
         d["proactive"]["log"] = [json.loads(l) for l in open(f"{DIR}/data/proactive-log.jsonl", encoding="utf-8") if l.strip()][-20:][::-1]
     except Exception:
         d["proactive"] = {}
+    d["frozen"] = frozen_state()   # emergency kill-switch state (fleet paused?)
     # cross-node work flow: worker /flow events + host-side team-lead events (proactive patrol/report)
     _flow = []
     for _frag in ("worker-a", "worker-b", "worker-c"):
@@ -890,6 +891,46 @@ def do_action(do):
             _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-c 已觸發設定備份"}
         return {"ok": False, "msg": "worker-c 未部署"}
     return {"ok": False, "msg": "未知動作"}
+
+# ── Emergency kill-switch — freeze/unfreeze the whole fleet ───────────────────────────────────────
+# docker pause = SIGSTOP: the agent processes are frozen instantly (not just egress-blocked) and can
+# do nothing until unpaused (SIGCONT restores them; Telegram queues updates meanwhile). The dashboard
+# + local NIM stay up — they are the control surface used to unfreeze. Admin-gated + audited.
+FREEZE_FILE = f"{DIR}/data/fleet-frozen.json"
+FLEET_SANDBOXES = ["team-lead", "worker-a", "worker-b", "worker-c"]
+
+
+def frozen_state():
+    try:
+        return json.load(open(FREEZE_FILE, encoding="utf-8"))
+    except Exception:
+        return {"frozen": False, "by": "", "ts": ""}
+
+
+def do_freeze(on, actor=""):
+    op = "pause" if on else "unpause"
+    changed, missing = [], []
+    for frag in FLEET_SANDBOXES:
+        c = ct(frag)
+        if not c:
+            missing.append(frag); continue
+        cur = sh(f"docker inspect -f '{{{{.State.Status}}}}' {shlex.quote(c)}", 8).strip()
+        if (cur == "paused") != bool(on):   # pause/unpause aren't idempotent — only toggle when needed
+            sh(f"docker {op} {shlex.quote(c)}", 12)
+        changed.append(frag)
+    st = {"frozen": bool(on), "by": actor, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
+    try:
+        json.dump(st, open(FREEZE_FILE, "w"))
+    except Exception:
+        pass
+    audit(actor or "system", "fleet-freeze" if on else "fleet-unfreeze",
+          f"{'凍結' if on else '解凍'} {len(changed)} agents: {','.join(changed)}" + (f"(缺 {','.join(missing)})" if missing else ""), "", True)
+    _flow_append("nemoclaw", "human", ("KILL-SWITCH: freeze fleet" if on else "KILL-SWITCH: resume fleet"), "done",
+                 f"{op} {len(changed)} agents by {actor}")
+    _CACHE["ts"] = 0
+    return {"ok": True, "frozen": bool(on), "agents": changed,
+            "msg": (f"🛑 全隊已凍結({len(changed)} agents 已 pause)—— 一切動作立即停止,dashboard/推理仍可用"
+                    if on else f"▶ 全隊已解凍({len(changed)} agents 已恢復)")}
 
 AUDIT_FILE = os.path.expanduser("~/.config/nemoclaw/ebg19p-audit.jsonl")
 DEV_MSG = {"sync": "EBG19P 已強制同步", "harden": "EBG19P 已套用安全基準(關 UPnP/WPS、開 DoS)",
@@ -1573,6 +1614,13 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
+            if do in ("freeze", "unfreeze"):   # 緊急凍結全隊 —— 高衝擊,僅管理員
+                if sess["role"] != "admin":
+                    return self._send(403, json.dumps({"ok": False, "msg": "緊急凍結需要管理員權限"}), "application/json; charset=utf-8")
+                try:
+                    return self._send(200, json.dumps(do_freeze(do == "freeze", sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
+                except Exception as e:
+                    return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
             if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作"}), "application/json; charset=utf-8")
             try:

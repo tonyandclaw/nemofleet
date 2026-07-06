@@ -475,3 +475,16 @@ html[data-density="spacious"] .kpis{gap:20px}
 
 /* ── SAST report summary strip ── */
 .sastsum{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-bottom:12px;padding-bottom:11px;border-bottom:1px solid var(--line)}
+
+/* emergency kill-switch */
+.frozenbar { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 11px 16px; border-radius: 12px;
+  background: color-mix(in srgb, var(--crit) 16%, var(--panel)); border: 1px solid var(--crit);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 14%, transparent); animation: fbpulse 2.4s ease-in-out infinite; }
+@keyframes fbpulse { 0%,100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 12%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--crit) 22%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .frozenbar { animation: none; } }
+.frozenbar .fb-ico { font-size: 20px; line-height: 1; }
+.frozenbar .fb-txt { flex: 1; font-size: 13px; color: var(--ink); } .frozenbar .fb-txt b { color: var(--crit); letter-spacing: .04em; }
+.frozenbar .fb-meta { color: var(--ink3); font-family: var(--mono); font-size: 11.5px; }
+.killrow { display: flex; align-items: center; gap: 16px; } .killtxt { flex: 1; } .killrow .btn { flex: none; }
+.killnote { font-size: 12px; margin-top: 6px; line-height: 1.5; max-width: 62ch; }
+.btn.danger { border-color: var(--crit); color: var(--crit); } .btn.danger:hover { background: color-mix(in srgb, var(--crit) 12%, transparent); }

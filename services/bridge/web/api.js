@@ -100,5 +100,6 @@ function normalize(d) {
     proactive: d.proactive || null,
     flow: arr(d.flow),
     governance_c: d.governance_c || null,
+    frozen: d.frozen || { frozen: false },
   };
 }

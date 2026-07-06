@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mount, VIEWS } from './harness.mjs';
+import { mount, VIEWS, MOCK } from './harness.mjs';
 
 const CJK = /[一-鿿]/;
 const WEB = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'services', 'bridge', 'web');
@@ -119,4 +119,22 @@ test('every nav VIEWS entry has a comp', () => {
   const entries = [...block.matchAll(/(\w+):\s*\{ label:.*?comp:\s*(\w+)/g)];
   assert.ok(entries.length >= 10, `expected ≥10 views, found ${entries.length}`);
   for (const [, key, comp] of entries) assert.ok(new RegExp('(function|const)\\s+' + comp + '\\b').test(appSrc), `view ${key} → ${comp} not defined`);
+});
+
+test('kill-switch: Admin shows the emergency freeze panel + Freeze button (running state)', async () => {
+  const { text } = await mount({ route: 'admin', lang: 'en' });
+  assert.match(text(), /Emergency kill-switch/i, 'freeze panel present');
+  assert.match(text(), /Freeze fleet/i, 'Freeze button present');
+  assert.ok(!/FLEET FROZEN/.test(text()), 'no frozen banner while running');
+});
+
+test('kill-switch: when frozen, the global banner + Resume show on every view', async () => {
+  MOCK.frozen = { frozen: true, by: 'tony@asus.com', ts: '2026-07-06 15:00:00' };
+  try {
+    const { text } = await mount({ route: 'overview', lang: 'en' });
+    assert.match(text(), /FLEET FROZEN/i, 'frozen banner on overview');
+    assert.match(text(), /Resume fleet/i, 'resume control present');
+  } finally {
+    MOCK.frozen = { frozen: false, by: '', ts: '' };
+  }
 });

@@ -472,6 +472,22 @@ const I18N = {
   'local NIM screens: prompt-injection / out-of-scope / destructive → block': { en: 'local NIM screens: prompt-injection / out-of-scope / destructive → block', zh: '本地 NIM 篩:prompt-injection / 越權 / 破壞性 → 攔截' },
   'allowed only': { en: 'allowed only', zh: '僅放行通過者' },
   'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.': { en: 'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.', zh: '守門:每筆進站請求在艦隊動作前先由本地 NIM 篩 prompt-injection / 越權 / 破壞性 —— 並在 /fix 動作閘再檢一次。' },
+  'FLEET FROZEN': { en: 'FLEET FROZEN', zh: '全隊已凍結' },
+  'all agents paused (docker SIGSTOP); no action or delegation runs': { en: 'all agents paused (docker SIGSTOP); no action or delegation runs', zh: '所有 agent 已暫停(docker SIGSTOP);任何動作/委派都不會執行' },
+  '▶ Resume fleet': { en: '▶ Resume fleet', zh: '▶ 恢復全隊' },
+  'Resuming': { en: 'Resuming', zh: '恢復中' },
+  'Resume all agents? They will continue from where they were paused.': { en: 'Resume all agents? They will continue from where they were paused.', zh: '恢復所有 agent?它們會從暫停處繼續。' },
+  'Resume all agents? They continue from where they were paused.': { en: 'Resume all agents? They continue from where they were paused.', zh: '恢復所有 agent?它們會從暫停處繼續。' },
+  'Emergency kill-switch': { en: 'Emergency kill-switch', zh: '緊急凍結開關' },
+  'freeze / resume the whole fleet': { en: 'freeze / resume the whole fleet', zh: '凍結 / 恢復整個艦隊' },
+  'FROZEN': { en: 'FROZEN', zh: '已凍結' },
+  'all 4 agents paused': { en: 'all 4 agents paused', zh: '4 個 agent 全部暫停' },
+  'running': { en: 'running', zh: '運行中' },
+  'all agents active': { en: 'all agents active', zh: '所有 agent 運作中' },
+  'Instantly pauses every agent process (docker SIGSTOP) so nothing runs — reversible. The dashboard + local NIM stay up. For an incident or a runaway agent.': { en: 'Instantly pauses every agent process (docker SIGSTOP) so nothing runs — reversible. The dashboard + local NIM stay up. For an incident or a runaway agent.', zh: '瞬間暫停每個 agent 行程(docker SIGSTOP),一切停止 —— 可逆。dashboard 與本地 NIM 仍運作。用於事件處置或 agent 失控。' },
+  '🛑 Freeze fleet': { en: '🛑 Freeze fleet', zh: '🛑 凍結全隊' },
+  'Freezing': { en: 'Freezing', zh: '凍結中' },
+  'Freeze the ENTIRE fleet? Every agent stops immediately. Reversible from here.': { en: 'Freeze the ENTIRE fleet? Every agent stops immediately. Reversible from here.', zh: '凍結整個艦隊?每個 agent 立即停止。可從此處恢復。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -1249,8 +1265,22 @@ const AdminView = memo(function AdminView({ d }) {
   const [nu, setNu] = useState({ email: '', password: '', role: 'viewer' });
   const [nr, setNr] = useState({ name: '', telegram: '', email: '' });
   if (d.me.role !== 'admin') return html`<div class="viewfade"><div class="viewhd"><h2>${t('Admin')}</h2></div><div class="empty">Admin only.</div></div>`;
+  const frozen = d.frozen && d.frozen.frozen;
   return html`<div class="viewfade"><div class="viewhd"><h2>Admin</h2><span class="lbl">${t('users · notifications')}</span></div>
     <div class="grid1">
+      ${html`<${Panel} title=${t('Emergency kill-switch')} label=${t('freeze / resume the whole fleet')}>
+        <div class="killrow">
+          <div class="killtxt">
+            ${frozen
+              ? html`<span class="pill2 c">🛑 ${t('FROZEN')}</span> <span class="muted">${t('all 4 agents paused')}${d.frozen.by ? ' · ' + d.frozen.by + ' · ' + d.frozen.ts : ''}</span>`
+              : html`<span class="pill2 g">✓ ${t('running')}</span> <span class="muted">${t('all agents active')}</span>`}
+            <div class="muted killnote">${t('Instantly pauses every agent process (docker SIGSTOP) so nothing runs — reversible. The dashboard + local NIM stay up. For an incident or a runaway agent.')}</div>
+          </div>
+          ${frozen
+            ? html`<${ConfirmBtn} run=${() => NF.action('unfreeze')} label=${t('▶ Resume fleet')} busyLabel=${t('Resuming')} confirm=${t('Resume all agents? They continue from where they were paused.')}/>`
+            : html`<${ConfirmBtn} run=${() => NF.action('freeze')} label=${t('🛑 Freeze fleet')} busyLabel=${t('Freezing')} danger=${true} confirm=${t('Freeze the ENTIRE fleet? Every agent stops immediately. Reversible from here.')}/>`}
+        </div>
+      </${Panel}>`}
       ${html`<${Panel} title="Users & access" label="RBAC">
         ${users.length ? users.map(u => html`<div key=${u.email} class="adminrow">
           <div class="grow"><b>${u.email}</b> <span class="muted mono" style=${{ fontSize: '11px' }}>${u.created || ''}</span></div>
@@ -1548,6 +1578,11 @@ function App() {
           </div>
         </div>
       </header>
+      ${d.frozen && d.frozen.frozen ? html`<div class="frozenbar" role="alert">
+        <span class="fb-ico">🛑</span>
+        <div class="fb-txt"><b>${t('FLEET FROZEN')}</b> — ${t('all agents paused (docker SIGSTOP); no action or delegation runs')}${d.frozen.by ? html` <span class="fb-meta">· ${d.frozen.by} · ${d.frozen.ts}</span>` : null}</div>
+        <${ConfirmBtn} run=${() => NF.action('unfreeze')} label=${t('▶ Resume fleet')} busyLabel=${t('Resuming')} confirm=${t('Resume all agents? They will continue from where they were paused.')}/>
+      </div>` : null}
       <${ErrorBoundary} key=${route}><${View} d=${d}/></${ErrorBoundary}>
       <footer class="foot">
         <span>${t('Audit chain')} <b style=${{ color: d.audit.ok ? 'var(--good)' : 'var(--crit)' }}>${d.audit.ok ? t('✓ verified') : t('✗ broken')}</b> · <span class="mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></span>
