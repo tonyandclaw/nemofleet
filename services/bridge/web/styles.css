@@ -373,6 +373,8 @@ html[data-density="spacious"] .kpis{gap:20px}
 .archbox .muted{color:var(--ink2)}
 .archbox.archworkers>*,.archworkers .archbox{flex-direction:column;align-items:flex-start;min-width:150px}
 .archbox.human{border-color:var(--ink3);font-weight:600}
+.archbox.guardrail { border-color: color-mix(in srgb, var(--accent) 45%, var(--line2)); background: color-mix(in srgb, var(--accent) 7%, var(--panel2)); }
+.archbox.guardrail b { color: var(--accent); }
 .archbox.lead{border-color:var(--s-blue)}
 .archbox.w-ops{border-color:var(--s-aqua)}.archbox.w-sec{border-color:var(--s-violet)}.archbox.w-gov{border-color:var(--s-yellow)}
 .archbox.device{border-color:var(--ink3)}.archbox.ext{border-color:var(--line2)}

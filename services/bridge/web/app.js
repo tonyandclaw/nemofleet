@@ -468,6 +468,10 @@ const I18N = {
   'Suggested fix': { en: 'Suggested fix', zh: '建議修法' },
   'which components carry the vulnerabilities': { en: 'which components carry the vulnerabilities', zh: '哪些元件帶有弱點' },
   'No affected components — SBOM clean or scan pending.': { en: 'No affected components — SBOM clean or scan pending.', zh: '無受影響元件 — SBOM 乾淨或掃描中。' },
+  'Guardrail': { en: 'Guardrail', zh: '守門' },
+  'local NIM screens: prompt-injection / out-of-scope / destructive → block': { en: 'local NIM screens: prompt-injection / out-of-scope / destructive → block', zh: '本地 NIM 篩:prompt-injection / 越權 / 破壞性 → 攔截' },
+  'allowed only': { en: 'allowed only', zh: '僅放行通過者' },
+  'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.': { en: 'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.', zh: '守門:每筆進站請求在艦隊動作前先由本地 NIM 篩 prompt-injection / 越權 / 破壞性 —— 並在 /fix 動作閘再檢一次。' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -1405,6 +1409,7 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
     { k: 'nim', color: 'var(--s-yellow)', title: 'NIM', role: t('local inference'), desc: t('Nemotron 3 Super 120B (NVFP4) · OpenAI /v1 · all 4 nodes route here · provider-agnostic seam') },
   ];
   const rules = [
+    t('Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.'),
     t('Authority: human > worker-c > worker-a/b — worker-c reject is binding; its firmware-apply/rollback need a human token.'),
     t('Hub-and-spoke — workers never talk to each other; supervision is arbitrated via team-lead.'),
     t('Only cross-agent channel — worker_bridge (/32 + X-Bridge-Token) → :9099; A2A rides the same governed channel.'),
@@ -1415,7 +1420,9 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
     <${Panel} title=${t('Topology')} label=${t('human at the apex · hub-and-spoke')}>
       <div class="archmap">
         <div class="archrow"><div class="archbox human">${t('Human')} <span class="muted">· Telegram / Email · approval_token</span></div></div>
-        <div class="archconn">↓ ${t('request')} · ↑ ${t('report / escalate')}</div>
+        <div class="archconn">↓ ${t('request')}</div>
+        <div class="archrow"><div class="archbox guardrail">🛡 <b>${t('Guardrail')}</b> <span class="muted">${t('local NIM screens: prompt-injection / out-of-scope / destructive → block')}</span></div></div>
+        <div class="archconn">↓ ${t('allowed only')} · ↑ ${t('report / escalate')}</div>
         <div class="archplane">
           <div class="archplane-hd"><span class="archplane-mark">◆</span> <b>Nemoclaw</b> <span class="muted">· ${t('control plane · provisions the sandboxes · policy · routes inference')}</span></div>
           <div class="archrow"><div class="osh"><span class="oshtag">openshell</span><div class="archbox lead">${dot((nodes.find(n => n.tag === 'lead') || {}).up)} <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div></div>
