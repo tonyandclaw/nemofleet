@@ -2,7 +2,7 @@
 # works from anywhere in the tree.
 SHELL := /bin/bash
 
-.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean
+.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -35,6 +35,12 @@ uitest: ## run UI render tests (jsdom; catches i18n leaks, blank views, dead wir
 
 itest: ## run integration tests (services started standalone; python3 + curl only, no live stack)
 	@set -e; for t in tests/integration/*.sh; do echo "→ $$t"; bash "$$t"; done
+
+security-scan: ## scan THIS repo (not an upstream sync) with the same Semgrep ruleset worker-b uses
+	@command -v semgrep >/dev/null 2>&1 || { \
+	  echo "semgrep not on PATH — install it once: pip3 install --user semgrep"; exit 1; }
+	@bash scripts/fetch-semgrep-rules.sh
+	semgrep scan --config .cache/semgrep-rules --metrics=off .
 
 clean: ## remove runtime junk (bus messages, logs, pycache) — keeps dirs
 	find data/bus -type f ! -name '.gitkeep' -delete 2>/dev/null || true

@@ -51,3 +51,6 @@ tests/ui/node_modules/
 
 # ENW knowledge — ASUS-internal product design distilled from Confluence; never push to remote
 knowledge/enw/
+
+# ─── demo-only (local presenter script; never push) ──────────────────────────
+scripts/demo-showcase.sh

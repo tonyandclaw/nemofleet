@@ -1,0 +1,13 @@
+{"ts": "23:37:12", "node": "team-lead", "peer": "human", "task": "patrol (GUI)", "status": "working", "detail": ""}
+
+{"ts": "23:37:14", "node": "team-lead", "peer": "human", "task": "patrol (GUI)", "status": "working", "detail": ""}
+
+{"ts": "14:31:54", "node": "worker-b", "peer": "human", "task": "nuclei scan (GUI)", "status": "working", "detail": ""}
+
+{"ts": "15:59:10", "node": "nemoclaw", "peer": "human", "task": "KILL-SWITCH: freeze fleet", "status": "done", "detail": "pause 4 agents by verify@admin"}
+
+{"ts": "15:59:10", "node": "nemoclaw", "peer": "human", "task": "KILL-SWITCH: resume fleet", "status": "done", "detail": "unpause 4 agents by verify@admin"}
+
+{"ts": "16:43:34", "node": "worker-b", "peer": "human", "task": "nuclei scan (GUI)", "status": "working", "detail": ""}
+
+{"ts": "16:45:02", "node": "worker-b", "peer": "human", "task": "source scan (GUI)", "status": "working", "detail": ""}

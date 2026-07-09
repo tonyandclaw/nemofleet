@@ -27,7 +27,9 @@ const NF = {
   users: (body) => _post('/api/users', body),
   authConfig: (body) => _post('/api/auth-config', body),
   snapshot: (op, sel, sb) => _post('/api/snapshot?' + qs({ op, sel, sb })),
-  sys: (p) => _get('/api/sys?' + qs(p)),
+  // do_sys() builds its drawer title/out strings server-side per call (no pre-computed _en sibling
+  // like /api/status has), so it needs the language passed explicitly — LANG is app.js's global.
+  sys: (p) => _get('/api/sys?' + qs({ ...p, lang: LANG })),
   policy: (body) => _post('/api/policy', body),
   policyRo: (sb) => _get('/api/policy-ro?' + qs({ sb })),
 
@@ -55,7 +57,26 @@ const NF = {
 // normalize(raw) — map the raw /api/status payload into the view model. Defensive: every field
 // falls back so the console renders on partial/empty data. Adjust the reads here on backend drift.
 function normalize(d) {
-  d = d || {};
+  // The backend prepares bilingual text as sibling fields (title/title_en, msg/msg_en, detail/detail_en,
+  // desc/desc_en, summary/summary_en, fix/fix_en, risk/risk_en, evidence/evidence_en, b/b_en, …) rather
+  // than localizing itself — walk the whole payload once and swap in the `_en` sibling when LANG is
+  // 'en', so every panel picks up the language switch instead of always showing the Chinese base field.
+  // Builds a fresh clone rather than mutating `v` in place — `d` is the cached poll payload, reused
+  // across renders, and a toggle back to 'zh' must still see the original Chinese, not a baked-in 'en'.
+  function _localize(v) {
+    if (Array.isArray(v)) return v.map(_localize);
+    if (v && typeof v === 'object') {
+      const out = {};
+      for (const k of Object.keys(v)) {
+        if (k.endsWith('_en')) continue;
+        const ek = k + '_en';
+        out[k] = _localize((LANG === 'en' && v[ek]) ? v[ek] : v[k]);
+      }
+      return out;
+    }
+    return v;
+  }
+  d = _localize(d || {});
   const gov = d.governance || d.gov || {};
   const num = (...xs) => { for (const x of xs) if (typeof x === 'number') return x; return 0; };
   const arr = (...xs) => { for (const x of xs) if (Array.isArray(x)) return x; return []; };

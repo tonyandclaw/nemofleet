@@ -37,11 +37,15 @@ function diffLines(patch) {
 }
 // SAST finding detail — real worker-b pattern-SAST hit against the asuswrt-merlin source.
 function sastDrawer(r) {
+  const isNemotron = r.engine === 'nemotron';
   openDrawer({ title: t('SAST finding'), sub: r.cwe || 'CWE', node: html`<div class="sastdw">
+    <div class="kv"><span class="kvk">${t('Engine')}</span><span class="kvv">${isNemotron
+      ? html`<span class="pill2 a">${t('Nemotron review (no Semgrep ruleset for this language)')}</span>`
+      : html`<span class="pill2 g">${t('Semgrep (deterministic)')}</span>`}</span></div>
     <div class="kv"><span class="kvk">CWE</span><span class="kvv">${cweLink(r.cwe)}</span></div>
     <div class="kv"><span class="kvk">${t('File')}</span><span class="kvv">${ghFile((r.upstream_path || r.file || '—') + (r.line ? ':' + r.line : ''), r.url)}</span></div>
     ${r.check_id ? html`<div class="kv"><span class="kvk">${t('Rule')}</span><span class="kvv mono">${r.check_id}${r.severity ? html` <span class="pill2 ${r.severity === 'ERROR' ? 'c' : 'w'}">${r.severity}</span>` : null}</span></div>` : null}
-    ${r.message ? html`<div class="sastsec"><div class="lbl">${t('What Semgrep found')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.message}</div></div>` : null}
+    ${r.message ? html`<div class="sastsec"><div class="lbl">${isNemotron ? t('What Nemotron found') : t('What Semgrep found')}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.message}</div></div>` : null}
     ${r.triage ? html`<div class="sastsec"><div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '7px' }}>${t('Nemotron review')} ${triagePill(r.triage)}</div><div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.5 }}>${r.triage.why || ''}</div>${r.triage.fix ? html`<div style=${{ marginTop: '7px', fontSize: '12.5px' }}><b class="ink2">${t('Suggested fix')}:</b> <span class="muted">${r.triage.fix}</span></div>` : null}</div>` : null}
     ${r.violates_design ? html`<div class="kv"><span class="kvk">${t('Design')}</span><span class="kvv"><span class="pill2 c">${t('violates approved baseline')}</span></span></div>` : null}
     ${r.code ? html`<div class="sastsec"><div class="lbl">${t('Matched code')}</div><pre class="codeblock mono">${r.code}</pre></div>` : null}
@@ -54,7 +58,9 @@ function sastDrawer(r) {
   </div>` });
 }
 let THEME = localStorage.getItem('nf-theme') || 'dark';
-let LANG = localStorage.getItem('nf-lang') || 'zh';
+// var, not let: api.js's normalize() reads LANG too, and needs it as a real global-object property
+// (var in a classic <script>/eval creates one; `let` stays scoped to that one script/eval call).
+var LANG = localStorage.getItem('nf-lang') || 'zh';
 let DENSITY = localStorage.getItem('nf-density') || 'cozy';
 function applyUI() { const e = document.documentElement; e.setAttribute('data-theme', THEME); e.setAttribute('data-density', DENSITY); }
 function setTheme(x) { THEME = x; localStorage.setItem('nf-theme', x); applyUI(); dispatchEvent(new CustomEvent('nfui')); }
@@ -230,6 +236,7 @@ const I18N = {
   'cve_interval_sec': { en: 'CVE scan interval', zh: 'CVE 掃描間隔' },
   'cert_interval_sec': { en: 'Cert scan interval', zh: '憑證掃描間隔' },
   'nuclei_interval_sec': { en: 'Nuclei scan interval', zh: 'Nuclei 掃描間隔' },
+  'source_scan_interval_sec': { en: 'SAST re-sync interval', zh: 'SAST 重新同步間隔' },
   'cert_rsa_min': { en: 'Min RSA bits', zh: 'RSA 最小位元' },
   'cert_ec_min': { en: 'Min ECDSA curve', zh: 'ECDSA 最小曲線' },
   'cert_sig_min': { en: 'Min signature alg', zh: '簽章演算法下限' },
@@ -445,6 +452,14 @@ const I18N = {
   'set by the tier — switch to custom to edit': { en: 'set by the tier — switch to custom to edit', zh: '由層級決定 — 切到 custom 才能編輯' },
   'Source of truth': { en: 'Source of truth', zh: '原始碼來源' },
   'not synced': { en: 'not synced', zh: '未同步' },
+  'Syncing code…': { en: 'Syncing code…', zh: '同步程式碼中…' },
+  'Scanning (Semgrep)…': { en: 'Scanning (Semgrep)…', zh: '掃描中(Semgrep)…' },
+  'Reviewing (NIM)…': { en: 'Reviewing (NIM)…', zh: '審查中(NIM)…' },
+  'Finished': { en: 'Finished', zh: '已完成' },
+  'Semgrep-supported:': { en: 'Semgrep-supported:', zh: 'Semgrep 支援語言:' },
+  '— other languages get a direct Nemotron review instead of Semgrep.': { en: '— other languages get a direct Nemotron review instead of Semgrep.', zh: '— 其他語言由 Nemotron 直接審查(不用 Semgrep)。' },
+  'Semgrep (deterministic)': { en: 'Semgrep (deterministic)', zh: 'Semgrep(確定性)' },
+  'Nemotron review (no Semgrep ruleset for this language)': { en: 'Nemotron review (no Semgrep ruleset for this language)', zh: 'Nemotron 審查(此語言無 Semgrep 規則)' },
   'Set SAST source to': { en: 'Set SAST source to', zh: '將 SAST 原始碼來源設為' },
   'Sync & scan': { en: 'Sync & scan', zh: '同步並掃描' },
   'source updated — re-syncing': { en: 'source updated — re-syncing', zh: '來源已更新 — 重新同步中' },
@@ -459,12 +474,15 @@ const I18N = {
   'patch verified': { en: 'patch verified', zh: '修補已驗證' },
   'click a row for code + patch + fix': { en: 'click a row for code + patch + fix', zh: '點一列看程式碼 + patch + 修法' },
   'Rule': { en: 'Rule', zh: '規則' },
+  'Engine': { en: 'Engine', zh: '引擎' },
   'What Semgrep found': { en: 'What Semgrep found', zh: 'Semgrep 判定' },
+  'What Nemotron found': { en: 'What Nemotron found', zh: 'Nemotron 判定' },
   'confirmed': { en: 'confirmed', zh: '已確認' },
   'false positive': { en: 'false positive', zh: '假陽性' },
   'likely': { en: 'likely', zh: '可能' },
   'Nemotron review': { en: 'Nemotron review', zh: 'Nemotron 複審' },
   'Nemotron-reviewed': { en: 'Nemotron-reviewed', zh: 'Nemotron 已複審' },
+  'files: Nemotron-only (no Semgrep ruleset)': { en: 'files: Nemotron-only (no Semgrep ruleset)', zh: '個檔案:僅 Nemotron 審查(無 Semgrep 規則)' },
   'Suggested fix': { en: 'Suggested fix', zh: '建議修法' },
   'which components carry the vulnerabilities': { en: 'which components carry the vulnerabilities', zh: '哪些元件帶有弱點' },
   'No affected components — SBOM clean or scan pending.': { en: 'No affected components — SBOM clean or scan pending.', zh: '無受影響元件 — SBOM 乾淨或掃描中。' },
@@ -941,7 +959,7 @@ const SbomGraph = memo(function SbomGraph({ d }) {
       const compY = {}; comps.forEach((c, i) => { compY[c] = TOP + i * (CH + CG) + CH / 2; });
       const cveY = {}; cves.forEach((n, i) => { cveY[n.cve] = TOP + i * (VH + VG) + VH / 2; });
       const H = Math.max(comps.length * (CH + CG), cves.length * (VH + VG)) + TOP * 2;
-      return html`<div style=${{ overflowX: 'auto' }}><svg viewBox=${'0 0 ' + W + ' ' + H} style=${{ width: '100%', minWidth: '540px', height: 'auto' }} aria-label="SBOM to CVE exposure">
+      return html`<div style=${{ overflowX: 'auto', maxWidth: '50%' }}><svg viewBox=${'0 0 ' + W + ' ' + H} style=${{ width: '100%', minWidth: '270px', height: 'auto' }} aria-label="SBOM to CVE exposure">
         ${comps.map(c => byComp[c].map((n) => { const y1 = compY[c], y2 = cveY[n.cve], x1 = LX + LW, x2 = RX, mx = (x1 + x2) / 2;
           return html`<path key=${c + n.cve} d=${`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke=${SEV_COL(n.sev)} stroke-width="1.3" stroke-opacity="0.45"/>`; }))}
         ${comps.map((c) => { const y = compY[c] - CH / 2;
@@ -965,17 +983,29 @@ const SastSource = memo(function SastSource({ d }) {
   useEffect(() => { setSrc(curSrc); setRef(curRef); }, [curSrc, curRef]);
   const prov = (d.source && d.source.sast_source) || 'not-synced';
   const synced = prov && prov !== 'not-synced';
-  const save = () => run(Promise.all([NF.config('sast_src', src.trim()), NF.config('sast_ref', (ref.trim() || 'master'))])
-    .then(() => ({ ok: true, msg: t('source updated — re-syncing') })), 'sast-source');
+  const status = (d.source && d.source.sast_status) || 'finished';
+  const STATUS_LABEL = { syncing: t('Syncing code…'), scanning: t('Scanning (Semgrep)…'), reviewing: t('Reviewing (NIM)…'), finished: t('Finished') };
+  const busy = status !== 'finished';
+  const save = () => Promise.all([NF.config('sast_src', src.trim()), NF.config('sast_ref', (ref.trim() || 'master'))])
+    .then(([r1, r2]) => {
+      const ok = !!(r1 && r1.ok && r2 && r2.ok);
+      const msg = ok ? t('source updated — re-syncing') : ((r1 && !r1.ok && r1.msg) || (r2 && !r2.ok && r2.msg) || t('update failed'));
+      return { ok, msg };
+    });
   return html`<div class="sastsrc">
-    <div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '8px' }}>${t('Source of truth')}
-      <span class=${'pill2 ' + (synced ? 'g' : 'w')}>${synced ? prov : t('not synced')}</span></div>
+    <div class="lbl" style=${{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>${t('Source of truth')}
+      <span class=${'pill2 ' + (synced ? 'g' : 'w')}>${synced ? prov : t('not synced')}</span>
+      <span class=${'pill2 ' + (busy ? 'a' : 'g')}>${busy ? '⧗ ' : '✓ '}${STATUS_LABEL[status] || status}</span></div>
     <div class="addrow" style=${{ flexWrap: 'wrap', marginTop: '8px' }}>
       <input class="inp" style=${{ flex: '1 1 320px' }} placeholder="https://github.com/OWNER/REPO.git  ·  or /mounted/folder" value=${src} onInput=${e => setSrc(e.target.value)}/>
       <input class="inp" style=${{ maxWidth: '150px' }} placeholder="ref (branch / tag / sha)" value=${ref} onInput=${e => setRef(e.target.value)}/>
       <${ConfirmBtn} confirm=${t('Set SAST source to') + ' ' + (src || '—') + ' @ ' + (ref || 'master') + '?'} run=${save} label=${t('Sync & scan')} busyLabel="…"/>
     </div>
     <div class="muted" style=${{ fontSize: '10.5px', marginTop: '7px' }}>${t('worker-b syncs the pinned ref and scans it — a GitHub repo or a folder mounted into the sandbox. No demo fallback: if it can’t sync, it says so.')}</div>
+    <div class="muted" style=${{ fontSize: '10.5px', marginTop: '4px' }}>
+      ${t('Semgrep-supported:')} <b class="ink2">${((d.source && d.source.semgrep_langs) || []).join(', ') || '—'}</b>
+      ${t('— other languages get a direct Nemotron review instead of Semgrep.')}
+    </div>
   </div>`;
 });
 const SecurityView = memo(function SecurityView({ d }) {
@@ -996,14 +1026,6 @@ const SecurityView = memo(function SecurityView({ d }) {
             </div>`) : html`<div class="muted">${t('No penalties — fleet posture is healthy ✓')}</div>`}
           </div>
         </div></${Panel}>`}
-      ${html`<${Panel} title="CVE findings" label="fleet scan" right=${html`<${ActionBtn} act="cve" label="Rescan" busyLabel="Scanning" ghost=${true}/>`}>
-        <${DataTable} rows=${d.cve.findings} pageSize=${8} empty="No affected CVEs — or scan pending."
-          cols=${[
-            { k: 'cve', label: 'CVE', render: r => cveLink(r.cve || r.id) },
-            { k: 'component', label: 'Component', render: r => html`<span class="mono">${r.component || r.pkg || ''}</span>` },
-            { k: 'asset', label: 'Asset', render: r => r.asset || '' },
-            { k: 'severity', label: 'Severity', align: 'right', render: r => sevPill(r.severity || r.cls) },
-          ]}/></${Panel}>`}
       ${d.nuclei ? html`<${Panel} title="Active scan (nuclei)" label=${'projectdiscovery · ' + (d.nuclei.tags || 'asus') + ' templates'} right=${html`<${ActionBtn} act="nuclei" label="Scan now" busyLabel="Scanning" ghost=${true}/>`}>
         ${d.nuclei.available === false
           ? html`<div class="muted" style=${{ padding: '2px 2px 6px' }}>⚠ ${d.nuclei.note || 'nuclei unavailable'}</div>`
@@ -1032,16 +1054,9 @@ const SecurityView = memo(function SecurityView({ d }) {
             { k: 'severity', label: 'Sev', align: 'right', render: r => sevPill(r.severity) },
           ]}/></${Panel}>`; })()}
       ${(d.me && d.me.role === 'admin') ? html`<${CipherPolicyPanel} d=${d}/>` : null}
-      ${html`<${Panel} title="SBOM" label=${'components · ' + (d.source.sbom_source || 'not synced')}
-        right=${html`<span class="pill2 a">${(d.source.sbom || 0)} ${t('packages')}</span>`}>
-        <${DataTable} rows=${d.source.sbom_list || []} pageSize=${10} empty=${t('No SBOM — configure a source in SAST below.')}
-          cols=${[
-            { k: 'name', label: t('Component'), render: r => html`<span class="mono">${r.name || '—'}</span>` },
-            { k: 'version', label: t('Version'), align: 'right', render: r => html`<span class="mono ink2">${r.version || '—'}</span>` },
-          ]}/></${Panel}>`}
-      ${html`<${SbomGraph} d=${d}/>`}
       ${html`<${Panel} title="SAST findings" label=${(d.source.sast_engine || 'semgrep') + ' · ' + (d.source.sast_source || 'not synced')} right=${html`<${ActionBtn} act="source" label="Re-run" busyLabel="Running" ghost=${true}/>`}>
         <${SastSource} d=${d}/>
+        ${d.source.note ? html`<div class="muted" style=${{ fontSize: '11.5px', margin: '2px 0 8px', color: 'var(--warn)' }}>⚠ ${d.source.note}</div>` : null}
         ${(() => { const sl = d.source.sast_list || []; const byCwe = {}; sl.forEach((f) => { const c = (f.cwe || '?').split(' ')[0]; byCwe[c] = (byCwe[c] || 0) + 1; });
           const vd = sl.filter(f => f.violates_design).length; const pv = sl.filter(f => f.patch_verified).length;
           return sl.length ? html`<div class="sastsum">
@@ -1049,15 +1064,34 @@ const SecurityView = memo(function SecurityView({ d }) {
             ${vd ? html`<span class="pill2 w">⚑ ${vd} ${t('violate baseline')}</span>` : null}
             ${pv ? html`<span class="pill2 g">✓ ${pv} ${t('patch verified')}</span>` : null}
             ${d.source.sast_triaged ? html`<span class="pill2 a">⧉ ${d.source.sast_triaged} ${t('Nemotron-reviewed')}</span>` : null}
+            ${d.source.nemotron_reviewed_files ? html`<span class="pill2 a">◈ ${d.source.nemotron_reviewed_files} ${t('files: Nemotron-only (no Semgrep ruleset)')}</span>` : null}
             ${sl.filter(f => (f.triage || {}).verdict === 'confirmed').length ? html`<span class="pill2 c">${sl.filter(f => (f.triage || {}).verdict === 'confirmed').length} ${t('confirmed')}</span>` : null}
             <span class="muted" style=${{ fontSize: '10.5px', marginLeft: 'auto' }}>${t('click a row for code + patch + fix')}</span>
           </div>` : null; })()}
         <${DataTable} rows=${d.source.sast_list} pageSize=${12} empty=${t('No SAST hits — configure a source above, or the pinned ref is clean.')} onRow=${sastDrawer}
           cols=${[
-            { k: 'cwe', label: 'CWE', render: r => html`${cweLink(r.cwe)} ${triagePill(r.triage)}` },
+            { k: 'cwe', label: 'CWE', render: r => html`${r.engine === 'nemotron' ? html`<span class="pill2 a" style=${{ fontSize: '9px', marginRight: '4px' }} title=${t('Nemotron review (no Semgrep ruleset for this language)')}>◈</span>` : null}${cweLink(r.cwe)} ${triagePill(r.triage)}` },
             { k: 'file', label: 'File', render: r => html`${ghFile(r.upstream_path || r.file, r.url)}${r.violates_design ? html` <span class="pill2 w" style=${{ fontSize: '9px' }}>${r.violates_design}</span>` : null}` },
             { k: 'line', label: 'Line', align: 'right', render: r => r.url ? html`<a class="mono cvelink" href=${r.url} target="_blank" rel="noopener noreferrer" onClick=${e => e.stopPropagation()}>${r.line || ''}</a>` : html`<span class="mono">${r.line || ''}</span>` },
           ]}/></${Panel}>`}
+      ${html`<${Panel} title="SBOM" label=${'components · ' + (d.source.sbom_source || 'not synced')}
+        right=${html`<span class="pill2 a">${(d.source.sbom || 0)} ${t('packages')}</span>`}>
+        ${d.source.sbom_note ? html`<div class="muted" style=${{ fontSize: '11.5px', margin: '2px 0 8px', color: 'var(--warn)' }}>⚠ ${d.source.sbom_note}</div>` : null}
+        <${DataTable} rows=${d.source.sbom_list || []} pageSize=${10} empty=${t('No SBOM — configure a source in SAST below.')}
+          cols=${[
+            { k: 'name', label: t('Component'), render: r => html`<span class="mono">${r.name || '—'}</span>` },
+            { k: 'version', label: t('Version'), align: 'right', render: r => html`<span class="mono ink2">${r.version || '—'}</span>` },
+          ]}/></${Panel}>`}
+      ${html`<${Panel} title="CVE findings" label="fleet scan" right=${html`<${ActionBtn} act="cve" label="Rescan" busyLabel="Scanning" ghost=${true}/>`}>
+        <${DataTable} rows=${d.cve.findings} pageSize=${8} empty="No affected CVEs — or scan pending."
+          cols=${[
+            { k: 'cve', label: 'CVE', render: r => cveLink(r.cve || r.id) },
+            { k: 'component', label: 'Component', render: r => html`<span class="mono">${r.component || r.pkg || ''}</span>` },
+            { k: 'version', label: t('Version'), render: r => html`<span class="mono">${r.our_version || '—'}</span>${r.fixed_in ? html`<span class="muted mono" style=${{ marginLeft: '4px' }}>→ ${r.fixed_in}</span>` : null}` },
+            { k: 'asset', label: 'Asset', render: r => r.asset || '' },
+            { k: 'severity', label: 'Severity', align: 'right', render: r => sevPill(r.severity || r.cls) },
+          ]}/></${Panel}>`}
+      ${html`<${SbomGraph} d=${d}/>`}
     </div></div>`;
 });
 
@@ -1217,6 +1251,7 @@ const CFG = {
   cve_interval_sec: [{ v: 0, l: 'off' }, { v: 3600, l: '1h' }, { v: 21600, l: '6h' }, { v: 86400, l: '24h' }],
   nuclei_interval_sec: [{ v: 0, l: 'off' }, { v: 3600, l: '1h' }, { v: 21600, l: '6h' }, { v: 86400, l: '24h' }, { v: 604800, l: '7d' }],
   cert_interval_sec: [{ v: 0, l: 'off' }, { v: 3600, l: '1h' }, { v: 21600, l: '6h' }, { v: 86400, l: '24h' }],
+  source_scan_interval_sec: [{ v: 0, l: 'off' }, { v: 3600, l: '1h' }, { v: 21600, l: '6h' }, { v: 86400, l: '24h' }],
   cert_expire_warn_days: [7, 14, 30, 60, 90], cert_rsa_min: [2048, 3072, 4096], cert_sig_min: ['sha1', 'sha256', 'sha384'],
   cert_ec_min: [256, 384, 521], cert_cipher_policy: ['lax', 'standard', 'strict', 'custom'],
   dev_cpu_hi: [70, 80, 85, 90, 95], dev_ram_hi: [70, 80, 85, 90, 95], dev_temp_hi: [70, 75, 80, 85, 90],
@@ -1238,7 +1273,7 @@ const SettingsView = memo(function SettingsView({ d }) {
         <${Field} label="Density"><${Segmented} value=${DENSITY} options=${[{ v: 'compact', l: t('Compact') }, { v: 'cozy', l: t('Cozy') }, { v: 'spacious', l: t('Spacious') }]} onChange=${setDensity}/></${Field}>
       </div></${Panel}>`}
       ${html`<${Panel} title="Scan schedule" label="worker cadence"><div class="formgrid">
-        ${seg('cve_interval_sec', 'worker-b CVE scan cadence')}${seg('cert_interval_sec', 'worker-a cert/crypto cadence')}${seg('nuclei_interval_sec', t('worker-b nuclei active scan (nuclei-templates)'))}</div></${Panel}>`}
+        ${seg('cve_interval_sec', 'worker-b CVE scan cadence')}${seg('cert_interval_sec', 'worker-a cert/crypto cadence')}${seg('nuclei_interval_sec', t('worker-b nuclei active scan (nuclei-templates)'))}${seg('source_scan_interval_sec', t('worker-b SAST re-sync of the current source — 5-day-unused local copies are cleaned up regardless of this setting'))}</div></${Panel}>`}
       ${html`<${Panel} title="Certificate & crypto thresholds" label="what counts as weak"><div class="formgrid">
         ${seg('cert_rsa_min', 'min RSA key bits')}${seg('cert_ec_min', 'min ECDSA curve')}${seg('cert_sig_min', 'min signature alg')}
         ${seg('cert_expire_warn_days', 'expiry lead-time (days)')}${seg('cert_cipher_policy', 'cipher flagging policy')}</div></${Panel}>`}
@@ -1543,9 +1578,11 @@ function App() {
   const { data, err, loading, reload } = useStatus();
   const route = useHashRoute('overview');
   const clock = useClock();
-  const [, uiN] = useState(0);
+  const [uiTick, uiN] = useState(0);
   useEffect(() => { const h = () => uiN(n => n + 1); addEventListener('nfui', h); return () => removeEventListener('nfui', h); }, []);
-  const d = useMemo(() => (data ? normalize(data) : null), [data]);
+  // uiTick is in the deps so a language toggle ('nfui') re-runs normalize()'s _localize pass
+  // immediately, instead of waiting for the next poll tick to pick a language.
+  const d = useMemo(() => (data ? normalize(data) : null), [data, uiTick]);
   useEffect(() => { const h = () => reload(); addEventListener('nfreload', h); return () => removeEventListener('nfreload', h); }, [reload]);
 
   if (err && !d) return html`<div class="errbox"><b>${t('Cannot reach the fleet API')}</b><div class="ink2">${err}</div><button class="retry" onClick=${reload}>${t('Retry')}</button></div>`;

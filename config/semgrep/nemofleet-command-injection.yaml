@@ -23,3 +23,34 @@ rules:
       - patterns:
           - pattern: $F(...)
           - metavariable-regex: {metavariable: $F, regex: '^(execl|execlp|execv|execvp|doSystem|eval_va)$'}
+  - id: nemofleet-py-command-injection
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Untrusted input flows into a shell command or eval (CWE-78). subprocess with shell=True,
+      os.system, os.popen, and eval/exec run whatever string they're given — an attacker-controlled
+      argument means attacker-controlled code. Pass an argument list (no shell=True), or validate/
+      allowlist the input.
+    metadata:
+      cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]
+      references: ["https://cwe.mitre.org/data/definitions/78.html"]
+      category: security
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.form.get(...)
+      - pattern: request.json.get(...)
+      - pattern: os.environ.get(...)
+      - pattern: os.environ[...]
+      - pattern: sys.argv[...]
+      - pattern: input(...)
+    pattern-sinks:
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+      - pattern: eval(...)
+      - pattern: exec(...)
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run(..., shell=True, ...)
+              - pattern: subprocess.call(..., shell=True, ...)
+              - pattern: subprocess.Popen(..., shell=True, ...)

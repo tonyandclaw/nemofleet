@@ -355,15 +355,23 @@ def _collect_impl():
         if "cve" in (h.get("caps") or []):
             cve = read_json_in(c, "cve-report.json")
             aff = [{"cve": f.get("cve"), "asset": f.get("asset", "").replace("lab-", ""),
-                    "component": f.get("component"), "ver": f.get("our_version"), "sev": f.get("severity")}
+                    "component": f.get("component"), "our_version": f.get("our_version"),
+                    "fixed_in": f.get("fixed_in"), "severity": f.get("severity")}
                    for f in cve.get("findings", []) if f.get("verdict") == "affected"]
             node["cve"] = {"fleet": cve.get("fleet_size"), "counts": cve.get("counts", {}), "affected_list": aff}
             src = read_json_in(c, "source-cve-report.json")
             if src:
+                # Live scan progress lives in its own small file, not the report — the report only
+                # gets (re)written at the END of a run, so it can't carry "I'm currently mid-run" state.
+                _sst = read_json_in(c, "source-scan-status.json")
                 node["source"] = {"sbom": src.get("sbom_packages"), "sbom_source": src.get("sbom_source"),
                                   "sbom_list": (src.get("sbom") or [])[:200],   # 真實 SBOM 元件清單(供 GUI SBOM 面板)
+                                  "sbom_note": src.get("sbom_note"), "sbom_note_en": src.get("sbom_note_en"),
                                   "sast_source": src.get("sast_source"), "sast_engine": src.get("sast_engine"), "sast_triaged": src.get("sast_triaged"), "analysis_by": src.get("analysis_by"),
                                   "upstream_repo": src.get("upstream_repo"),
+                                  "note": src.get("note"), "note_en": src.get("note_en"),
+                                  "semgrep_langs": src.get("semgrep_langs") or [], "nemotron_reviewed_files": src.get("nemotron_reviewed_files"),
+                                  "sast_status": (_sst.get("phase") if _sst.get("on") else "finished") if _sst else "finished",
                                   "advisories_source": src.get("advisories_source"), "cve_feed": src.get("cve_feed"),
                                   "advisories_fixed": src.get("advisories_fixed"), "cve_reconciled": src.get("cve_reconciled"),
                                   "sast": len(src.get("sast_findings", [])),
@@ -377,7 +385,8 @@ def _collect_impl():
                                                  "patch_verified": s.get("patch_verified"), "violates_design": s.get("violates_design"),
                                                  "upstream_path": s.get("upstream_path"), "url": s.get("url"),
                                                  "remediation": s.get("remediation"), "patch_kind": s.get("patch_kind"),
-                                                 "check_id": s.get("check_id"), "message": s.get("message"), "severity": s.get("severity"), "triage": s.get("triage")}
+                                                 "check_id": s.get("check_id"), "message": s.get("message"), "severity": s.get("severity"), "triage": s.get("triage"),
+                                                 "engine": s.get("engine", "semgrep")}
                                                 for s in src.get("sast_findings", [])[:40]]}
         if "nuclei" in (h.get("caps") or []):
             try:
@@ -451,7 +460,7 @@ def _collect_impl():
                     gov["denied_benign"] += 1
                 else:
                     gov["denied"] += 1
-        for ln in [x for x in lines if "getUpdates" not in x][-40:]:
+        for ln in [x for x in lines if "getUpdates" not in x and "SSH:OPEN" not in x][-40:]:
             dtm = re.search(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})", ln)  # log 是 UTC(…Z)
             disp, sortk = "", ""
             if dtm:
@@ -476,9 +485,10 @@ def _collect_impl():
     denied = [e for e in alln if e["verb"] == "DENIED"][:14]      # 保證最近 DENIED 進得了事件流(否則被頻繁 ALLOWED 擠掉→「擋下」篩選空白)
     allowed = [e for e in alln if e["verb"] == "ALLOWED"][:34]
     d["events"] = sorted(denied + allowed, key=lambda e: e["ts"], reverse=True)
-    d["governance"] = gov
+    allowed_total = sum(gov["allowed"].values())
+    d["governance"] = {**gov, "allowed": allowed_total, "allowed_by_policy": gov["allowed"], "benign": gov["denied_benign"]}
 
-    HISTORY.append({"ts": time.strftime("%H:%M:%S"), "allowed": sum(gov["allowed"].values()), "telegram": d["telegram_recent"], "denied": gov["denied"]})
+    HISTORY.append({"ts": time.strftime("%H:%M:%S"), "allowed": allowed_total, "telegram": d["telegram_recent"], "denied": gov["denied"]})
     del HISTORY[:-40]
     d["history"] = {"allowed": [x["allowed"] for x in HISTORY], "telegram": [x["telegram"] for x in HISTORY], "denied": [x["denied"] for x in HISTORY], "ts": [x["ts"] for x in HISTORY]}
 
@@ -629,7 +639,7 @@ ALLOWED_CFG = {"cve_interval_sec", "cert_interval_sec", "cert_expire_warn_days",
                "dev_cpu_hi", "dev_ram_hi", "dev_temp_hi",
                "proactive_enabled", "patrol_interval_sec", "digest_interval_sec", "proactive_safety_net",
                "nuclei_interval_sec", "nuclei_tags", "proactive_snooze_until", "backup_interval_sec",
-               "sast_src", "sast_ref"}   # worker-b SAST 原始碼來源(GitHub URL / owner-repo / 已掛載資料夾)+ ref
+               "sast_src", "sast_ref", "source_scan_interval_sec"}   # worker-b SAST 原始碼來源(GitHub URL / owner-repo / 已掛載資料夾)+ ref + 每日重掃排程
 def _worker_post(path, payload, timeout=10):
     """POST JSON to each worker's IT-ops endpoint. The JSON is piped via stdin to an in-container
     curl (docker exec -i … --data-binary @-): no nested shell quoting, no base64 smuggling, and the
@@ -1105,92 +1115,104 @@ def _sysinfo():
     _SYSINFO["ts"] = time.time(); _SYSINFO["data"] = info
     return info
 
-def do_sys(do, sb="", tail="200", provider="", model="", chan="", a1="", a2=""):
+def _T(lang, zh, en):
+    """Pick the drawer-facing string for the requesting language. do_sys' title/out/error strings are
+    built server-side per call (unlike the /api/status payload's pre-computed field/field_en pairs that
+    api.js's normalize() now picks between), so the choice has to happen here, at call time."""
+    return en if lang == "en" else zh
+
+
+def do_sys(do, sb="", tail="200", provider="", model="", chan="", a1="", a2="", lang="zh"):
     # 中價值:較重的診斷 + 管理動作,改 on-demand(按鈕觸發,不進 5s 輪詢)
+    T = lambda zh, en: _T(lang, zh, en)  # noqa: E731
+    BAD_SB = T("sandbox 不合法", "invalid sandbox")
+    NO_OUT_TO = T("(無輸出 / 逾時)", "(no output / timed out)")
+    NO_OUT = T("(無輸出)", "(no output)")
     if do == "doctor":
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} doctor 2>&1", 45))
-        return {"ok": True, "title": f"{sb} · doctor", "out": out[-5000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": f"{sb} · doctor", "out": out[-5000:] or NO_OUT_TO}
     if do == "logs":
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
         n = str(tail) if re.match(r"^\d{1,4}$", str(tail)) else "200"
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} logs --tail {n} 2>&1", 30))
-        return {"ok": True, "title": f"{sb} · logs (tail {n})", "out": out[-9000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": f"{sb} · logs (tail {n})", "out": out[-9000:] or NO_OUT_TO}
     if do == "stale":
         out = _strip_ansi(sh("nemoclaw upgrade-sandboxes --check 2>&1", 45))
-        return {"ok": True, "title": "過期沙箱檢查", "out": out[-5000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": T("過期沙箱檢查", "Stale sandbox check"), "out": out[-5000:] or NO_OUT_TO}
     if do == "gsettings":
         out = _strip_ansi(sh("openshell settings get --global 2>&1", 15))
-        return {"ok": True, "title": "全域 OpenShell 設定(--global)", "out": out[-5000:] or "(無輸出)"}
+        return {"ok": True, "title": T("全域 OpenShell 設定(--global)", "Global OpenShell settings (--global)"), "out": out[-5000:] or NO_OUT}
     if do == "recover":   # nemoclaw <sb> recover:重啟 gateway + dashboard port-forward(冪等自癒)
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} recover 2>&1", 90))
-        return {"ok": True, "title": f"{sb} · recover", "out": out[-6000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": f"{sb} · recover", "out": out[-6000:] or NO_OUT_TO}
     if do == "gwhealth":  # openshell status + doctor:強制層 gateway 健康
         out = (_strip_ansi(sh("openshell status 2>&1", 20)) + "\n\n===== openshell doctor =====\n"
                + _strip_ansi(sh("openshell doctor 2>&1", 45)))
-        return {"ok": True, "title": "OpenShell Gateway 健康(status + doctor)", "out": out[-9000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": T("OpenShell Gateway 健康(status + doctor)", "OpenShell gateway health (status + doctor)"), "out": out[-9000:] or NO_OUT_TO}
     if do == "infset":    # nemoclaw inference set --provider --model [--sandbox];切換推理路由
         if not re.match(r"^[A-Za-z0-9._-]{1,64}$", provider) or not re.match(r"^[A-Za-z0-9._:/-]{1,96}$", model):
-            return {"ok": False, "out": "provider / model 格式不正確(限英數與 . _ - : /)"}
+            return {"ok": False, "out": T("provider / model 格式不正確(限英數與 . _ - : /)", "invalid provider / model format (alnum + . _ - : / only)")}
         cmd = f"nemoclaw inference set --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
         if sb and _policy_sb_ok(sb): cmd += f" --sandbox {shlex.quote(sb)}"
         out = _strip_ansi(sh(cmd + " 2>&1", 90))
-        return {"ok": True, "title": f"inference set → {provider} / {model}", "out": out[-6000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": f"inference set → {provider} / {model}", "out": out[-6000:] or NO_OUT_TO}
     if do == "gc":        # nemoclaw gc --dry-run:預覽要刪的孤兒 docker 映像(只看不刪)
         out = _strip_ansi(sh("nemoclaw gc --dry-run 2>&1", 60))
-        return {"ok": True, "title": "GC 預覽(--dry-run · 不刪)", "out": out[-6000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": T("GC 預覽(--dry-run · 不刪)", "GC preview (--dry-run · no deletion)"), "out": out[-6000:] or NO_OUT_TO}
     if do == "gcrun":     # nemoclaw gc --yes:真的清除孤兒 docker 映像
         out = _strip_ansi(sh("nemoclaw gc --yes 2>&1", 120))
-        return {"ok": True, "title": "GC 執行(已清孤兒映像)", "out": out[-6000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": T("GC 執行(已清孤兒映像)", "GC run (orphan images cleaned)"), "out": out[-6000:] or NO_OUT_TO}
     if do in ("chanstart", "chanstop"):   # nemoclaw <sb> channels start|stop <channel>(保留憑證,重建沙箱)
         sbn = sb or "team-lead"
-        if not _policy_sb_ok(sbn): return {"ok": False, "out": "sandbox 不合法"}
-        if not re.match(r"^[a-z]{2,20}$", chan): return {"ok": False, "out": "channel 名稱不正確"}
+        if not _policy_sb_ok(sbn): return {"ok": False, "out": BAD_SB}
+        if not re.match(r"^[a-z]{2,20}$", chan): return {"ok": False, "out": T("channel 名稱不正確", "invalid channel name")}
         verb = "start" if do == "chanstart" else "stop"
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sbn)} channels {verb} {shlex.quote(chan)} 2>&1", 120))
-        return {"ok": True, "title": f"{sbn} · channels {verb} {chan}", "out": out[-6000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": f"{sbn} · channels {verb} {chan}", "out": out[-6000:] or NO_OUT_TO}
     if do == "upgrade":   # nemoclaw upgrade-sandboxes --auto --yes:重建「過時且運行中」沙箱
         out = _strip_ansi(sh("nemoclaw upgrade-sandboxes --auto --yes 2>&1", 240))
-        return {"ok": True, "title": "升級過時沙箱(--auto)", "out": out[-9000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": T("升級過時沙箱(--auto)", "Upgrade stale sandboxes (--auto)"), "out": out[-9000:] or NO_OUT_TO}
     if do == "backupall": # nemoclaw backup-all:升級前備份所有沙箱狀態
         out = _strip_ansi(sh("nemoclaw backup-all 2>&1", 240))
-        return {"ok": True, "title": "全量備份(backup-all)", "out": out[-8000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": T("全量備份(backup-all)", "Backup all (backup-all)"), "out": out[-8000:] or NO_OUT_TO}
     if do == "debug":     # nemoclaw debug --quick --output <tarball>:診斷包(寫到 host /tmp)
         path = f"/tmp/nemoclaw-debug-{int(time.time())}.tgz"
         out = _strip_ansi(sh(f"nemoclaw debug --quick --output {shlex.quote(path)} 2>&1", 120))
-        return {"ok": True, "title": "診斷包(debug --quick)", "out": (f"bundle: {path}\n(在 host 上取用)\n\n" + out)[-8000:]}
+        note = T(f"bundle: {path}\n(在 host 上取用)\n\n", f"bundle: {path}\n(available on the host)\n\n")
+        return {"ok": True, "title": T("診斷包(debug --quick)", "Debug bundle (debug --quick)"), "out": (note + out)[-8000:]}
     if do == "rebuild":   # nemoclaw <sb> rebuild --yes:升級單一沙箱到當前 agent 版(會重建)
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} rebuild --yes 2>&1", 300))
-        return {"ok": True, "title": f"{sb} · rebuild", "out": out[-9000:] or "(無輸出 / 逾時)"}
+        return {"ok": True, "title": f"{sb} · rebuild", "out": out[-9000:] or NO_OUT_TO}
     if do == "hostslist": # nemoclaw <sb> hosts-list
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} hosts-list 2>&1", 20))
-        return {"ok": True, "title": f"{sb} · hosts", "out": out[-5000:] or "(無 host 別名)"}
+        return {"ok": True, "title": f"{sb} · hosts", "out": out[-5000:] or T("(無 host 別名)", "(no host aliases)")}
     if do == "hostsadd":  # nemoclaw <sb> hosts-add <hostname> <ip>
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
-        if not re.match(r"^[A-Za-z0-9._-]{1,64}$", a1): return {"ok": False, "out": "hostname 不正確"}
-        if not re.match(r"^[0-9]{1,3}(\.[0-9]{1,3}){3}$", a2): return {"ok": False, "out": "IP 不正確(限 IPv4)"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
+        if not re.match(r"^[A-Za-z0-9._-]{1,64}$", a1): return {"ok": False, "out": T("hostname 不正確", "invalid hostname")}
+        if not re.match(r"^[0-9]{1,3}(\.[0-9]{1,3}){3}$", a2): return {"ok": False, "out": T("IP 不正確(限 IPv4)", "invalid IP (IPv4 only)")}
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} hosts-add {shlex.quote(a1)} {shlex.quote(a2)} 2>&1", 30))
-        return {"ok": True, "title": f"{sb} · hosts-add {a1} → {a2}", "out": out[-5000:] or "(無輸出)"}
+        return {"ok": True, "title": f"{sb} · hosts-add {a1} → {a2}", "out": out[-5000:] or NO_OUT}
     if do == "hostsrm":   # nemoclaw <sb> hosts-remove <hostname>
-        if not _policy_sb_ok(sb): return {"ok": False, "out": "sandbox 不合法"}
-        if not re.match(r"^[A-Za-z0-9._-]{1,64}$", a1): return {"ok": False, "out": "hostname 不正確"}
+        if not _policy_sb_ok(sb): return {"ok": False, "out": BAD_SB}
+        if not re.match(r"^[A-Za-z0-9._-]{1,64}$", a1): return {"ok": False, "out": T("hostname 不正確", "invalid hostname")}
         out = _strip_ansi(sh(f"nemoclaw {shlex.quote(sb)} hosts-remove {shlex.quote(a1)} 2>&1", 30))
-        return {"ok": True, "title": f"{sb} · hosts-remove {a1}", "out": out[-5000:] or "(無輸出)"}
+        return {"ok": True, "title": f"{sb} · hosts-remove {a1}", "out": out[-5000:] or NO_OUT}
     if do in ("fwdstart", "fwdstop"):   # openshell forward start|stop <port> [sandbox]
-        if not re.match(r"^[0-9][0-9.:]{0,39}$", a1): return {"ok": False, "out": "port 不正確"}
+        if not re.match(r"^[0-9][0-9.:]{0,39}$", a1): return {"ok": False, "out": T("port 不正確", "invalid port")}
         tail2 = ""
         if a2:
-            if not _policy_sb_ok(a2): return {"ok": False, "out": "sandbox 不合法"}
+            if not _policy_sb_ok(a2): return {"ok": False, "out": BAD_SB}
             tail2 = " " + shlex.quote(a2)
         if do == "fwdstart":
             out = _strip_ansi(sh(f"openshell forward start {shlex.quote(a1)}{tail2} -d 2>&1", 30))
-            return {"ok": True, "title": f"forward start {a1}" + (f" · {a2}" if a2 else ""), "out": out[-5000:] or "(無輸出)"}
+            return {"ok": True, "title": f"forward start {a1}" + (f" · {a2}" if a2 else ""), "out": out[-5000:] or NO_OUT}
         out = _strip_ansi(sh(f"openshell forward stop {shlex.quote(a1)}{tail2} 2>&1", 30))
-        return {"ok": True, "title": f"forward stop {a1}" + (f" · {a2}" if a2 else ""), "out": out[-5000:] or "(無輸出)"}
-    return {"ok": False, "out": "unknown op"}
+        return {"ok": True, "title": f"forward stop {a1}" + (f" · {a2}" if a2 else ""), "out": out[-5000:] or NO_OUT}
+    return {"ok": False, "out": T("未知操作", "unknown op")}
 
 def do_policy(op, body):
     # OpenShell policy 編輯:preset 開關 / prove / prove-gated apply。localhost · admin · 差異式證明把關
@@ -1551,14 +1573,15 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
         if p == "/api/sys":   # on-demand;admin:doctor / logs / stale / gsettings / recover / gwhealth / infset
-            if sess["role"] != "admin":
-                return self._send(403, json.dumps({"ok": False, "out": "需要管理員權限"}), "application/json; charset=utf-8")
             q = parse_qs(urlparse(self.path).query)
+            lang = q.get("lang", ["zh"])[0]
+            if sess["role"] != "admin":
+                return self._send(403, json.dumps({"ok": False, "out": _T(lang, "需要管理員權限", "admin permission required")}), "application/json; charset=utf-8")
             do = q.get("do", [""])[0]; sb = q.get("sb", [""])[0]; tail = q.get("tail", ["200"])[0]
             provider = q.get("provider", [""])[0]; model = q.get("model", [""])[0]; chan = q.get("chan", [""])[0]
             a1 = q.get("a1", [""])[0]; a2 = q.get("a2", [""])[0]
             try:
-                return self._send(200, json.dumps(do_sys(do, sb, tail, provider, model, chan, a1, a2), ensure_ascii=False), "application/json; charset=utf-8")
+                return self._send(200, json.dumps(do_sys(do, sb, tail, provider, model, chan, a1, a2, lang), ensure_ascii=False), "application/json; charset=utf-8")
             except Exception as e:
                 return self._send(500, json.dumps({"ok": False, "out": str(e)}), "application/json")
         if p == "/api/status":

@@ -1,0 +1,1 @@
+{"devices": {"lab-asus-ebg19p-01": {"status": "ALERT(3 安全偏離)", "regressions": ["upnp.enabled", "webui.http.enabled", "wps.enabled"], "cpu": null, "offline": false}}, "jira_open": [], "cve_affected": 96, "cert_high": null, "last_fix": {"bug": null, "ok": null, "asset": null, "ts": null}, "worker_a_up": true, "worker_b_up": true}

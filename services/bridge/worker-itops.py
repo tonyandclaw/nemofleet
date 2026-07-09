@@ -8,6 +8,7 @@
 import json, os, re, subprocess, threading, time, difflib, hmac, shutil
 import urllib.request as _urlreq
 import socket as _socket
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote as _q
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -194,6 +195,7 @@ SETTINGS_DEFAULTS = {
   "cert_ec_min": 256,            # ECDSA 曲線最低強度(256/384/521;低於 → 弱)
   "sast_src": os.environ.get("SRC_REPO", ""),   # worker-b SAST 原始碼來源:GitHub URL / owner-repo / 掛載資料夾(空=未設定→不掃、無 demo)
   "sast_ref": os.environ.get("SRC_REF", "master"),  # 釘死的 ref(branch / tag / commit sha)
+  "source_scan_interval_sec": int(os.environ.get("BRIDGE_SOURCE_SCAN_INTERVAL", "86400")),  # 目前設定的 SAST 來源多久自動重掃一次(0=關);獨立於 cve_interval_sec,關 CVE 排程不會連坐停掉這個
   "cert_cipher_policy": "standard",  # 弱加密套件政策:lax|standard|strict|custom
   "cert_cipher_custom": ["RC4", "3DES", "DES", "NULL", "EXPORT", "-MD5"],  # policy=custom 時要標的套件家族
   "cert_overrides": {},          # 每設備覆寫:{asset:{cert_rsa_min,cert_sig_min,cert_cipher_policy,cert_expire_warn_days}}
@@ -217,6 +219,7 @@ SETTINGS_DEFAULTS = {
 }
 _SET_RANGE = {
   "cve_interval_sec": {0, 3600, 21600, 86400}, "cert_interval_sec": {0, 3600, 21600, 86400},
+  "source_scan_interval_sec": {0, 3600, 21600, 86400},
   "nuclei_interval_sec": {0, 3600, 21600, 86400, 604800},
   "cert_expire_warn_days": {7, 14, 30, 60, 90}, "cert_rsa_min": {2048, 3072, 4096},
   "cert_sig_min": {"sha1", "sha256", "sha384"}, "cert_cipher_policy": {"lax", "standard", "strict", "custom"},
@@ -360,7 +363,7 @@ def run_cve_scan(trigger="api"):
                     seen.add((it["cve"], asset_id, comp))
                     findings.append({"cve": it["cve"], "title": it["title"] or it["cve"], "severity": it.get("severity"),
                                      "asset": asset_id, "component": comp, "our_version": apkgs.get(comp),
-                                     "fixed_in": None, "verdict": it.get("verdict", "needs_review"), "evidence": "OSV.dev(即時)"})
+                                     "fixed_in": it.get("fixed_in"), "verdict": it.get("verdict", "needs_review"), "evidence": "OSV.dev(即時)"})
     except Exception as e:
         print(f"[CVE SCAN] live CVE(NVD)fetch 失敗: {e}", flush=True)
     # 上游真實 changelog 校正:backport 已修的 affected → not_affected(在開單/計數前,避免對已修項目開工單)
@@ -401,17 +404,13 @@ def run_cve_scan(trigger="api"):
     return report
 def _cve_schedule_loop():
     """worker 監控職責的「定期」本體:端點起來後先掃一輪(boot 即巡檢),之後每 CVE_INTERVAL 秒掃一次。
-    確定性、零 LLM;(cve, asset) 去重所以每日重掃不會堆單。"""
+    確定性、零 LLM;(cve, asset) 去重所以每日重掃不會堆單。
+    CVE 分級用的 SBOM 由 _source_schedule_loop() 獨立維護(不在這裡同步觸發)——兩個排程互相解耦,
+    關掉 CVE 排程不會連坐停掉 SAST 每日重掃,反之亦然;CVE 分級照樣讀最後一次成功同步的 source-sbom.json。"""
     time.sleep(75)   # 等 gateway / mock Jira 就緒(boot 後沙箱自癒中)
     while True:
         iv = load_settings().get("cve_interval_sec", CVE_INTERVAL)
         if iv and iv > 0:
-            try:
-                # worker-b 自主:先抽 upstream SBOM/原始碼(SAST),產出真實 source-sbom.json 供設備 CVE 分級用真版本。
-                # zone A 會在函式內早退(非其職責);fetch 自帶 12h 快取,不會每輪打 github。
-                _single_flight("source", run_source_scan)
-            except Exception as e:
-                print(f"[SOURCE SCHEDULE] {e}", flush=True)
             try:
                 _single_flight("cve", lambda: run_cve_scan(trigger="schedule"))
             except Exception as e:
@@ -423,6 +422,51 @@ def _cve_schedule_loop():
             time.sleep(max(int(iv), 300))
         else:
             time.sleep(600)   # 排程關閉:每 10 分檢查是否被重新開啟
+SOURCE_RETENTION_SEC = int(os.environ.get("SOURCE_RETENTION_SEC", str(5 * 86400)))   # 同步下來的來源幾天沒用就清(預設 5 天)
+def _cleanup_stale_source():
+    """安全網,獨立於排程開關:已同步的來源若 SOURCE_RETENTION_SEC(預設 5 天)沒被重新同步/掃描過
+    (manifest mtime 太舊——通常代表每日重掃排程被關掉了,或持續 fetch 失敗),視為棄用 → 刪掉本地
+    副本(real_dir + 快取檔),不讓抓下來的外部 repo 程式碼無限期留在沙箱裡佔空間/佔攻擊面。
+    只清本地快取,不動 sast_src/sast_ref 設定——使用者的意圖還在,下次掃就會重新抓。"""
+    man = f"{WD}/source-sast-manifest.json"
+    try:
+        age = time.time() - os.path.getmtime(man)
+    except Exception:
+        return False   # 從未同步過,沒東西可清
+    if age <= SOURCE_RETENTION_SEC:
+        return False
+    repo_desc = "?"
+    try:
+        repo_desc = f"{json.load(open(man, encoding='utf-8')).get('repo', '?')}"
+    except Exception:
+        pass
+    base = f"{SRC_DIR}/{SRC_ASSET}"
+    for f in (man, f"{WD}/source-sbom.json", f"{WD}/upstream-advisories.json"):
+        try: os.remove(f)
+        except Exception: pass
+    sh(f"rm -rf {base}/real")
+    print(f"[SOURCE SCAN] {repo_desc} 已 {age / 86400:.1f} 天未用(> {SOURCE_RETENTION_SEC / 86400:.0f} 天)→ 清除本地同步副本", flush=True)
+    return True
+def _source_schedule_loop():
+    """SAST 來源的「定期」本體,獨立於 CVE 排程:每 source_scan_interval_sec(預設 86400 = 每天)秒
+    重掃目前設定的來源一次(GUI 上的 Source of truth)。每次醒來也先跑一次 5 天未用安全網清理
+    (見 _cleanup_stale_source)——即使這個排程被關掉,清理仍會跑(用最短的 600s 週期檢查),不讓
+    棄用的本地副本無限期留著。"""
+    time.sleep(90)
+    while True:
+        try:
+            _cleanup_stale_source()
+        except Exception as e:
+            print(f"[SOURCE SCAN] retention cleanup 失敗: {e}", flush=True)
+        iv = load_settings().get("source_scan_interval_sec", 86400)
+        if iv and iv > 0 and _src_location():
+            try:
+                _single_flight("source", run_source_scan)
+            except Exception as e:
+                print(f"[SOURCE SCHEDULE] {e}", flush=True)
+            time.sleep(max(int(iv), 300))
+        else:
+            time.sleep(600)   # 未設定來源 / 排程關閉:每 10 分檢查(清理安全網仍照跑)
 # ── 憑證 / 弱加密與協定盤點(運維節點 A 職責;確定性比對,與 CVE 同模式;會主動提醒 + 高風險開 Jira)──
 CERT_INTERVAL = int(os.environ.get("BRIDGE_CERT_INTERVAL", "86400"))
 CERT_HISTORY = f"{WD}/cert-scan-history.jsonl"
@@ -1073,8 +1117,16 @@ def _parse_gh(loc):
     return None
 _SAST_SINK_DIRS = ["release/src/router/rc", "release/src/router/httpd", "release/src/router/shared",
                    "release/src/router/networkmap", "release/src/router/httpd/sysdeps", "release/src/router/rc/sysdeps"]
+# Optional: a GITHUB_TOKEN raises the unauthenticated api.github.com cap (60 req/hr/IP — trivially
+# exhausted syncing a handful of repos, e.g. during a live demo with several different links pasted
+# in quick succession) to 5000 req/hr. raw.githubusercontent.com (the file-content fetches) isn't
+# subject to that cap either way, so only _gh_json needs the header.
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
 def _gh_json(url):
-    req = _urlreq.Request(url, headers={"User-Agent": "worker-b-secanalysis", "Accept": "application/vnd.github+json"})
+    headers = {"User-Agent": "worker-b-secanalysis", "Accept": "application/vnd.github+json"}
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    req = _urlreq.Request(url, headers=headers)
     return json.load(_urlreq.urlopen(req, timeout=25))
 def _gh_raw(path):
     req = _urlreq.Request(f"https://raw.githubusercontent.com/{SRC_REPO}/{SRC_REF}/{path}",
@@ -1085,43 +1137,228 @@ def _fresh(path, ttl):
         return os.path.exists(path) and (time.time() - os.path.getmtime(path)) < ttl
     except Exception:
         return False
-def fetch_upstream_sbom():
-    """worker-b 自主:列 upstream release/src/router → 元件→版本(同元件取最高)→ 寫 source-sbom.json。"""
-    out = f"{WD}/source-sbom.json"
-    if _fresh(out, UPSTREAM_TTL):
-        try: return json.load(open(out, encoding="utf-8"))
-        except Exception: pass
-    items = _gh_json(f"https://api.github.com/repos/{SRC_REPO}/contents/release/src/router?ref={SRC_REF}")
-    pk = {}
-    for it in items:
-        if it.get("type") != "dir":
+def _fresh_cache(path, ttl):
+    """_fresh(), plus: the cache is only usable if it was written for the CURRENTLY configured
+    SRC_REPO/SRC_REF. Without this, changing the SAST/SBOM source in the GUI silently does nothing
+    for up to UPSTREAM_TTL (12h) — the mtime looks fresh even though it's a different repo's data."""
+    if not _fresh(path, ttl):
+        return None
+    try:
+        cached = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return None
+    return cached if (cached.get("repo") == SRC_REPO and cached.get("ref") == SRC_REF) else None
+_VER_PREFIX = re.compile(r"^[\^~>=<\s]+")   # npm/composer 版本範圍符號(^1.2.3 / ~1.2.3 / >=1.2.3 …)
+
+
+def _parse_package_json(text):
+    try:
+        d = json.loads(text)
+    except Exception:
+        return {}
+    out = {}
+    for section in ("dependencies", "devDependencies"):
+        for name, ver in (d.get(section) or {}).items():
+            v = _VER_PREFIX.sub("", str(ver)).strip()
+            if v and v[0].isdigit():
+                out[name] = v
+    return out
+
+
+def _parse_requirements_txt(text):
+    out = {}
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        m = re.match(r"^([A-Za-z0-9_.\-]+)\s*==\s*([\w.\-]+)", line)
+        if m:
+            out[m.group(1).lower()] = m.group(2)
+    return out
+
+
+def _parse_go_mod(text):
+    out = {}
+    for m in re.finditer(r"^\s*([\w.\-/]+)\s+v([\w.\-+]+)", text, re.M):
+        name = m.group(1)
+        if "/" not in name:   # module 路徑(有斜線)才是真的依賴宣告行,濾掉 go.mod 開頭的 "module x.y/z" 那行
             continue
-        m = re.match(r"^(.*?)-(\d[\w.+]*)$", it["name"])
+        out[name.split("/")[-1]] = m.group(2)
+    return out
+
+
+def _parse_cargo_toml(text):
+    out, in_deps = {}, False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            in_deps = s.startswith("[dependencies")
+            continue
+        if in_deps:
+            m = re.match(r'^([\w\-]+)\s*=\s*"?([\w.\-]+)"?', s)
+            if m:
+                out[m.group(1)] = m.group(2)
+    return out
+
+
+def _parse_composer_json(text):
+    try:
+        d = json.loads(text)
+    except Exception:
+        return {}
+    out = {}
+    for name, ver in (d.get("require") or {}).items():
+        if name == "php":
+            continue
+        v = _VER_PREFIX.sub("", str(ver)).strip()
+        if v and v[0].isdigit():
+            out[name.split("/")[-1]] = v
+    return out
+
+
+def _parse_toml_section(text, section_prefixes, skip_keys=()):
+    """極簡 TOML 區塊解析(夠用,不拉整個 tomllib 依賴):走到 [section] 開頭比對前綴,收集裡面的
+    key = "value" 或 key = {version = "value", ...} 行。pyproject.toml(Poetry)、Pipfile 共用。"""
+    out, in_section = {}, False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            in_section = any(s[1:].startswith(p) for p in section_prefixes)
+            continue
+        if not in_section or not s or s.startswith("#"):
+            continue
+        m = re.match(r'^([\w.\-]+)\s*=\s*(.+)$', s)
         if not m:
             continue
-        n, v = m.group(1).lower(), m.group(2)
-        if n not in pk or _vt(v) > _vt(pk[n]):
-            pk[n] = v
+        name, rest = m.group(1), m.group(2).strip()
+        if name in skip_keys:
+            continue
+        vm = re.search(r'version\s*=\s*"([^"]+)"', rest) or re.match(r'^"([^"]+)"', rest)
+        if not vm:
+            continue
+        v = _VER_PREFIX.sub("", vm.group(1)).strip()
+        if v == "*" or (v and not v[0].isdigit()):
+            continue   # Pipfile 的 "*"(任意版本)沒有具體版本可報
+        if v:
+            out[name] = v
+    return out
+
+
+def _parse_pyproject_toml(text):
+    return _parse_toml_section(text, ("tool.poetry.dependencies", "tool.poetry.dev-dependencies"), skip_keys=("python",))
+
+
+def _parse_pipfile(text):
+    return _parse_toml_section(text, ("packages", "dev-packages"))
+
+
+def _parse_gemfile_lock(text):
+    """Gemfile.lock 的 GEM specs: 區塊——`    name (version)` / `      name (op version)`。"""
+    out = {}
+    for m in re.finditer(r'^\s{4,}([a-zA-Z0-9_.\-]+)\s+\(([0-9][\w.\-]*)', text, re.M):
+        out[m.group(1)] = m.group(2)
+    return out
+
+
+def _parse_pom_xml(text):
+    """Maven pom.xml——逐個 <dependency>...</dependency> 區塊抓 artifactId + version(版本是
+    ${property} 參照的跳過,沒有具體版本可報)。"""
+    out = {}
+    for block in re.findall(r"<dependency>(.*?)</dependency>", text, re.S):
+        a = re.search(r"<artifactId>\s*([^<\s]+)\s*</artifactId>", block)
+        v = re.search(r"<version>\s*([^<\s]+)\s*</version>", block)
+        if a and v and not v.group(1).startswith("${"):
+            out[a.group(1)] = v.group(1)
+    return out
+
+
+def _parse_build_gradle(text):
+    """Gradle(Groovy DSL)——常見的 implementation/api/compile 'group:artifact:version' 宣告行。"""
+    out = {}
+    for m in re.finditer(r"""(?:implementation|api|compile|testImplementation|runtimeOnly)\s*[\(\s]\s*['"]([\w.\-]+):([\w.\-]+):([\w.\-]+)['"]""", text):
+        out[m.group(2)] = m.group(3)
+    return out
+
+
+_SBOM_PARSERS = {"package.json": _parse_package_json, "requirements.txt": _parse_requirements_txt,
+                 "go.mod": _parse_go_mod, "Cargo.toml": _parse_cargo_toml, "composer.json": _parse_composer_json,
+                 "pyproject.toml": _parse_pyproject_toml, "Pipfile": _parse_pipfile,
+                 "Gemfile.lock": _parse_gemfile_lock, "pom.xml": _parse_pom_xml, "build.gradle": _parse_build_gradle}
+# manifest → OSV.dev ecosystem name (https://ossf.github.io/osv-schema/#affectedpackage-field) — lets
+# the live CVE feed query each package against the vulnerability DB for its OWN package ecosystem,
+# instead of only ever checking a fixed list of router-firmware C library names (see refresh_live_cves).
+_SBOM_ECOSYSTEM = {"package.json": "npm", "requirements.txt": "PyPI", "pyproject.toml": "PyPI", "Pipfile": "PyPI",
+                   "go.mod": "Go", "Cargo.toml": "crates.io", "composer.json": "Packagist",
+                   "Gemfile.lock": "RubyGems", "pom.xml": "Maven", "build.gradle": "Maven"}
+
+
+def _fetch_generic_sbom():
+    """任意 GitHub repo 的通用 SBOM(不限 ASUSWRT 佈局,也不限根目錄):整棵 repo 樹找常見套件清單檔
+    (見 _SBOM_PARSERS),不管在哪個子目錄都算(monorepo 常見)。找不到就誠實回空,不猜、不塞 demo。
+    單一 recursive tree call,和 _sast_candidates_by_tree 同款(也一樣受 GitHub 的截斷限制影響——見
+    那邊的說明),上限 20 份檔案界定成本。同時回傳每個套件的生態系(供 CVE 查詢用自己的生態系,
+    不是固定當 Debian 查)。"""
+    pkgs, pkg_eco, found_any = {}, {}, False
+    try:
+        tree = _gh_json(f"https://api.github.com/repos/{SRC_REPO}/git/trees/{SRC_REF}?recursive=1")
+    except Exception:
+        return pkgs, pkg_eco, found_any
+    paths = [it["path"] for it in tree.get("tree", [])
+             if it.get("type") == "blob" and os.path.basename(it.get("path", "")) in _SBOM_PARSERS]
+    for path in paths[:20]:
+        bn = os.path.basename(path)
+        try:
+            content = _gh_raw(path)
+        except Exception:
+            continue
+        found_any = True
+        found_pkgs = _SBOM_PARSERS[bn](content)
+        pkgs.update(found_pkgs)
+        eco = _SBOM_ECOSYSTEM.get(bn)
+        if eco:
+            for name in found_pkgs:
+                pkg_eco[name] = eco
+    return pkgs, pkg_eco, found_any
+
+
+def fetch_upstream_sbom():
+    """worker-b 自主:先試 ASUSWRT release/src/router(元件→版本,同元件取最高);不是這種佈局的
+    repo(現在很常見)→ 退到通用套件清單檔解析(見 _SBOM_PARSERS)。兩者都沒有 → 誠實寫空結果
+    (仍要寫檔,標對目前 repo,不留舊 repo 的資料在檔裡)。每個套件附生態系(ecosystem)——ASUSWRT
+    佈局的一律是 Debian 包名的 C library;通用套件清單檔的按 _SBOM_ECOSYSTEM 標,供後面即時 CVE
+    查詢按套件自己的生態系查(而不是固定當某個生態系,或固定只查一份 router C library 清單)。"""
+    out = f"{WD}/source-sbom.json"
+    _c = _fresh_cache(out, UPSTREAM_TTL)
+    if _c is not None:
+        return _c
+    pk, pk_eco, kind = {}, {}, "asuswrt"
+    try:
+        items = _gh_json(f"https://api.github.com/repos/{SRC_REPO}/contents/release/src/router?ref={SRC_REF}")
+        for it in items:
+            if it.get("type") != "dir":
+                continue
+            m = re.match(r"^(.*?)-(\d[\w.+]*)$", it["name"])
+            if not m:
+                continue
+            n, v = m.group(1).lower(), m.group(2)
+            if n not in pk or _vt(v) > _vt(pk[n]):
+                pk[n] = v
+    except Exception:
+        pk = {}
+    if pk:
+        pk_eco = {n: OSV_ECO for n in pk}   # ASUSWRT release/src/router = Debian 包名的 C library
+    else:   # 不是 ASUSWRT 佈局(或抓失敗)→ 通用套件清單檔,支援任意語言 repo
+        pk, pk_eco, found = _fetch_generic_sbom()
+        kind = "generic" if found else "none"
     data = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "source": "github (worker-b autonomous)",
-            "repo": SRC_REPO, "ref": SRC_REF, "count": len(pk),
-            "packages": [{"name": n, "version": v} for n, v in sorted(pk.items())]}
+            "repo": SRC_REPO, "ref": SRC_REF, "count": len(pk), "kind": kind,
+            "packages": [{"name": n, "version": v, "ecosystem": pk_eco.get(n, OSV_ECO)} for n, v in sorted(pk.items())]}
     os.makedirs(WD, exist_ok=True)
     json.dump(data, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     sh(f"chown 998:998 {out}")
     return data
-def fetch_upstream_sast():
-    """worker-b 自主:從 upstream 抓真實含 sink 的 C 檔 → base/real/ + manifest(供 SAST 掃真 repo 碼)。"""
-    base = f"{SRC_DIR}/{SRC_ASSET}"; rd = f"{base}/real"; man = f"{WD}/source-sast-manifest.json"
-    if _fresh(man, UPSTREAM_TTL) and os.path.isdir(rd):
-        try: return json.load(open(man, encoding="utf-8"))
-        except Exception: pass
-    keep, examine = 8, 90
-    # 把 ref(分支)解析成 commit SHA → 行錨點永久連結(master 會移動,SHA 不會),確保 file:line 可追溯
-    commit = None
-    try:
-        commit = _gh_json(f"https://api.github.com/repos/{SRC_REPO}/commits?sha={SRC_REF}&per_page=1")[0]["sha"]
-    except Exception:
-        commit = None
+def _sast_candidates_by_dir():
+    """Fast path: list the known ASUSWRT-layout directories directly (small, precise API calls — no
+    risk of GitHub's recursive-tree truncation on a huge firmware-source repo). Only finds anything
+    when the repo actually has this specific release/src/router/... layout."""
     cands = []
     for d in _SAST_SINK_DIRS:
         try:
@@ -1130,19 +1367,54 @@ def fetch_upstream_sast():
                     cands.append(it["path"])
         except Exception:
             continue
+    return cands
+
+
+def _sast_candidates_by_tree(ref):
+    """Generic fallback for any GitHub repo (not just ASUSWRT-layout ones): walk the whole file tree in
+    one call and take every source file in a language we know about (_LANG_EXT — not just the ones
+    Semgrep has rules for; unsupported-language files still get synced and Nemotron-reviewed directly).
+    GitHub truncates this for very large repos (confirmed on asuswrt-merlin.ng: cut off before reaching
+    release/src/router/rc — which is exactly why this is a fallback, not the primary path), so it's
+    best-effort for huge repos but works for everything else."""
+    try:
+        tree = _gh_json(f"https://api.github.com/repos/{SRC_REPO}/git/trees/{ref}?recursive=1")
+    except Exception:
+        return [], False
+    exts = tuple(_LANG_EXT)
+    paths = [it["path"] for it in tree.get("tree", [])
+             if it.get("type") == "blob" and it.get("path", "").endswith(exts)]
+    return paths, bool(tree.get("truncated"))
+
+
+def fetch_upstream_sast():
+    """worker-b 自主:同步 upstream 的 C/H 檔進 base/real/ → manifest(真正的 SAST 判斷交給後面的 Semgrep,
+    這裡只負責「同步」,不用 regex 先篩掉——篩掉等於還沒讓 Semgrep 看過就先判了無罪)。
+    任何 GitHub repo 都能同步(非僅限 asuswrt-merlin.ng)——先試已知的韌體原始碼目錄(快、準),找不到才整棵樹找。"""
+    base = f"{SRC_DIR}/{SRC_ASSET}"; rd = f"{base}/real"; man = f"{WD}/source-sast-manifest.json"
+    _cached = _fresh_cache(man, UPSTREAM_TTL)
+    if _cached is not None and os.path.isdir(rd):
+        return _cached
+    budget = 60   # 同步檔案數上限(界定 API/時間成本;哪個「危險」由 semgrep 判,這裡不再用 regex 先篩掉)
+    # 把 ref(分支)解析成 commit SHA → 行錨點永久連結(master 會移動,SHA 不會),確保 file:line 可追溯
+    commit = None
+    try:
+        commit = _gh_json(f"https://api.github.com/repos/{SRC_REPO}/commits?sha={SRC_REF}&per_page=1")[0]["sha"]
+    except Exception:
+        commit = None
+    cands = _sast_candidates_by_dir()
+    truncated = False
+    if not cands:   # 不是 ASUSWRT 目錄結構(或那些目錄不存在)→ 整棵 repo 樹找 .c/.h,支援任意 GitHub repo
+        cands, truncated = _sast_candidates_by_tree(commit or SRC_REF)
     sh(f"rm -rf {rd}"); os.makedirs(rd, exist_ok=True)
-    kept, seen, examined = [], set(), 0
-    for path in cands:
-        if len(kept) >= keep or examined >= examine:
-            break
-        examined += 1
+    kept, seen = [], set()
+    for path in cands[:budget]:
         try:
             content = _gh_raw(path)
         except Exception:
             continue
-        hits = sum(1 for ln in content.splitlines() for _c, rx in _SAST_SINKS if rx.search(ln))
-        if not hits:
-            continue
+        # hits 只是資訊性統計(manifest 顯示用),不再決定留不留——留不留只看有沒有同步成功
+        hits = sum(1 for ln in content.splitlines() for _cwe, rx in _SAST_SINKS if rx.search(ln))
         bn = os.path.basename(path); d2 = os.path.basename(os.path.dirname(path)); rel = f"{d2}__{bn}"
         if rel in seen:
             rel = f"{d2}__{len(kept)}__{bn}"
@@ -1150,7 +1422,8 @@ def fetch_upstream_sast():
         open(f"{rd}/{rel}", "w", encoding="utf-8").write(content)
         kept.append({"path": path, "rel": f"real/{rel}", "hits": hits})
     data = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "source": "github (worker-b autonomous)",
-            "repo": SRC_REPO, "ref": SRC_REF, "commit": commit, "examined": examined, "kept": len(kept), "files": kept}
+            "repo": SRC_REPO, "ref": SRC_REF, "commit": commit, "examined": len(kept), "kept": len(kept), "files": kept,
+            "truncated": truncated}   # whole-tree fallback hit GitHub's size cap — examined a partial file list
     json.dump(data, open(man, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     sh(f"chown -R 998:998 {rd} {man}")
     return data
@@ -1171,9 +1444,9 @@ def fetch_upstream_advisories():
     """worker-b 自主:讀 upstream 真實 Changelog-NG.txt → 已修補(FIXED/resolved)CVE 清單 + 證據行。
     用途:版本式 CVE 比對會因『上游 backport 修補』誤判(目錄版本看似舊、實已修);用真 changelog 校正。"""
     out = f"{WD}/upstream-advisories.json"
-    if _fresh(out, UPSTREAM_TTL):
-        try: return json.load(open(out, encoding="utf-8"))
-        except Exception: pass
+    _c = _fresh_cache(out, UPSTREAM_TTL)
+    if _c is not None:
+        return _c
     txt = _gh_raw("Changelog-NG.txt")
     fixed = {}
     for ln in txt.splitlines():
@@ -1209,10 +1482,9 @@ def _reconcile_advisories(findings, fixed):
     return n
 # ── worker-b 自主:即時 CVE 情資(OSV.dev)── 取代固定 CVE 清單,讓每日掃隨上游新公布 CVE 變動 ──
 # (NVD API 2.0 在此 egress 被擋/逾時 → 改用 OSV.dev,可達且快;版本適用性自己用 OSV ranges 比對。)
-# 查 OSV 的安全相關元件(present in SBOM 才查);部分元件 OSV/Debian 套件名不同 → OSV_PKG 修正,對不到回 0。
-LIVE_COMPONENTS = ["openssl", "expat", "dnsmasq", "curl", "libgcrypt", "freeradius-server", "openvpn",
-                   "busybox", "zlib", "libevent", "openssh", "strongswan", "gnutls", "nettle",
-                   "libxml2", "glib", "dbus", "wpa_supplicant", "hostapd", "jansson", "sqlite", "pcre2"]
+# OSV_ECO 是「查不到套件生態系時」的預設值(ASUSWRT release/src/router 抽出來的都是 Debian 包名的
+# C library,一律當 Debian 查)。有生態系資訊的套件(見 _SBOM_ECOSYSTEM)查自己的生態系,不再限定
+# 一份固定的 router C library 清單——SBOM 有什麼元件就查什麼,才能對到任意 repo 真正用的套件。
 OSV_PKG = {"freeradius-server": "freeradius", "libgcrypt": "libgcrypt20"}
 OSV_ECO = os.environ.get("OSV_ECOSYSTEM", "Debian")
 NVD_TTL = int(os.environ.get("NVD_TTL", str(12 * 3600)))
@@ -1272,13 +1544,25 @@ def _osv_post(body):
             time.sleep(2)
     return None
 def _osv_verdict(our, vuln):
-    """用 OSV 的 affected.ranges(introduced/fixed)+ versions 自己判定我這版本是否適用。
-    命中範圍→affected;有範圍但都不含→not_affected;無可解析範圍→needs_review(誠實,不假裝)。"""
+    """用 OSV 的 affected.ranges(introduced/fixed)+ versions 自己判定我這版本是否適用,一併回報
+    「修補版」——這是使用者實際要看的東西(你的版本 X,幾版修好),不是只回一個 CVE ID 卻不管你
+    版本多少都一樣顯示。命中範圍→affected(+該 range 的 fixed 版本);有範圍但都不含→not_affected;
+    無可解析範圍→needs_review(誠實,不假裝)。回傳 (verdict, fixed_in)——fixed_in 沒有明確答案時
+    是 None,不猜。"""
     ot = _vtuple(our)
     has_range = False
     for a in vuln.get("affected", []):
         if our in (a.get("versions") or []):
-            return "affected"
+            # 精確列舉命中——列舉本身沒有「修補版」概念,借同一筆 affected 底下的 range(如果有)
+            fixed = None
+            for rg in (a.get("ranges") or []):
+                for e in (rg.get("events") or []):
+                    if e.get("fixed"):
+                        fixed = e["fixed"]
+                        break
+                if fixed:
+                    break
+            return "affected", fixed
         for rg in (a.get("ranges") or []):
             intro = None
             for e in (rg.get("events") or []):
@@ -1289,8 +1573,8 @@ def _osv_verdict(our, vuln):
                     lo = _vtuple(intro) if (intro and intro != "0") else ()
                     hi = _vtuple(e["fixed"])
                     if (not lo or ot >= lo) and (not hi or ot < hi):
-                        return "affected"
-    return "not_affected" if has_range else "needs_review"
+                        return "affected", e["fixed"]
+    return ("not_affected" if has_range else "needs_review"), None
 def _cve_of(vuln):
     for al in (vuln.get("aliases") or []):
         if al.startswith("CVE-"):
@@ -1304,28 +1588,33 @@ def load_live_cves():
         return json.load(open(f"{WD}/live-cves.json", encoding="utf-8")).get("by_component", {})
     except Exception:
         return {}
-def refresh_live_cves(pkgs):
-    """背景刷新:單飛鎖。逐元件查 OSV.dev(即時漏洞庫),自己用 ranges 比對版本適用性,每查後增量寫檔。"""
+def refresh_live_cves(pkgs, pkg_eco=None):
+    """背景刷新:單飛鎖。逐元件查 OSV.dev(即時漏洞庫)——查目前 SBOM 真正有的元件,不是固定的
+    router C library 清單;每個元件用自己的生態系(pkg_eco:npm/PyPI/Go/crates.io/Packagist/
+    RubyGems/Maven,見 _SBOM_ECOSYSTEM;沒有標記的當 Debian,相容 ASUSWRT 來源)。
+    自己用 ranges 比對版本適用性,每查後增量寫檔。"""
     if not _LIVE_LOCK.acquire(blocking=False):
         return
     out_f = f"{WD}/live-cves.json"
     order = {"High": 0, "Medium": 1, "Low": 2, "Unknown": 3, "affected": 0, "needs_review": 1, "not_affected": 2}
+    pkg_eco = pkg_eco or {}
     try:
-        by_comp, queried, src = {}, 0, ("NVD API 2.0" if NVD_API_KEY else f"OSV.dev/{OSV_ECO}")
-        for comp in LIVE_COMPONENTS:
-            ver = pkgs.get(comp)
+        by_comp, queried, src = {}, 0, ("NVD API 2.0" if NVD_API_KEY else "OSV.dev (per-ecosystem)")
+        for comp, ver in pkgs.items():
             if not ver or queried >= NVD_MAX_QUERIES:
                 continue
+            eco = pkg_eco.get(comp, OSV_ECO)
             items = None
-            # 有 NVD key 且元件可對到 CPE product → 先用 NVD(最精準);失敗則退 OSV
-            if NVD_API_KEY and comp in NVD_PRODUCT:
+            # NVD 的 CPE 對應只認 Debian 包名的 C library;非 Debian 生態系直接走 OSV。
+            if NVD_API_KEY and eco == OSV_ECO and comp in NVD_PRODUCT:
                 items = _nvd_query(NVD_PRODUCT[comp], ver)
                 if items is not None:
                     items.sort(key=lambda x: order.get(x["severity"], 9))
-            if items is None:   # OSV 路徑(無 key 或 NVD 失敗)
-                r = _osv_post({"package": {"name": OSV_PKG.get(comp, comp), "ecosystem": OSV_ECO}, "version": ver})
+            if items is None:   # OSV 路徑(無 key、NVD 失敗、或非 Debian 生態系)
+                pkg_name = OSV_PKG.get(comp, comp) if eco == OSV_ECO else comp
+                r = _osv_post({"package": {"name": pkg_name, "ecosystem": eco}, "version": ver})
                 if r is None:
-                    print(f"[OSV] {comp} 查詢失敗(逾時)", flush=True)
+                    print(f"[OSV] {comp}({eco}) 查詢失敗(逾時)", flush=True)
                     continue
                 seen, items = set(), []
                 for v in r.get("vulns", []):
@@ -1333,12 +1622,12 @@ def refresh_live_cves(pkgs):
                     if not cid or not cid.startswith("CVE-") or cid in seen:   # 只留真正 CVE,略過 DSA/DLA 通報層 id
                         continue
                     seen.add(cid)
-                    verdict = _osv_verdict(ver, v)
+                    verdict, fixed_ver = _osv_verdict(ver, v)
                     if verdict == "not_affected":      # 我這版本已修/不在範圍 → 不列(降噪)
                         continue
                     sev = _sev_map((v.get("database_specific") or {}).get("severity"))
                     desc = (v.get("summary") or v.get("details") or "")[:90]
-                    items.append({"cve": cid, "severity": sev, "verdict": verdict, "title": desc})
+                    items.append({"cve": cid, "severity": sev, "verdict": verdict, "title": desc, "fixed_in": fixed_ver})
                 items.sort(key=lambda x: (order.get(x["verdict"], 9), order.get(x["severity"], 9)))
             queried += 1
             if items:
@@ -1353,10 +1642,10 @@ def refresh_live_cves(pkgs):
         print(f"[LIVE-CVE] refresh 完成({src}):queried={queried} components={list(by_comp)}", flush=True)
     finally:
         _LIVE_LOCK.release()
-def fetch_live_cves(pkgs):
+def fetch_live_cves(pkgs, pkg_eco=None):
     """非阻塞:回快取;快取過期/缺(且無 sweep 進行中)→ 背景啟動刷新。掃描永不被 NVD 慢速阻塞。"""
     if not _fresh(f"{WD}/live-cves.json", NVD_TTL):
-        threading.Thread(target=refresh_live_cves, args=(dict(pkgs),), daemon=True).start()
+        threading.Thread(target=refresh_live_cves, args=(dict(pkgs), dict(pkg_eco or {})), daemon=True).start()
     return load_live_cves()
 def _make_patch(rel, orig, fixed):
     return "".join(difflib.unified_diff(orig.splitlines(keepends=True), fixed.splitlines(keepends=True),
@@ -1398,6 +1687,31 @@ def _open_jira_dedup(summary, description, kind, asset, priority="High"):
 SEMGREP_RULES = os.environ.get("SEMGREP_RULES", "/usr/local/share/semgrep-rules")
 SEMGREP_BIN = os.environ.get("SEMGREP_BIN", "/root/.local/bin/semgrep")
 
+# File extension → language name, for the "any GitHub repo" sync. Broader than what we currently have
+# Semgrep rules for (see _installed_semgrep_langs) — files in a language with no installed ruleset
+# still get synced and shown; they just get a Nemotron-only review instead of Semgrep+Nemotron.
+_LANG_EXT = {
+    ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp",
+    ".py": "python",
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".sh": "bash", ".bash": "bash",
+    ".go": "go", ".rb": "ruby", ".java": "java", ".rs": "rust", ".php": "php",
+    ".kt": "kotlin", ".swift": "swift", ".cs": "csharp", ".lua": "lua",
+}
+
+
+def _installed_semgrep_langs():
+    """Which languages actually have rules staged right now — read from disk (worker-b-install-
+    semgrep.sh lays out one subdir per language under SEMGREP_RULES), not a hardcoded list, so this
+    always reflects what was really fetched rather than what the install script was LAST written to
+    fetch. 'nemofleet' is the custom-rule folder, not a language."""
+    try:
+        return {d for d in os.listdir(SEMGREP_RULES)
+                if d != "nemofleet" and os.path.isdir(os.path.join(SEMGREP_RULES, d))}
+    except Exception:
+        return set()
+
 
 def _run_semgrep(scan_dir):
     """Real SAST — run Semgrep (AST + taint dataflow) over scan_dir with the pinned local ruleset.
@@ -1422,16 +1736,44 @@ def _run_semgrep(scan_dir):
         meta = extra.get("metadata") or {}
         cwe = meta.get("cwe")
         cwe = (cwe[0] if isinstance(cwe, list) else cwe) or ((r.get("check_id") or "").split(".")[-1])
+        start, end = r.get("start") or {}, r.get("end") or {}
+        # extra.lines is redacted to the literal string "requires login" by semgrep OSS unless the
+        # CLI is `semgrep login`'d (unrelated to our ruleset being local/offline) — read the matched
+        # span straight from the scanned file instead of depending on that gated field.
         out.append({"cwe": str(cwe), "file": os.path.relpath(r.get("path", ""), WD),
-                    "line": (r.get("start") or {}).get("line"), "code": (extra.get("lines") or "").strip()[:200],
+                    "line": start.get("line"), "code": _read_snippet(r.get("path", ""), start.get("line"), end.get("line")),
                     "_fp": r.get("path"), "check_id": (r.get("check_id") or "").split(".")[-1],
                     "message": (extra.get("message") or "").strip()[:400], "severity": extra.get("severity", "INFO")})
     return out
 
 
+def _read_snippet(path, start_line, end_line):
+    """Matched-code snippet for a SAST hit, read directly from the scanned file (see _run_semgrep)."""
+    try:
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        s, e = max((start_line or 1) - 1, 0), max((end_line or start_line or 1), start_line or 1)
+        return "\n".join(lines[s:e]).strip()[:200]
+    except Exception:
+        return ""
+
+
 TRIAGE_URL = os.environ.get("TRIAGE_INFERENCE_URL", "http://host.openshell.internal:8000/v1")
 TRIAGE_MODEL = os.environ.get("NEMOCLAW_MODEL", "nemotron-super")
-_SOURCE_SCANNING = {"on": False}
+_SOURCE_SCANNING = {"on": False, "phase": "finished"}   # phase: syncing | scanning | reviewing | finished
+
+
+def _set_source_phase(phase):
+    """Update the in-memory phase AND persist it to disk. The dashboard (host-side agent-dashboard.py)
+    aggregates fleet status by `docker exec cat`-ing files out of this container — it never calls this
+    worker's own HTTP endpoints — so anything the GUI needs to see (like live scan progress) has to be
+    a file, not just an in-process dict. Without this, sast_status only ever reached direct API callers."""
+    _SOURCE_SCANNING["phase"] = phase
+    try:
+        with open(f"{WD}/source-scan-status.json", "w", encoding="utf-8") as f:
+            json.dump({"phase": phase, "on": _SOURCE_SCANNING["on"], "ts": time.strftime("%Y-%m-%d %H:%M:%S")}, f)
+        sh(f"chown 998:998 {WD}/source-scan-status.json")
+    except Exception:
+        pass
 
 
 def _last_source_report():
@@ -1440,7 +1782,8 @@ def _last_source_report():
         return json.load(open(f"{WD}/source-cve-report.json", encoding="utf-8"))
     except Exception:
         return {"ts": None, "note": "尚無報告 — 背景掃描進行中,稍後刷新", "sast_findings": [], "sbom": [],
-                "sbom_packages": 0, "cve_with_source": [], "sast_source": "not-synced", "sast_engine": "pending"}
+                "sbom_packages": 0, "cve_with_source": [], "sast_source": "not-synced", "sast_engine": "pending",
+                "semgrep_langs": sorted(_installed_semgrep_langs())}
 
 
 def _bg_source_scan():
@@ -1455,6 +1798,7 @@ def _bg_source_scan():
             _single_flight("source", run_source_scan)
         finally:
             _SOURCE_SCANNING["on"] = False
+            _set_source_phase("finished")   # belt-and-suspenders: reset even if run_source_scan raised
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -1478,7 +1822,10 @@ def _nemotron_triage(finding):
     try:
         req = _urlreq.Request(TRIAGE_URL.rstrip("/") + "/chat/completions", data=body,
                               headers={"Content-Type": "application/json"}, method="POST")
-        r = json.load(_urlreq.urlopen(req, timeout=90))
+        # runs in a background thread (_bg_source_scan), so nothing is blocked waiting on this — give
+        # it real headroom: at ~10-12 tok/s this local NIM needs up to ~100-110s for max_tokens=1100,
+        # which a 90s cap was cutting off before the model finished rewriting real (non-trivial) code.
+        r = json.load(_urlreq.urlopen(req, timeout=240))
         msg = (r.get("choices") or [{}])[0].get("message") or {}
         txt = (msg.get("content") or msg.get("reasoning") or "")
         hits = re.findall(r'\{.*?"verdict".*?\}', txt, re.S)
@@ -1553,26 +1900,107 @@ def _nemotron_patch(finding, fixed_code):
     return "\n".join(out) + "\n"
 
 
+def _nemotron_review_file(rel_path, upstream_path, lang, content):
+    """For a language Semgrep has no installed ruleset for: there's no deterministic engine to run, so
+    Nemotron reviews the file directly instead of just triaging an existing finding. Best-effort and
+    conservative — a failed/unparseable review yields no findings, never a fabricated one."""
+    prompt = (
+        "You are a security code reviewer. Review this %s file for REAL, concrete security "
+        "vulnerabilities (injection, hardcoded secrets, unsafe deserialization, path traversal, SSRF, "
+        "auth bypass, etc). Ignore style/lint issues. Be conservative — only report something you can "
+        "point to a specific line for; an empty list is a fine answer for clean code.\n\n"
+        "File: %s\n```%s\n%s\n```\n\n"
+        'Respond with ONLY a JSON array (no prose), each item: {"line":<int>,"severity":"ERROR|WARNING|INFO",'
+        '"cwe":"CWE-XX: short name","message":"<=200 chars","code":"the exact flagged line(s)"}. '
+        "Empty array [] if nothing real found."
+    ) % (lang, upstream_path or rel_path, lang, content[:6000])
+    body = json.dumps({"model": TRIAGE_MODEL, "messages": [{"role": "user", "content": prompt}],
+                       "max_tokens": 900, "temperature": 0.1}).encode()
+    try:
+        req = _urlreq.Request(TRIAGE_URL.rstrip("/") + "/chat/completions", data=body,
+                              headers={"Content-Type": "application/json"}, method="POST")
+        r = json.load(_urlreq.urlopen(req, timeout=240))
+        msg = (r.get("choices") or [{}])[0].get("message") or {}
+        txt = (msg.get("content") or msg.get("reasoning") or "")
+        m = re.search(r"\[.*\]", txt, re.S)
+        if not m:
+            return []
+        items = json.loads(m.group(0))
+        out = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            out.append({"cwe": str(it.get("cwe") or "Nemotron review"), "file": rel_path,
+                       "line": int(it.get("line") or 0), "code": str(it.get("code") or "")[:200],
+                       "check_id": "nemotron-review", "message": str(it.get("message") or "")[:400],
+                       "severity": str(it.get("severity") or "WARNING"), "engine": "nemotron",
+                       "upstream_path": upstream_path, "patch": None, "patch_verified": False})
+        return out
+    except Exception as e:
+        print(f"[NEMOTRON-REVIEW] {rel_path} failed: {e}", flush=True)
+        return []
+
+
+def _review_unsupported_files(real_dir, trace, installed_langs, cap=6):
+    """Files in real_dir whose language has no installed Semgrep ruleset get reviewed by Nemotron
+    directly instead (see _nemotron_review_file) — concurrent, same reasoning as _triage_findings."""
+    if not os.path.isdir(real_dir):
+        return []
+    todo = []
+    for fn in sorted(os.listdir(real_dir)):
+        if len(todo) >= cap:
+            break
+        ext = os.path.splitext(fn)[1].lower()
+        lang = _LANG_EXT.get(ext)
+        if not lang or lang in installed_langs:
+            continue   # unknown extension (nothing we can claim), or Semgrep already covers it
+        fp = os.path.join(real_dir, fn)
+        try:
+            content = open(fp, encoding="utf-8", errors="replace").read()
+        except Exception:
+            continue
+        if not content.strip():
+            continue
+        todo.append((f"real/{fn}", trace.get(fn), lang, content))
+    if not todo:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(todo), 4)) as ex:
+        results = list(ex.map(lambda a: _nemotron_review_file(*a), todo))
+    return [f for group in results for f in group]
+
+
 def _triage_findings(sast, cap=6):
     """Run Nemotron triage over the highest-priority, de-duplicated Semgrep findings (cap the count so
-    the scan stays bounded — a firmware repo can have dozens of the same rule)."""
-    seen, n = set(), 0
-    for s in sorted(sast, key=lambda x: 0 if x.get("severity") == "ERROR" else 1):
-        if n >= cap:
+    the scan stays bounded — a firmware repo can have dozens of the same rule). Concurrent, not
+    sequential: a live demo with an unpredictable repo pasted in can't sit through cap × up-to-240s of
+    one-at-a-time inference calls — vLLM's continuous batching handles a handful of concurrent requests
+    fine, so this is real wall-clock speedup, not just overlap of already-idle time."""
+    seen, cands = set(), []
+    # only Semgrep findings — a nemotron-review finding (unsupported-language path) already got
+    # Nemotron's direct assessment; triaging it again would just be a second, redundant LLM call.
+    for s in sorted((x for x in sast if x.get("engine", "semgrep") == "semgrep"),
+                    key=lambda x: 0 if x.get("severity") == "ERROR" else 1):
+        if len(cands) >= cap:
             break
         key = (s.get("check_id"), s.get("upstream_path") or s.get("file"))
         if key in seen:
             continue
-        seen.add(key)
-        v = _nemotron_triage(s)
-        if v:
-            # confirmed + 有改寫碼 + 尚無確定性 patch → 用 Nemotron 的修正碼組 git-style diff(紅綠 patch)
-            if v.get("verdict") == "confirmed" and v.get("fixed_code") and not s.get("patch"):
-                p = _nemotron_patch(s, v["fixed_code"])
-                if p:
-                    s["patch"] = p; s["patch_kind"] = "nemotron-suggestion"; s["patch_verified"] = False
-            s["triage"] = {k: v[k] for k in ("verdict", "confidence", "why", "fix", "by") if k in v}  # fixed_code 不外露(只拿來組 diff)
-            n += 1
+        seen.add(key); cands.append(s)
+    if not cands:
+        return 0
+    with ThreadPoolExecutor(max_workers=min(len(cands), 4)) as ex:
+        results = list(ex.map(_nemotron_triage, cands))
+    n = 0
+    for s, v in zip(cands, results):
+        if not v:
+            continue
+        # confirmed + 有改寫碼 + 尚無確定性 patch → 用 Nemotron 的修正碼組 git-style diff(紅綠 patch)
+        if v.get("verdict") == "confirmed" and v.get("fixed_code") and not s.get("patch"):
+            p = _nemotron_patch(s, v["fixed_code"])
+            if p:
+                s["patch"] = p; s["patch_kind"] = "nemotron-suggestion"; s["patch_verified"] = False
+        s["triage"] = {k: v[k] for k in ("verdict", "confidence", "why", "fix", "by") if k in v}  # fixed_code 不外露(只拿來組 diff)
+        n += 1
     return n
 
 
@@ -1584,6 +2012,7 @@ def run_source_scan():
                 "note": "原始碼分析(SBOM/SAST/設計文件)為資安節點(zone B)職責;本節點為運維,不做。",
                 "sbom": [], "cve_with_source": [], "sast_findings": [], "jira_opened": []}
     global SRC_REPO, SRC_REF
+    _set_source_phase("syncing")
     base = f"{SRC_DIR}/{SRC_ASSET}"; real_dir = f"{base}/real"
     os.makedirs(base, exist_ok=True)
     # org security baseline (real; input to the design-compliance check) — not a scan target, not demo.
@@ -1596,14 +2025,31 @@ def run_source_scan():
     loc = _src_location(); ref = _src_ref()
     gh = _parse_gh(loc)
     folder = loc if (loc and os.path.isdir(loc)) else None
-    _empty = lambda note: {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
-                           "note": note, "sast_source": "not-synced", "sbom_source": "not-synced", "src": loc,
-                           "sbom": [], "sbom_packages": 0, "cve_with_source": [], "sast_findings": [], "jira_opened": []}
+    def _empty(note, note_en):
+        # Persist + log even on the "nothing to scan" paths — otherwise a misconfigured/empty source
+        # just leaves the LAST successful report on screen forever with zero indication anything ran
+        # (the GUI's "Sync & scan" looked like a no-op because nothing here ever touched the report file).
+        rep = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+               "note": note, "note_en": note_en, "sast_source": "not-synced", "sbom_source": "not-synced", "src": loc,
+               "sbom": [], "sbom_packages": 0, "cve_with_source": [], "sast_findings": [], "jira_opened": [],
+               "semgrep_langs": sorted(_installed_semgrep_langs())}
+        _set_source_phase("finished")
+        try:
+            with open(f"{WD}/source-cve-report.json", "w", encoding="utf-8") as f:
+                json.dump(rep, f, ensure_ascii=False, indent=2)
+            sh(f"chown 998:998 {WD}/source-cve-report.json")
+        except Exception:
+            pass
+        print(f"[SOURCE SCAN] empty: {note}", flush=True)
+        return rep
     # 來源未設定 / 不可用 → 誠實回空,絕不塞 demo。
     if not gh and not folder:
         return _empty("SAST 原始碼來源未設定 — 到「設定 → 原始碼來源」填 GitHub URL 或已掛載到 worker-b 的資料夾路徑。"
                       if not loc else
-                      f"原始碼來源 '{loc}' 無法使用(非 GitHub URL / owner/repo,或資料夾未掛載進 worker-b 沙箱)。")
+                      f"原始碼來源 '{loc}' 無法使用(非 GitHub URL / owner/repo,或資料夾未掛載進 worker-b 沙箱)。",
+                      "SAST source not configured — set a GitHub URL or a folder mounted into worker-b under Settings → Source of truth."
+                      if not loc else
+                      f"Source '{loc}' can't be used (not a GitHub URL / owner/repo, and not a folder mounted into the worker-b sandbox).")
     # ── 確定性 sync:把真實原始碼放進 real_dir(github: 抓;folder: 複製)──────────────
     commit = ref
     if gh:
@@ -1616,31 +2062,49 @@ def run_source_scan():
     elif folder:
         sh(f"rm -rf {real_dir}"); os.makedirs(real_dir, exist_ok=True)
         n = 0
+        _fexts = tuple(_LANG_EXT)
         for dp, _s, fs in os.walk(folder):
             for fn in fs:
-                if fn.endswith((".c", ".h", ".py", ".sh", ".lua")) and n < 400:
+                if fn.endswith(_fexts) and n < 400:
                     try: shutil.copy(os.path.join(dp, fn), os.path.join(real_dir, f"{n:03d}_{fn}")); n += 1
                     except Exception: pass
         commit = "folder"
     sh(f"chown -R 998:998 {SRC_DIR}")
     _has_real = os.path.isdir(real_dir) and any(
-        fn.endswith((".c", ".h", ".py", ".sh", ".lua")) for _d, _s, _fs in os.walk(real_dir) for fn in _fs)
+        fn.endswith(tuple(_LANG_EXT)) for _d, _s, _fs in os.walk(real_dir) for fn in _fs)
     if not _has_real:   # sync 後沒東西可掃 → 說出來,不捏造
-        return _empty(f"原始碼來源 '{loc}' 同步後無可掃檔案(fetch 失敗或 repo/資料夾無程式碼);未塞任何 demo。")
+        return _empty(f"原始碼來源 '{loc}' 同步後無可掃檔案(fetch 失敗,或整個 repo/資料夾內沒有任何支援語言的原始碼檔——支援:{', '.join(sorted(set(_LANG_EXT.values())))});未塞任何 demo。",
+                      f"Source '{loc}' synced but has no scannable files (fetch failed, or nothing in the whole repo/folder is a source file in a supported language — supported: {', '.join(sorted(set(_LANG_EXT.values())))}). No demo data was injected.")
     sast_source = (gh + "@" + str(commit)[:10]) if gh else ("folder:" + folder)
     # ── SBOM:只用真實抽取結果,無 demo manifest 退回 ─────────────────────────────────
+    # fetch_upstream_sbom() 只認得 ASUSWRT release/src/router 目錄結構——換成別種 repo(現在很常見,
+    # 支援任意語言後)會 404、source-sbom.json 完全不會被改寫,舊檔還留著上一個(可能完全不同的)
+    # repo 的資料。這裡讀檔前一定要核對 repo 是否吻合,否則會把舊 repo 的 SBOM 誤標成目前這個 repo
+    # 的結果——這正是「SAST 換了來源,SBOM/CVE 卻沒跟著換」的根因。
     pkgs = {}; sbom_source = "not-synced"
     _rsb = f"{WD}/source-sbom.json"
+    pkg_eco = {}   # 每個套件的生態系(npm/PyPI/Go/…);供下面即時 CVE 查詢按套件自己的生態系查
     try:
         if gh and os.path.exists(_rsb) and (time.time() - os.path.getmtime(_rsb)) < 30 * 86400:
             _rj = json.load(open(_rsb, encoding="utf-8"))
-            for p in _rj.get("packages", []):
-                if p.get("name") and p.get("version"):
-                    pkgs[p["name"]] = p["version"]
-            if pkgs:
-                sbom_source = gh + "@" + str(_rj.get("ref", ref))
+            if _rj.get("repo") == SRC_REPO:
+                for p in _rj.get("packages", []):
+                    if p.get("name") and p.get("version"):
+                        pkgs[p["name"]] = p["version"]
+                        if p.get("ecosystem"):
+                            pkg_eco[p["name"]] = p["ecosystem"]
+                if pkgs:
+                    sbom_source = gh + "@" + str(_rj.get("ref", ref))
     except Exception:
         pkgs = {}
+    # SBOM 抽取先試 ASUSWRT 佈局,不是的話退到通用套件清單檔(見 _SBOM_PARSERS/fetch_upstream_sbom)
+    # ——兩者都沒有才是真的沒東西可抽,說清楚為什麼(manifest 清單直接從 _SBOM_PARSERS 生成,單一
+    # 來源,不用在這裡跟解析器清單各維護一份而兜不上)。
+    sbom_note = sbom_note_en = None
+    if gh and not pkgs:
+        _manifests = " / ".join(sorted(_SBOM_PARSERS))
+        sbom_note = f"SBOM 未同步 — '{gh}' 整個 repo(任何目錄)都沒有 ASUSWRT release/src/router 佈局,也沒有常見套件清單檔({_manifests});SAST 掃描與此無關,照樣正常。"
+        sbom_note_en = f"SBOM not synced — '{gh}' has neither the ASUSWRT release/src/router layout nor a recognized package manifest anywhere in the repo ({_manifests}). SAST scanning is independent of this and still works normally."
     sbom = [{"name": n, "version": v} for n, v in pkgs.items()]
     # CVE 現在對這台是「定論」(之前無 SBOM → unknown_inventory_gap)
     cve_now = []
@@ -1658,19 +2122,24 @@ def run_source_scan():
     # worker-b 自主:即時 CVE 情資(NVD)— 用 SBOM 版本查當下適用的 CVE,不再只靠固定清單(每日掃會隨上游新公布變動)
     live_src = "—"
     try:
-        live = fetch_live_cves(pkgs)
+        live = fetch_live_cves(pkgs, pkg_eco)
         seen = {(c["cve"], c["component"]) for c in cve_now}
         n_live = 0
+        # live-cves.json 是累加快取(每個查過的元件都留著,不因換 repo 而清掉)——只認目前這個 repo
+        # 真的有的元件,否則換 repo 後舊元件的 CVE 會繼續冒出來,像是「換了 SBOM 卻沒真的換」。
         for comp, items in live.items():
+            if comp not in pkgs:
+                continue
             for it in items:
                 if (it["cve"], comp) in seen:
                     continue
                 seen.add((it["cve"], comp)); n_live += 1
                 cve_now.append({"cve": it["cve"], "title": it["title"] or it["cve"], "asset": SRC_ASSET, "component": comp,
-                                "our_version": pkgs.get(comp), "fixed_in": None, "verdict": it.get("verdict", "needs_review"),
+                                "our_version": pkgs.get(comp), "fixed_in": it.get("fixed_in"), "verdict": it.get("verdict", "needs_review"),
                                 "was": "OSV.dev 即時情資(版本區間比對)", "evidence": "OSV.dev",
                                 "severity": it.get("severity"), "source": "OSV"})
-        live_src = f"{'NVD API 2.0' if NVD_API_KEY else 'OSV.dev/' + OSV_ECO}(即時,+{n_live} 筆)"
+        _ecos = sorted({pkg_eco.get(c, OSV_ECO) for c in live if c in pkgs}) if live else []
+        live_src = f"{'NVD API 2.0' if NVD_API_KEY else 'OSV.dev/' + ('+'.join(_ecos) if _ecos else OSV_ECO)}(即時,+{n_live} 筆)"
     except Exception as e:
         print(f"[SOURCE SCAN] live CVE(NVD)fetch 失敗,沿用固定清單: {e}", flush=True)
     # worker-b 自主:讀真實上游 changelog,把因 backport 已修的 affected 校正為 not_affected(避免版本式假陽性)
@@ -1682,10 +2151,13 @@ def run_source_scan():
     cve_reconciled = _reconcile_advisories(cve_now, adv)
     # 原始碼 SAST(pattern-based,危險樣式供人審)
     # 原始碼 SAST:用 Semgrep(AST + taint 資料流)掃真實同步進來的碼(real_dir),不是 regex pattern。
+    _set_source_phase("scanning")
     sast = _run_semgrep(real_dir)
     sast_engine = "semgrep"
     if sast is None:   # 引擎未安裝 → 誠實說,不退回 regex/demo
         sast = []; sast_engine = "not-installed"
+    for s in sast:
+        s["engine"] = "semgrep"
     # 可追溯 + 修補建議:把每個 SAST 命中對應回上游 github 真實檔(用 commit SHA 做永久行錨連結)+ 附 CWE 修法。
     trace, up_commit, up_repo = {}, None, SRC_REPO
     try:
@@ -1696,6 +2168,17 @@ def run_source_scan():
     except Exception:
         pass
     _ref_url = up_commit or SRC_REF
+    # 沒裝 Semgrep 規則的語言 → 沒有確定性引擎可跑,改讓 Nemotron 直接審該檔(不是複審現成命中,是主要偵測手段)。
+    installed_langs = _installed_semgrep_langs()
+    _set_source_phase("reviewing")
+    try:
+        unsupported = _review_unsupported_files(real_dir, trace, installed_langs,
+                                                 cap=int(os.environ.get("SAST_NEMOTRON_ONLY_CAP", "6")))
+    except Exception as e:
+        print(f"[NEMOTRON-REVIEW] batch failed: {e}", flush=True); unsupported = []
+    if unsupported:
+        sast.extend(unsupported)
+        sast_engine = "semgrep+nemotron" if sast_engine == "semgrep" else "nemotron"
     for s in sast:
         up = trace.get(os.path.basename(s["file"]))
         if up:
@@ -1736,6 +2219,7 @@ def run_source_scan():
     # Nemotron 複審:對高優先、去重的 Semgrep 命中判斷可達性/信心(降假陽性)。本地推理;失敗不阻斷確定性命中。
     sast_triaged = 0
     if sast and os.environ.get("SAST_TRIAGE", "1") != "0":
+        _set_source_phase("reviewing")
         try:
             sast_triaged = _triage_findings(sast, cap=int(os.environ.get("SAST_TRIAGE_CAP", "6")))
         except Exception as e:
@@ -1810,15 +2294,19 @@ def run_source_scan():
     _syncts = None
     try: _syncts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(f"{WD}/source-sast-manifest.json")))
     except Exception: pass
+    _set_source_phase("finished")
     report = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "asset": SRC_ASSET,
               "analysis_by": "worker-b · 自主上游抓取(治理 egress)", "upstream_repo": sast_source,
               "upstream_fetched_ts": _syncts,
               "sbom_packages": len(sbom), "sbom_source": sbom_source, "sbom": sbom, "cve_with_source": cve_now,
+              "sbom_note": sbom_note, "sbom_note_en": sbom_note_en,
               "cve_feed": live_src,
               "advisories_source": (f"Changelog-NG.txt@{SRC_REF}" if adv else None),
               "advisories_fixed": len(adv), "cve_reconciled": cve_reconciled,
               "sast_findings": sast, "sast_source": sast_source, "sast_engine": sast_engine, "sast_triaged": sast_triaged, "patches": sum(1 for s in sast if s.get("patch")),
               "patches_verified": sum(1 for s in sast if s.get("patch_verified")),
+              "semgrep_langs": sorted(installed_langs),   # what Semgrep actually has rules for right now
+              "nemotron_reviewed_files": len(unsupported),   # files that got a direct Nemotron review (no ruleset for their language)
               "design_doc": f"source/{SRC_ASSET}/{DESIGN_DOC}", "design_conformance": design,
               "design_violated": design_violated, "jira_opened": tickets}
     with open(f"{WD}/source-cve-report.json", "w", encoding="utf-8") as f:
@@ -2081,6 +2569,33 @@ def _a2a_summary(rpc_result):
         return ""
 
 
+def _summarize_source_report_for_a2a(report, cap=None):
+    """A2A 回應是直接塞進委派方(team-lead)LLM 對話 context 的——sast_findings 一個真實 repo
+    可以有數十到上百筆(尤其 semgrep 規則擴到 py/js/ts/bash 之後),每筆還可能帶 patch diff,
+    整包 json.dumps 沒有上限地塞進去就是 Hermes/NemoClaw「max compression attempts(3) reached」
+    的成因。完整報告已無條件寫入 source-cve-report.json(run_source_scan 內),這裡只裁切
+    「回傳給呼叫端 LLM」這一份,不動掃描邏輯本身。"""
+    if not isinstance(report, dict):
+        return report
+    cap = cap if cap is not None else int(os.environ.get("SAST_A2A_CAP", "15"))
+    rep = dict(report)
+    sast = rep.get("sast_findings") or []
+    _tri_rank = {"confirmed": 0, "likely": 1, "false_positive": 3}
+    ordered = sorted(sast, key=lambda s: (_tri_rank.get((s.get("triage") or {}).get("verdict"), 2),
+                                           s.get("file", ""), s.get("line", 0)))
+    rep["sast_findings"] = ordered[:cap]
+    rep["sast_findings_total"] = len(sast)
+    rep["sast_findings_truncated"] = len(sast) > cap
+    for k in ("sbom", "cve_with_source", "cve_reconciled"):
+        v = rep.get(k) or []
+        if len(v) > cap:
+            rep[k] = v[:cap]
+            rep[f"{k}_total"] = len(v)
+    if rep["sast_findings_truncated"] or len(report.get("sbom") or []) > cap:
+        rep["full_report_note"] = f"完整結果(所有 findings + patch diff)已存 worker-b:{WD}/source-cve-report.json"
+    return rep
+
+
 def _a2a_run(skill, params):
     if skill in ("knowledge",): return knowledge.get_knowledge()
     if skill in ("review",): return run_review(params.get("kind", ""), params.get("subject") or {})
@@ -2091,7 +2606,8 @@ def _a2a_run(skill, params):
     if skill in ("monitor",): return _single_flight("monitor", run_monitor)
     if skill in ("cve-scan", "cve"): return _single_flight("cve", run_cve_scan)
     if skill in ("cert-scan", "cert"): return _single_flight("cert", run_cert_scan)
-    if skill in ("source-scan", "source"): return _single_flight("source", run_source_scan)
+    if skill in ("source-scan", "source"):
+        return _summarize_source_report_for_a2a(_single_flight("source", run_source_scan))
     if skill in ("nuclei", "nuclei-scan"): return wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(POST /nuclei-scan 或排程觸發)"}
     if skill in ("syslog", "log-analysis"): return _single_flight("log-analysis", run_syslog_analysis)
     if skill in ("remediate", "fix") or skill in EBG_ACTIONS or skill in EBG_MULTI:
@@ -2195,6 +2711,7 @@ class H(BaseHTTPRequestHandler):
             # 非阻塞:立刻回上次報告(dashboard 讀持久化檔),掃描在背景跑 —— Semgrep 快但 Nemotron 複審慢,不卡 HTTP。
             _bg_source_scan()
             rep = _last_source_report(); rep["rescanning"] = _SOURCE_SCANNING["on"]
+            rep["sast_status"] = _SOURCE_SCANNING["phase"] if _SOURCE_SCANNING["on"] else "finished"
             self._send(200, rep)
         elif self.path == "/cert-scan":  # 憑證 / 弱加密與協定盤點(運維節點 A;主動提醒)
             if not self._authed():
@@ -2366,6 +2883,8 @@ if __name__ == "__main__":
         threading.Thread(target=_cert_schedule_loop, daemon=True).start()
     if _zone_has("backup"):
         threading.Thread(target=_backup_schedule_loop, daemon=True).start()
+    if _zone_has("source"):
+        threading.Thread(target=_source_schedule_loop, daemon=True).start()
     print(f"[worker-itops] listening on 0.0.0.0:{PORT} "
           f"(actions: {list(EBG_ACTIONS) + list(EBG_MULTI)}, auth: {'on' if TOKEN else 'off'}, "
           f"periodic_cve: {'every %ds' % CVE_INTERVAL if CVE_INTERVAL else 'off'})", flush=True)
