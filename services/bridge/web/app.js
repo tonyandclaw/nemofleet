@@ -1579,12 +1579,17 @@ const TOPO_ICON = {
 function TIcon({ k, size = 15, style }) {
   return html`<svg class="ticon" width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style=${style} dangerouslySetInnerHTML=${{ __html: TOPO_ICON[k] || '' }}></svg>`;
 }
+// right-angle elbow routing (MacWeb-style), not a bezier S-curve: straight L segments only, with
+// stroke-linejoin="round" doing the corner-rounding. A curve baked into `d` would distort into a
+// flat ellipse under this SVG's non-uniform preserveAspectRatio="none" stretch (width is 100% of
+// a variable container, height is a small fixed px — often 10-20x more horizontal stretch than
+// vertical); stroke-linejoin rounds the joint in stroke-width space, which isn't subject to that.
 function fanD(nTop, nBottom) {
   const xs = n => Array.from({ length: n }, (_, i) => (n === 1 ? 50 : (i + 0.5) / n * 100));
-  const top = xs(nTop), bot = xs(nBottom), n = Math.max(nTop, nBottom);
+  const top = xs(nTop), bot = xs(nBottom), n = Math.max(nTop, nBottom), midY = 50;
   return Array.from({ length: n }, (_, i) => {
-    const tx = nTop === 1 ? top[0] : top[i], bx = nBottom === 1 ? bot[0] : bot[i], my = 55;
-    return `M ${tx} 2 C ${tx} ${my}, ${bx} ${my}, ${bx} 98`;
+    const tx = nTop === 1 ? top[0] : top[i], bx = nBottom === 1 ? bot[0] : bot[i];
+    return tx === bx ? `M ${tx} 2 L ${bx} 98` : `M ${tx} 2 L ${tx} ${midY} L ${bx} ${midY} L ${bx} 98`;
   });
 }
 const FanRail = memo(function FanRail({ nTop, nBottom, colors, colorVar = '--ink3', flow, muted, height = 40, label }) {
@@ -1594,6 +1599,7 @@ const FanRail = memo(function FanRail({ nTop, nBottom, colors, colorVar = '--ink
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
       <defs><marker id="topoArrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
       ${paths.map((dstr, i) => html`<path key=${i} d=${dstr} fill="none" stroke-width=${muted ? 1.4 : 2}
+        stroke-linejoin="round" stroke-linecap="round"
         class=${flow ? 'topo-flow' : ''} marker-end="url(#topoArrow)"
         style=${{ stroke: colors ? `var(${colors[i % colors.length]})` : `var(${colorVar})`, opacity: muted ? .6 : .92 }}/>`)}
     </svg>
