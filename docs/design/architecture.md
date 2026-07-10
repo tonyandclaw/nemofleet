@@ -3,7 +3,7 @@
 _更新 2026-07 — 四節點同型 Hermes 艦隊 · 本地 Nemotron 3 Super 120B_
 
 四個節點**都跑 Hermes harness**、都在本地 **NVIDIA NIM(Nemotron 3 Super 120B-A12B)** 上推理,只差角色/設定:
-team-lead 對人前台 + 協調,worker-a / worker-b 執行維運。唯一受管的真實設備 = ASUS ExpertWiFi **EBG19P**。
+team-lead 對人前台 + 協調,worker-a / worker-b / worker-c 執行維運 + 資安 + 治理。唯一受管的真實設備 = ASUS ExpertWiFi **EBG19P**。
 
 ## Mermaid
 ```mermaid
@@ -20,21 +20,28 @@ flowchart LR
   subgraph wb[OpenShell sandbox:worker-b]
     workerb[worker-b · 資安<br/>CVE/SBOM/SAST/syslog<br/>IT-ops :9099]
   end
+  subgraph wc[OpenShell sandbox:worker-c]
+    workerc[worker-c · 治理<br/>backup/rollback·review·curate<br/>IT-ops :9099]
+  end
   nim[[本地 NIM<br/>Nemotron 3 Super 120B]]
   gov[[harness 治理<br/>OpenShell policy.yaml<br/>+ nemoclaw strategy]]
 
   user -->|Telegram/Email 需求| lead
   lead -->|scoped worker_bridge · POST /fix| workera
   lead -->|scoped worker_bridge| workerb
+  lead -->|scoped worker_bridge · review/curate| workerc
   workera <-->|唯讀巡檢 / nvram apply| device
   workera -->|修不了 / 需人審| jira
+  workerc <-->|backup / rollback| device
   lead -->|結果回報| user
   nim -. 推理 .- lead
   nim -. 推理 .- workera
   nim -. 推理 .- workerb
+  nim -. 推理 .- workerc
   gov -. 治理(egress/binaries/tier) .-> lead
   gov -. 治理 .-> workera
   gov -. 治理 .-> workerb
+  gov -. 治理 .-> workerc
 ```
 
 ## ASCII(投影片用)
@@ -58,15 +65,13 @@ flowchart LR
   另有**積極主動**面(`scripts/teamlead-proactive.sh` + `skills/hermes/proactive-fleet-patrol`):定期主動叫 worker 掃描、偵測設備狀態/錯誤 delta,並用自己的口吻主動推 Telegram/Email 回報(不等人問;critical 即時、routine 併日報,尊重靜音時段)。
 - **worker-a(運維)**:設備狀態巡檢、設定漂移(drift)比對、憑證 / 弱加密盤點、對 **EBG19P** 的確定性 remediation(nvram apply + 重讀驗證)。
 - **worker-b(資安)**:定期 CVE 掃描、上游韌體原始碼 SBOM / SAST、syslog 分析。
-- **worker-c(治理)**:設定備份 / 韌體生命週期 / rollback(高風險需人 approval_token),**QA 審查閘**(a/b 產出過審才放行,reject 綁定重做、達上限升級真人),SkillOS 技能庫 curation。見 [worker-c-spec.md](./worker-c-spec.md)、[skill-curation.md](./skill-curation.md)。
+- **worker-c(治理)**:設定備份 / 韌體生命週期 / rollback(高風險需人 approval_token),**QA 審查閘**(a/b 產出過審才放行,reject 綁定重做、達上限升級真人),**SkillOS 技能庫 curation**(改編自 SkillOS,arXiv 2605.06614:確定性品質閘 + BM25 檢索 + 抗膨脹)。見 [worker-c-spec.md](./worker-c-spec.md)、[skill-curation.md](./skill-curation.md)。
 - **推理**:四節點都路由到本地 **NIM(Nemotron 3 Super 120B-A12B,原生 NVFP4、hybrid Mamba-MoE、agent / tool-use 特化)**;端點見 `inference.local`(gateway `:18080`)。
 - **跨節點通道**:唯一互通面 = scoped `worker_bridge` policy(/32)+ worker 的 `:9099` IT-ops 端點(X-Bridge-Token)。此端點同時提供**標準 A2A(Agent2Agent)介面** —— Agent Card 能力發現(`/.well-known/agent-card.json`)+ JSON-RPC `message/send` 委派(`services/bridge/a2a_client.py`),**over 同一條受治理通道**(標準協定 + OpenShell 治理兼得)。team-lead 委派、worker **確定性執行**(零 LLM 掃描 + 設備 remediation);修不了 / 需人審 → 開**真實 Jira**。拓撲為 hub-and-spoke(worker 之間不互通)。host 端另有 `dispatch` / `collab` / `bus` 作備援驅動。
 - **活動流可觀測(Flow)**:每個真實委派 / 觸發都記成 flow 事件(`human → team-lead(received)→ worker(working)→ done`),dashboard 合併 worker `/flow` + host 端 GUI 動作 + 主動巡邏,在 SPA **Flow 視圖**即時顯示(工作中的節點亮起 + 委派時間軸)。刻意不記 dashboard 的 GET 輪詢(免洗版)。完整規格見 [activity-flow-spec.md](./activity-flow-spec.md)。
 - **共享知識層**:`knowledge/`(核准 baseline + 安全鍵定義)是**單一權威來源**,`services/bridge/knowledge.py` 載入 —— worker-a 的 drift 偵測與 team-lead 讀的是**同一份**(team-lead 經 `GET /knowledge`(A2A skill `knowledge`)即時拉;boot 同步到每台 worker)。`version` hash 讓全隊確認在同一版知識上,解「context 不一致」這個多 agent 頭號失敗。完整 MCP client 掛載是其上的升級路徑。
 - **harness 治理層**:OpenShell `policy.yaml`(egress / binaries / host 三層)+ nemoclaw strategy(model / route / policy tier)—— 程式碼層強制,由 log `ALLOWED` / `DENIED` 佐證。
-
-## 規劃:第四個 worker(worker-c · 變更治理官)
-可選擴充 —— worker-c(zone C)= **生命週期**(備份 / 韌體 / rollback)+ **a/b 的品質監督**:審查 worker-a/worker-b 的解法與決策,爛的可退回重做(reject 綁定,經 team-lead 執行;worker 之間仍不互連、人在最頂端)。把艦隊從「各做各的」升級成有品質閘門的**自我校正系統**(propose → review → redo → verify)。完整規格見 [worker-c-spec.md](./worker-c-spec.md)。worker-c 同時是**技能庫 curator**(改編 SkillOS,arXiv 2605.06614):以品質閘 + 抗膨脹 + BM25 檢索治理 `skills/`,見 [skill-curation.md](./skill-curation.md)。
+- **自我校正系統**:worker-c 的 QA 審查閘把艦隊從「各做各的」升級成有品質閘門的 propose → review → redo → verify 迴圈 —— worker-a/b 提出解法或判斷,worker-c 審查、爛的退回重做,達重做上限才升級真人。完整規格見 [worker-c-spec.md](./worker-c-spec.md)。
 
 ## 即時 demo 亮點(可選)
 team-lead 內建 `creative/architecture-diagram` 技能,demo 時可現場請它產一張 SVG 架構圖,展示「自我進化」的實際產出。

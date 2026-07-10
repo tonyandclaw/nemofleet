@@ -18,10 +18,11 @@ monitoring plus governed nvram-apply remediation. There are no mocks for devices
 (SMTP/Jira are real); tests that need those are gated by device/fleet availability (see below).
 
 Read `README.md` first for the full picture (repo layout, quickstart, guardrails). Read
-`docs/design/architecture.md` for the node/role diagram. `docs/design/governance-inventory.md`
-covers OpenShell policy enforcement but is a 2026-06-06, 2-node (team-lead + worker-a) snapshot
-whose "differentiated governance" section is an explicit proposal, not yet applied — it predates
-worker-b/worker-c and doesn't reflect the current 4-node reality.
+`docs/design/architecture.md` for the node/role diagram and `docs/design/governance-inventory.md`
+for how OpenShell policy enforcement actually works (updated 2026-07-10 against a live 4-node
+policy dump — re-verify with `openshell policy get <sb> --full` before trusting exact preset names
+if this drifts again; the doc itself now flags what it couldn't confirm, e.g. dynamic device-egress
+rules and whether "policy tier" is still a live concept).
 
 ## Commands
 
