@@ -11,7 +11,7 @@ All nodes run the **Hermes** harness on **local NVIDIA NIM — Nemotron 3 Super 
 | **team-lead** (API `:8642` · UI `:18790`) | Human-facing front desk — multi-channel (Telegram / Email) intake, triage & dispatch to workers, close-out, self-evolving skills. |
 | **worker-a** (UI `:18791`) | Ops worker — device drift vs. approved baseline (ALERT on regression), certificate / weak-crypto audit, EBG19P remediation. |
 | **worker-b** (UI `:18792`) | Security worker — daily CVE scan, SBOM / SAST over upstream firmware source, syslog analysis. |
-| **worker-c** (UI `:18793`) | Governance worker — config backup / firmware lifecycle / rollback (human-approved), **QA review gate over a/b** (binding reject → redo), SkillOS skill curation. |
+| **worker-c** (UI `:18793`) | Governance worker — config backup / rollback, **QA review gate over a/b** (binding reject → redo), SkillOS skill curation. Firmware lifecycle and real approval-token validation are designed but not yet built — see `docs/design/worker-c-spec.md`. |
 
 Supporting products (installed CLIs, not vendored here):
 
@@ -140,6 +140,7 @@ rate-limit; broaden the human-approval gate to any egress-widening policy edit; 
 
 - `services/bridge/README.md` — **status dashboard control surface** (every GUI action → CLI → guard)
 - `docs/design/architecture.md` — architecture (mermaid + ASCII)
+- `docs/design/worker-c-spec.md` — worker-c (governance worker) behavior: backup/firmware/rollback/review + SkillOS skill curation, corrected against actual code (what's real vs. still just a stub)
 - `docs/design/governance-inventory.md` — governance inventory
 - `docs/ebg19p-operations.md` — EBG19P operations knowledge base
 - `docs/design/ebg19p-integration-design.md` — real-device integration design

@@ -1,83 +1,108 @@
 # worker-c 設計規格 — 變更治理官(release manager + QA 監督)
 
-_第四個 worker,zone C。**已實作 Stage 1–3**:① review 監督(wi_review 純函式閘 + zone C 端點/A2A,沙箱 + CI 驗過)② 可部署(CT_WC + boot-stack + `review-gate` skill + healthcheck)③ 進 console(Flow 節點 + collect)。**lifecycle(備份/韌體/rollback)結構完成、對真機操作待實機驗證**;review 的 LLM 判斷層為擴充。_
+_第四個 worker,zone C。**已實作且穩定**:① review 監督(`wi_review` 純函式閘 + zone C 端點/A2A,單元測試 + 整合測試驗過)② SkillOS 技能庫策展(`wi_skills`,同樣純函式閘,見第 9 節)③ 可部署(CT_WC + boot-stack + `review-gate` skill + healthcheck)④ 進 console(Flow 節點 + Change control 面板)。**backup/rollback 對真機可動,但沒有讀回驗證;firmware 的 stage/apply 兩步生命週期只有 `/firmware-apply` 的殼、尚未真的接上任何下載/驗簽/套用邏輯**;review 的 LLM 判斷層仍是純構想,尚未開工。本文件對照目前實作逐節校正過(2026-07-10),不是最初設計時的願景版。_
 
-worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期**(備份 / 韌體 / rollback),一面當 worker-a、worker-b 的**品質閘門** —— 審查它們的解法/決策,爛的可退回重做。兩個角色是同一件事的兩面:它定義「什麼是好狀態、什麼變更准放行」。
+worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期**(備份 / 韌體 / rollback),一面當 worker-a、worker-b 的**品質閘門** —— 審查它們的解法/決策,爛的可退回重做,**外加**team-lead 自己新寫的技能也要先過它的策展閘。三個角色是同一件事的三面:它定義「什麼是好狀態、什麼變更准放行、什麼技能夠格留下」。
 
 沿用現有 pattern:新 OpenShell 沙箱跑 Hermes(同一顆 NIM)+ zone C 能力 + `:9099` 端點 + A2A skills。team-lead 經 A2A 自動發現它、把它織進 review-gate 流程。**worker 之間仍不直接互連** —— 監督權威透過 team-lead 仲裁執行。
 
 ---
 
-## 1. 能力矩陣(ZONE_CAPS["C"])
+## 1. 能力矩陣(`ZONE_CAPS["C"]`,`worker-itops.py`)
 
-| cap | 職責 | 型態 |
-|---|---|---|
-| `backup` | 設定快照 / 版本歷史 / diff | 確定性 |
-| `firmware` | 韌體版本追蹤 · 更新查核 · 分批(canary)上線 | 確定性 + 治理 egress |
-| `rollback` | 還原已知良好設定 | 確定性 · **需人核准** |
-| `review` | 審查 a/b 產出 → 綁定判決(approve/reject) | 確定性閘 + LLM 判斷 |
+| cap | 職責 | 型態 | 實作狀態 |
+|---|---|---|---|
+| `backup` | 設定快照 / 版本歷史 | 確定性 | ☑ 對真機可動(需 `EBG19P_CRED`),排程預設每 24h(`BRIDGE_BACKUP_INTERVAL`) |
+| `firmware` | 韌體版本查詢 | 確定性(唯讀) | ◐ `GET /firmware` 只回目前版本,`urgency`/`available`/`cve_driven` 都是寫死的空值/`"normal"`,並未真的接 worker-b 的 CVE 結果 |
+| `rollback` | 還原已知良好設定 | 確定性 · **需 approval_token** | ◐ 對真機可動,但**沒有還原後讀回驗證**;`approval_token` 只做「非空字串」檢查,不是真的核准機制(見第 7 節) |
+| `review` | 審查 a/b 產出 → 綁定判決(approve/reject) | 確定性閘 | ☑ 完整實作,見第 3 節 |
+| `curate` | SkillOS 技能庫策展(insert/update/delete 的品質 + 防重複閘) | 確定性閘 | ☑ 完整實作,見第 9 節(**原規格未提及此能力**) |
+
+`/firmware-stage`(下載 + 驗簽 + canary 計畫)**不存在**——曾經是本文件的設計,但程式碼裡從未寫過,`grep` 全庫查無此字。`/firmware-apply` 目前是純殼:永遠回 `{"ok": false}`,不論有沒有帶 `approval_token`,也不會真的對裝置動作。
 
 ---
 
-## 2. 端點契約(`:9099`,全部 X-Bridge-Token 認證)
+## 2. 端點契約(`:9099`,全部 X-Bridge-Token 認證)——附實際回應範例
 
-### `POST /backup` · `GET /backup`
-- `POST` → 立即對 EBG19P 匯出 nvram/settings,存版本化快照。
-- 回：`{ "id": "bk-<ts>", "asset", "ts", "sha256", "size", "diff_from_prev": {added, removed, changed}, "trigger" }`
-- `GET` → 列最近 N 個備份 + 最新一筆 metadata。備份**每次變更前後**自動各拍一張(供 rollback 錨點 + 變更歸因)。
+### `GET /backup`
+- 回:`{"count": N, "backups": ["bk-<ts>", ...][:20], "dir": BACKUP_DIR}`
+- **注意**:`backups` 是純 id 字串陣列,**不含每筆的 metadata**(沒有個別的 sha256/ts/trigger)。
 
-### `GET /firmware` · `POST /firmware-stage` · `POST /firmware-apply`
-- `GET` → `{ "current": "3.0.0.6.102_45537", "available": [...], "urgency": "high|normal", "cve_driven": ["CVE-…"], "staged": null }`
-  - `urgency` 由 **worker-b 的 CVE 結果**驅動:某 CVE 有韌體修復 → high。
-- `POST /firmware-stage` → 下載 + 驗簽 + 產 canary 計畫(先一台/一時段)。回 `{ "staged": {version, sha256, plan} }`。
-- `POST /firmware-apply` → 套用**已 stage** 的韌體。**需 `approval_token`(人核准)**,否則 403。套用後自動跑 health-verify;失敗 → 自動 `/rollback`。
+### `POST /backup`
+- 對 EBG19P 匯出目前設定,存版本化快照。
+- 回:`{"available": true, "latest": "bk-<ts>", "ts": ..., "keys": N, "sha256": "..."}`;無裝置憑證時優雅降級 `{"available": false, "note": "...", "ts": ...}`。
+- **沒有 `diff_from_prev`**(無 diff 邏輯)、**沒有 `size`**、**沒有 `asset`**、**沒有把 `trigger` 回傳給呼叫端**(只存在寫入磁碟的那份 JSON 裡)。
+- **沒有「每次 remediation 前後自動各拍一張」的掛鉤** —— 目前唯一的自動觸發是背景排程迴圈(`_backup_schedule_loop`,預設 86400s),`run_ebg_remediate`(worker-a 的修復路徑)完全沒有呼叫這裡的備份邏輯。
+
+### `GET /firmware`
+- 回:`{"current": "<目前版本或 unknown>", "available": [], "urgency": "normal", "cve_driven": [], "note": "ASUS 韌體來源未設定...", "note_en": "..."}`
+- `available`、`cve_driven` 永遠是空陣列,`urgency` 永遠是 `"normal"` —— **這三個欄位目前都是寫死的**,韌體來源(下載/查版本)從未接上,worker-b 的 CVE 結果也沒有被讀取拿來算 urgency。
+- Dashboard 上看到的「CVE 驅動的 urgency」其實是**前端自己算的**(`app.js` 用 `d.cve.findings` 交叉比對顯示紅點),不是這支端點回的資料本身有這個邏輯。
+
+### `POST /firmware-apply`
+- 回:`{"ok": false, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)", "note_en": "...", "approval_token": bool(...)}`
+- **這是純殼**。永遠 `ok: false`,不管有沒有帶 `approval_token`;不檢查 zone、不讀裝置憑證、不下載、不驗簽、不套用、不驗證。程式碼裡沒有任何一條路徑真的把韌體寫進裝置。
 
 ### `POST /rollback`
-- 入:`{ "to": "bk-<id>", "approval_token" }`(**需人核准**)。
-- 還原該備份 → 重讀驗證。回 `{ "restored_to", "ok", "verify": {...} }`。
+- 入:`{"to": "bk-<id>", "approval_token": "<非空字串>"}`
+- 讀該備份的存檔設定,呼叫真機 `c.apply("restart_all", ..., wait=15)`。
+- 回:`{"ok": true, "restored_to": to, "keys": N, "ts": ...}`,或失敗時 `{"ok": false, "error": "...", "error_en": "..."}`。
+- **沒有 `verify` 欄位** —— 套用後不會重讀裝置設定去確認真的回到目標狀態,只要 `.apply()` 沒丟例外就回報成功。
 
-### `POST /review` —— 監督核心
-- 入:`{ "kind": "remediation|cve|source|health", "target": "worker-a|worker-b", "subject": <被審的 a/b 產出>, "context": {…} }`
-- 回**綁定判決**:
+### `POST /review` —— 監督核心(內容與原規格一致,見第 3 節)
+- 入:`{"kind": "remediation|cve|source", "subject": <被審的 a/b 產出>}`(目前實作沒有 `"health"` kind,也沒有 `target`/`context` 參數,呼叫端不需要傳)。
+- 回綁定判決(結構同原規格,現在每個 check 都多帶一個 `detail_en`,`reasons`/`required_fixes` 也都各有 `_en` 版本):
 ```json
 {
   "verdict": "approve | reject",
   "score": 0-100,
   "target": "worker-a", "kind": "remediation",
-  "checks": [ {"name": "baseline-match", "pass": true, "detail": "…"}, … ],
-  "reasons": ["reject 的理由…"],
-  "required_fixes": ["a/b 必須改的具體項…"],
-  "redo_count": 1,
-  "escalate": false
+  "checks": [ {"name": "baseline-match", "pass": true, "detail": "...", "detail_en": "..."}, ... ],
+  "reasons": [...], "reasons_en": [...],
+  "required_fixes": [...], "required_fixes_en": [...],
+  "redo_count": 1, "escalate": false
 }
 ```
 
+### `POST /skill-review` · `GET /skills` · `GET /curations` —— SkillOS 策展(原規格完全沒提到,見第 9 節)
+
+### `GET /reviews`
+- 回最近 30 筆 `/review` 判決紀錄(給 console 的 Change control 面板用),原規格未提及此端點。
+
 ---
 
-## 3. `/review` 判準(確定性閘 → 再 LLM 判斷)
+## 3. `/review` 判準(確定性閘,LLM 判斷層尚未開工)
 
-先跑**確定性 gate**(過不了直接 reject,零 LLM);全過再用 LLM 做細緻品質判斷。判準都錨定既有的共享知識層(baseline / 安全鍵)。
+先跑**確定性 gate**;全過才 approve。**目前完全沒有 LLM 判斷層** —— `wi_review.py` 自己的檔頭註解就寫明:「Deterministic gates only; the LLM nuance ... is a team-lead / worker-c-agent layer on top」,這句話是「還沒做」的意思,不是「已經做了一部分」。判準都錨定既有的共享知識層(baseline / 安全鍵)。
 
-**remediation(審 worker-a)** — 已實作 ☑ 四閘(`wi_review.review_remediation`):
-- ☑ `baseline-match`:被標記的安全鍵,修完的 after 等於**已核准 baseline**。
+**remediation(審 worker-a)** — `wi_review.review_remediation`,4 閘:
 - ☑ `verified`:worker-a 有實跑重讀 + 帶 `ok` / `after`(非空談)。
+- ☑ `baseline-match`:被標記的安全鍵,修完的 `after` 等於**已核准 baseline**。
 - ☑ `success-consistent`:回報 `ok=true` 卻仍偏離 baseline = 擋。
-- ☑ `scope`:改動只該動宣告的 `target_key`;溢出到其他安全鍵 = 範圍外副作用,擋。
-- ◇ `root-cause` / `no-better-alt`(LLM 擴充):修的是根因嗎?有無更完整/更安全的作法被漏掉?
+- ☑ `scope`:**只在呼叫端有給 `before` 和 `target_key` 時才跑**;沒給就略過此閘(不算失敗,單純不檢查)——呼叫端要注意這點,不是每次都保證有 4 個 check。
+- ◇ `root-cause` / `no-better-alt`(LLM 擴充,未實作):修的是根因嗎?有無更完整/更安全的作法被漏掉?
 
-**cve / source(審 worker-b)** — 已實作 ☑ 三閘(`wi_review.review_cve`):
+**cve / source(審 worker-b)** — `wi_review.review_cve`,最多 3 閘、實際筆數依輸入而定:
 - ☑ `evidence`:affected 判定有元件 + 版本佐證。
 - ☑ `cve-id`:判 affected 有附 CVE id。
-- ☑ `version-consistent`:給了 `fixed_version` 時,`our_version < fixed`(否則 affected 疑假陽性)。
-- ◇ `false-pos/neg` / `severity`(LLM 擴充):backport 假陽性?嚴重度與升級是否得當?
+- ☑ `version-consistent`:**只在 `verdict=="affected"` 且同時給了 `fixed_version` 與 `our_version` 時才跑**;否則這個 check 根本不在 `checks` 陣列裡 —— 也就是說,一筆判定 `not_affected` 的 subject,審查只會跑 2 個閘,不是原規格暗示的固定 3 閘。
+- ◇ `false-pos/neg` / `severity`(LLM 擴充,未實作)。
 
-**health**:liveness、error rate、上次掃描是否過期。
+**沒有 `"health"` kind** —— `review(kind, subject, ...)` 的統一入口目前只認得 `remediation`/`cve`/`source`;其他 kind(含 `health`)一律直接 `approve`,`note: "無對應審查閘,放行"`(即 fail-open,不是有專門的 liveness/error-rate 判準)。
 
 ---
 
-## 4. team-lead review-gate 流程(權威怎麼執行)
+## 4. redo_count / escalate(`wi_review.annotate_redo`)
 
-worker-c 的 **reject 是政策上綁定的** —— team-lead 收到 reject **必須**重派,不能放行。這就是「有權叫他們重做」。c 不直接連 a/b,由 team-lead 當傳輸,維持 hub-and-spoke。
+- `redo_cap` 預設 `2`。同一 `(kind, subject_ref)` 累積被 reject 次數 `redo_count`;**`escalate = redo_count > redo_cap`**,也就是**第 3 次被拒才升級**,不是第 2 次。（本文件先前版本的循序圖標成「`redo_count ≥ N`」,對照 N=2 會讓人以為第 2 次就升級 —— 以程式碼行為為準:第 3 次。）
+- escalate 時 `required_fixes`/`required_fixes_en` 會被覆寫成制式訊息:「重做已達上限,停止重派,升級真人」。
+- **redo 歷史是純記憶體狀態**(`worker-itops.py` 的全域 `REVIEWS` list,只留最近 40 筆),**worker-c 的沙箱一重啟,所有升級計數就歸零** —— 沒有落地持久化,這點原規格沒提到,是實務上的已知限制。
+
+---
+
+## 5. team-lead review-gate 流程(權威怎麼執行)
+
+worker-c 的 **reject 是政策上綁定的** —— team-lead 收到 reject **必須**重派,不能放行。c 不直接連 a/b,由 team-lead 當傳輸,維持 hub-and-spoke。
 
 ```mermaid
 sequenceDiagram
@@ -90,11 +115,11 @@ sequenceDiagram
   C-->>L: verdict
   alt approve
     L->>H: 放行 · 回報結案
-  else reject (redo_count < N)
+  else reject (redo_count ≤ 2)
     L->>A: 帶 required_fixes 重派 → 重做
     A->>L: 新解法
     L->>C: 複審 (loop)
-  else reject 且 redo_count ≥ N
+  else reject 且第 3 次(redo_count > 2)
     C-->>L: escalate=true
     L->>H: 升級真人(Telegram/Email + Jira)
   end
@@ -104,50 +129,97 @@ sequenceDiagram
 
 ---
 
-## 5. 權威模型 & 護欄(免得 c 變不受控的暴君/瓶頸)
+## 6. 權威模型 & 護欄
 
-| 護欄 | 規則 |
-|---|---|
-| **重做上限** | 預設 N=2;仍不過 → 升級真人(不無限迴圈) |
-| **判決可稽核** | 每個 verdict 進既有 tamper-evident audit chain → 亂 reject 的壞 c 抓得到、可回溯 |
-| **c 的高風險動作要人核准** | `firmware-apply` / `rollback` 需 `approval_token`(人在最頂端;監督者不能自己說了算) |
-| **人可覆寫** | 品質層級:人 > c > a/b;但 c 的生命週期動作受人閘 |
+| 護欄 | 規則 | 實作狀態 |
+|---|---|---|
+| **重做上限** | 第 3 次仍不過 → 升級真人(不無限迴圈) | ☑ |
+| **判決可稽核** | 每個 verdict 進既有 tamper-evident audit chain | ◐ `/review`/`/skill-review` 的判決有記進 in-memory 的 `REVIEWS`/`CURATIONS` ring(供 console 顯示),**但沒有寫進 `agent-dashboard.py` 的 tamper-evident audit chain**(那條鏈目前只收 admin 操作,不收 worker-c 判決) |
+| **c 的高風險動作要人核准** | `firmware-apply` / `rollback` 需 `approval_token` | ◐ 兩者都「檢查有沒有帶這個欄位」,但**沒有任何驗證機制**(不驗簽名、不查發放紀錄、不綁定人的身分、不設過期)——目前任何呼叫端傳一個非空字串就能通過。沒有真人核准的實際橋接(見第 7 節) |
+| **人可覆寫** | 品質層級:人 > c > a/b | ☑(架構上成立,但 approval_token 沒有真的鎖住這個層級) |
 
-階層:**人 = 最終權威**;**team-lead = 協調 + 執行 c 的判決**;**worker-c = 品質/變更權威**;**a/b = 執行**。
-
----
-
-## 6. A2A(Agent Card,zone C)
-
-worker-c 的 `/.well-known/agent-card.json` 曝露(team-lead 自動發現):
-`backup` · `firmware-update` · `rollback` · `review-remediation` · `review-cve` · `knowledge`(同其他節點)。
-team-lead 用 `message/send` 委派;高風險 skill(firmware-apply/rollback)在 metadata 帶 `approval_token`,c 端驗核。
+階層:**人 = 最終權威**;**team-lead = 協調 + 執行 c 的判決**;**worker-c = 品質/變更權威**;**a/b = 執行**。這個階層目前主要靠**人類自律 + 文件約定**維持,而不是靠 `approval_token` 這層技術控制。
 
 ---
 
-## 7. Egress & 治理(scoped，非全開)
+## 7. `approval_token` ——目前只是個字串,不是核准機制
 
-- **裝置**:worker-c → EBG19P(備份匯出 + rollback 套用)—— 同 worker-a 的 `/32` allow。
-- **韌體來源**:scoped allow 到 ASUS 韌體 host(下載 + 驗簽)。像 worker-b 的 github allow,一支 `worker-c-allow-firmware.sh`。
-- **備份庫**:本地 WD(或受治理遠端);備份含設定 → 視為敏感,加密存放、git-ignored。
+完整驗證邏輯就是這樣(`worker-itops.py` `run_rollback`):
+```python
+if not approval_token:
+    return {"ok": False, "error": "高風險動作需 approval_token(人核准);見 worker-c-spec §5", ...}
+```
+任何呼叫端(包含 team-lead 自己)傳 `{"approval_token": "x"}` 就能通過這個檢查 —— 沒有簽章、沒有對照「誰在什麼時候核發了這個 token」的紀錄、沒有過期、沒有綁定特定的動作內容。`/firmware-apply` 甚至不會走到這條檢查,因為它整支是殼(見第 2 節)。
+
+**沒有真人核准橋接技能**:`find skills -iname "*firmware*" -o -iname "*approval*"` 查無任何 `firmware-approval` 或類似的 SKILL.md。目前唯一提到「要先問人」的地方,是 `skills/hermes/review-gate/SKILL.md` 裡的一行提示文字,叫 team-lead 在套用高風險動作前「先問人核准」——這是**靠 LLM 照著指示做**,不是系統層級強制的控制點。要把這裡做成真的核准機制,至少需要:一支會真的產生/核發 token 的橋接技能(例如透過 Telegram 按鈕回覆核發、記錄核發人與時效)+ worker-c 端對 token 做真實驗證(而不是只看有沒有帶欄位)。
+
+---
+
+## 8. A2A(Agent Card,zone C)
+
+`GET /.well-known/agent-card.json` 由 `wi_a2a.build_agent_card(...)` 產生,zone C 目前廣播 **5 個** capability(`ZONE_CAPS["C"]`):`backup`、`firmware`(skill id `firmware-update`)、`rollback`、`review`、**`curate`**。
+
+**跟本文件先前版本的落差**:
+- 先前版本把 review 拆成兩個 skill id(`review-remediation`/`review-cve`)——實際上**只有一個統一的 `review` skill**,`kind`(`remediation`/`cve`/`source`)是呼叫時放進 body/metadata 的參數,不是兩個獨立的 A2A capability。
+- 先前版本完全沒列 `curate` —— 這是真實存在、team-lead 也會用到的第 5 個能力(見第 9 節),不是筆誤,是規格漏了整個能力。
+
+team-lead 用 `message/send` 委派;高風險 skill(`rollback`)在 metadata 帶 `approval_token`,worker-c 端做第 7 節那樣的(弱)驗證。
+
+---
+
+## 9. SkillOS 技能庫策展(`curate`)—— 先前版本完全沒有這節
+
+worker-c 的第三個身分:**team-lead 自己新寫的技能,要先過 worker-c 這關,才能真的落地**。改編自 SkillOS("Learning Skill Curation for Self-Evolving Agents", arXiv 2605.06614):凍結的 executor(retrieve + 用技能)配一個可訓練的 curator(insert/update/delete,依品質訊號把關)。這裡沒辦法真的 RL 訓一個 curator,所以把 curator 的**品質閘門**部分做成確定性、單元測試過的純函式(`wi_skills.py`,123 行),外加 BM25 檢索。
+
+**`skill_quality(text)`** —— 4 個確定性閘,審一份 Markdown + YAML frontmatter 技能:
+- `frontmatter`:有 `name` + `description`。
+- `name-format`:`name` 是 kebab-case。
+- `has-body`:指令內容 ≥ 20 字元。
+- `concise`:內文 ≤ 120 行(超過視為疑似逐字複製 SkillOS 訓練軌跡,SkillOS 的 compression 機制建議壓縮)。
+
+**`curate(op, text, existing, name)`** —— 三種操作的綁定判決:
+- `delete`:只檢查該技能是否存在於庫中。
+- `insert`:跑完 4 個品質閘,再加一個 `non-redundant` 閘 —— 用 Jaccard token overlap 跟現有每一份技能的內文比對,重疊度 ≥ 0.6(`dup_threshold`)就 reject,建議改用 `update` 而非新增(防止技能庫無限膨脹)。
+- `update`:同 `insert` 的品質閘(不跑防重複檢查)。
+- 任一閘沒過 → `verdict: "reject"`,`required_fixes` 附上具體怎麼修。
+
+**`bm25_search(query, skills)`** —— 真的 BM25(`k1=1.5, b=0.75`),取分數最高前 5 筆,供技能檢索用。
+
+**端點**:`POST /skill-review`(`{op, name, text}` → 判決,結構同 `/review`)、`GET /skills`(列出所有技能名稱,帶 `?q=` 時做 BM25 檢索,回 `{query, results: [{name, score}]}`)、`GET /curations`(最近 30 筆策展判決,console 用)。
+
+**跨節點整合點**(這段目前只寫在 `lib/common.sh`,不在本文件):`lib/common.sh` 的 `skill_gate()` 是 team-lead 自我進化(寫新技能)的把關機制 —— 新技能落地前一定先 POST 到 worker-c 的 `/skill-review`,reject 就是綁定不准落地。**worker-c 未部署或不可達時 fail-open**(放行但記警告),避免治理節點沒起來就卡死整個自我進化流程。
+
+**部署細節**:`boot-stack.sh` 只在 `zone == "C"` 時,把整個 `skills/` 目錄 `docker cp` 進沙箱(`/usr/local/share/nemofleet-skills`)並設定 `SKILLS_REPO` 環境變數 —— 這是 worker-c 專屬的部署步驟,原規格第 8 節完全沒提到。
+
+---
+
+## 10. Egress & 治理 —— 韌體來源這塊尚未動工
+
+- **裝置**:worker-c → EBG19P(備份匯出 + rollback 套用)—— 同 worker-a 的 `/32` allow,已生效。
+- **韌體來源**:規劃中要 scoped allow 到 ASUS 韌體 host(下載 + 驗簽),但 **`scripts/worker-c-allow-firmware.sh` 這支腳本不存在**,`boot-stack.sh` 也沒有任何呼叫它的地方。跟第 2 節的 `/firmware-apply` 是殼互相呼應 —— 因為從沒真的要下載韌體,這個 egress preset 自然也還沒被寫出來。
+- **備份庫**:本地 `WD` 下的版本化 JSON 快照;備份含設定 → 視為敏感,應加密存放、git-ignored(**目前的快照檔案是否已加密尚待確認,不在此次程式碼審查範圍內**)。
 - 所有 egress 仍走 OpenShell L7 deny-by-default。
 
 ---
 
-## 8. 部署(加一台的步驟)
+## 11. 部署(已存在的 worker-c,重建/加一台時的實際步驟)
 
 1. 建 OpenShell 沙箱 `worker-c`(zone C),同 Hermes + NIM。
-2. `lib/common.sh`:加 `WORKERC_CT_NAME` / `CT_WC`。
-3. `worker-itops.py`:`ZONE_CAPS["C"] = {"backup","firmware","rollback","review"}` + 對應 scan 函式 + 端點(依耦合叢集重構後更好接;見 [[worker-itops-modularization]])。
-4. `boot-stack.sh`:部署 worker-c 端點(cp 模組 + 注入 device target)+ 套 `worker-c-allow-firmware.sh` + `worker_bridge` 加 c 的 `/32`。
-5. team-lead:裝 `review-gate` SKILL + `firmware-approval` SKILL(人核准橋接)。
-6. 完成 → team-lead 經 A2A 自動發現 worker-c 技能,巡邏/委派自動納入。
+2. `lib/common.sh`:`WORKERC_CT_NAME` / `CT_WC`(已生效)。
+3. `worker-itops.py`:`ZONE_CAPS["C"] = {"backup","firmware","rollback","review","curate"}` + 對應端點(已生效)。
+4. `boot-stack.sh` 對 zone C 額外做的事:
+   - `docker cp` `wi_review.py` 模組進沙箱。
+   - **只有 zone C** 會把整個 `skills/` 目錄 sync 進沙箱(`SKILLS_REPO`),供 SkillOS 策展讀取——這步驟原規格未提及。
+   - `zone in ("A","C")` 時注入 `EBG19P_CRED`(worker-c 需要裝置憑證做 backup/rollback)。
+   - **不會**套用任何 `worker-c-allow-firmware` 之類的韌體來源 egress(該腳本不存在)。
+5. team-lead 裝 `review-gate` SKILL(已存在,`skills/hermes/review-gate/`)—— **`firmware-approval` SKILL 不存在**,人核准目前只靠 `review-gate` 裡的一行提示文字帶過,不是獨立的核准橋接技能。
+6. 完成 → team-lead 經 A2A 自動發現 worker-c 的 5 個技能(含 `curate`),巡邏/委派自動納入;`lib/common.sh` 的 `skill_gate()` 也會自動對新技能生效。
 
 ---
 
-## 9. 旗艦協作鏈(這才是「agentic fleet」的賣點)
+## 12. 旗艦協作鏈 —— 目前哪一段是真的、哪一段是願景
 
-一條跨三台 + 人在頂端的**自我校正、可治理**流程:
+原規格描述的這條鏈(CVE 發現 → review → 韌體 stage → 人核准 → apply → verify → rollback if needed)**目前只有前兩段是真的**:
 
 ```mermaid
 sequenceDiagram
@@ -157,18 +229,25 @@ sequenceDiagram
   participant A as worker-a
   participant H as 人
   B->>L: CVE-2024-XXXX 影響 EBG19P 韌體
+  Note over L,C: 這段是真的 ☑
   L->>C: /review (b 的 CVE 決策)
   C-->>L: approve(證據充分、嚴重度正確)
+  Note over L,C: 從這裡開始是願景,尚未實作 ✗
   L->>C: /firmware 有修復嗎?
-  C-->>L: 3.0.0.6.x 修復,urgency=high;已 stage(canary)
+  C-->>L: (目前永遠回 urgency=normal、available=[] —— 不會真的告訴你有沒有修復)
   L->>H: 「韌體更新可修 CVE-XXXX,核准?」
+  Note over L,H: 沒有真的核准橋接技能,approval_token 只是個字串
   H-->>L: 核准(approval_token)
   L->>C: /firmware-apply(帶 token)
-  C->>C: 套用 → 升後 health-verify
-  L->>A: 驗設定升級後沒漂移
-  A-->>L: 無漂移 ✓
-  C-->>L: (若 verify/health 失敗 → 自動 /rollback)
-  L->>H: 結案回報
+  Note over C: /firmware-apply 是純殼,永遠回 ok:false,不會真的套用
+  C--xL: (從未真的套用韌體)
 ```
 
-**discover(b)→ review(c)→ fix+stage(c)→ 人核准 → apply(c)→ verify(a)→ rollback if needed(c)** —— 三台各司其職、A2A 串成一條有品質閘門與安全網的自動化鏈,全程受治理、可稽核、可回退。比「多一台掃描器」有說服力得多。
+**要把這條鏈接成真的**,依實作難度大致排序:
+1. `/firmware` 真的讀 worker-b 的 CVE 結果算 `urgency`/`cve_driven`(worker-b 的資料已經存在,只差把它接進來)。
+2. 寫 `scripts/worker-c-allow-firmware.sh`,做真的韌體來源 egress。
+3. 實作 `/firmware-stage`(下載 + 驗簽)與真的 `/firmware-apply`(套用 + 讀回驗證 + 失敗自動 `/rollback`)。
+4. 幫 `rollback` 加讀回驗證(`verify` 欄位)。
+5. 做一支真的 `firmware-approval` 橋接技能 + 讓 `approval_token` 變成真的可驗證核准機制(簽章、核發紀錄、過期)。
+
+在那之前,「discover → review → fix+stage → 人核准 → apply → verify → rollback」這條完整故事,**只有 discover 和 review 兩段可以在真機上展示**,其餘是設計目標,不要當成已出貨的能力來 demo 或承諾。
