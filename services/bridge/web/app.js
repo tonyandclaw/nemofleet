@@ -1663,7 +1663,7 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Architecture')}</h2><span class="lbl">${t('Nemoclaw × OpenShell × Hermes · governed 4-node fleet')}</span></div>
     <${Panel} title=${t('Topology')} label=${t('human at the apex · hub-and-spoke')}>
       <div class="diagram-scroll">
-        <svg viewBox="0 0 1080 1000" width="100%">
+        <svg viewBox="0 0 1080 1000" width="1080" height="1000">
           <defs><marker id="topoArrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
           <rect x="60" y="320" width="960" height="410" rx="20" fill="none" stroke-dasharray="4 5" style=${{ stroke: 'color-mix(in srgb, var(--s-blue) 55%, transparent)' }}/>
           <text x="86" y="352" font-size="13" style=${{ fill: 'var(--s-blue)', fontWeight: 700 }}>◆ Nemoclaw</text>
