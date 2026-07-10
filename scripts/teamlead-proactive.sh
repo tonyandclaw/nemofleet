@@ -130,15 +130,18 @@ try: last_digest = float(open(stampf).read().strip())
 except Exception: last_digest = 0.0
 digest_due = (time.time() - last_digest) >= iv
 
-summary_lines = []
+summary_lines, summary_lines_en = [], []
 for a, dv in devices.items():
-    summary_lines.append(f"- {a}: {dv.get('status') or ('offline' if dv['offline'] else 'online')}"
-                         + (f" · 退化 {len(dv['regressions'])}" if dv['regressions'] else ""))
+    st = dv.get('status') or ('offline' if dv['offline'] else 'online')
+    summary_lines.append(f"- {a}: {st}" + (f" · 退化 {len(dv['regressions'])}" if dv['regressions'] else ""))
+    summary_lines_en.append(f"- {a}: {st}" + (f" · {len(dv['regressions'])} regression(s)" if dv['regressions'] else ""))
 summary = ("機隊 %d 台;開單 %d;CVE affected %s;憑證高風險 %s\n" % (
     len(devices), len(cur["jira_open"]), cur["cve_affected"], cur["cert_high"])) + "\n".join(summary_lines)
+summary_en = ("Fleet: %d device(s); open tickets %d; CVE affected %s; cert high-risk %s\n" % (
+    len(devices), len(cur["jira_open"]), cur["cve_affected"], cur["cert_high"])) + "\n".join(summary_lines_en)
 
 print(json.dumps({"critical": crit, "warning": warn, "routine": routine, "digest_due": digest_due,
-                  "summary": summary, "snapshot": cur}, ensure_ascii=False))
+                  "summary": summary, "summary_en": summary_en, "snapshot": cur}, ensure_ascii=False))
 PY
 }
 
@@ -251,13 +254,13 @@ run_cycle(){
   PLOG="$DATA_DIR/proactive-log.jsonl" python3 - <<'PYREC' 2>/dev/null || true
 import os, json, time
 try: out = json.loads(os.environ["OUT"])
-except Exception: out = {"critical": [], "warning": [], "routine": [], "summary": ""}
+except Exception: out = {"critical": [], "warning": [], "routine": [], "summary": "", "summary_en": ""}
 now = time.strftime("%Y-%m-%d %H:%M:%S"); nc = int(os.environ.get("NCRIT") or 0); nw = int(os.environ.get("NWARN") or 0)
 json.dump({"enabled": True, "patrol_interval_sec": int(os.environ.get("PATROL_IV") or 1200),
            "digest_interval_sec": int(os.environ.get("DIGEST_IV") or 3600),
            "safety_net": os.environ.get("SAFETY_NET") == "True", "last_patrol": now,
            "last_critical": nc, "last_warning": nw, "last_routine": int(os.environ.get("NROUT") or 0), "snooze_until": int(os.environ.get("SNOOZE_UNTIL") or 0),
-           "summary": out.get("summary", "")}, open(os.environ["STATUS"], "w"), ensure_ascii=False)
+           "summary": out.get("summary", ""), "summary_en": out.get("summary_en", "")}, open(os.environ["STATUS"], "w"), ensure_ascii=False)
 rec = {"ts": now, "critical": out.get("critical", []), "warning": out.get("warning", []), "routine": out.get("routine", []),
        "digest_sent": os.environ.get("DUE") == "True",
        "safety_net_fired": (nc > 0 or nw > 0) and os.environ.get("SAFETY_NET") == "True"}

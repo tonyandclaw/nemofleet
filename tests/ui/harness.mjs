@@ -13,11 +13,16 @@ export const MOCK = {
   me: { email: 'tony@asus.com', role: 'admin' },
   _me: { email: 'tony@asus.com', role: 'admin' },   // normalize() reads d._me → d.me (collect() emits _me)
   frozen: { frozen: false, by: '', ts: '' },
+  // role/role_en deliberately mirror the REAL backend shape (worker-itops.py's ZONE_ROLE is
+  // Chinese-only; agent-dashboard.py adds the role_en sibling) — a mock that pre-translates this
+  // to English, like an earlier version of this file did, can't catch a missing/broken _en sibling
+  // because there's no Chinese left to leak. That's exactly how the live "worker role still shows
+  // Chinese in EN mode" bug got past this suite.
   nodes: [
-    { name: 'team-lead', role: 'Front desk', tag: 'lead', port: 8642, up: true, zone: '' },
-    { name: 'worker-a', role: 'ops', tag: 'ops', port: 18791, up: true, zone: 'zone A', caps: ['monitor', 'fix', 'cert'] },
-    { name: 'worker-b', role: 'sec', tag: 'sec', port: 18792, up: true, zone: 'zone B', caps: ['cve', 'nuclei'] },
-    { name: 'worker-c', role: 'gov', tag: 'gov', port: 18793, up: true, zone: 'zone C', caps: ['review', 'backup', 'curate'] },
+    { name: 'team-lead', role: 'Front desk · Telegram / Email intake', tag: 'lead', port: 8642, up: true, zone: '' },
+    { name: 'worker-a', role: 'IT 運維 / 網路管理', role_en: 'IT ops / network management', tag: 'ops', port: 18791, up: true, zone: 'zone A', caps: ['monitor', 'fix', 'cert'] },
+    { name: 'worker-b', role: '資安 / 原始碼分析', role_en: 'security / source analysis', tag: 'sec', port: 18792, up: true, zone: 'zone B', caps: ['cve', 'nuclei'] },
+    { name: 'worker-c', role: '變更治理 / QA 監督', role_en: 'change governance / QA oversight', tag: 'gov', port: 18793, up: true, zone: 'zone C', caps: ['review', 'backup', 'curate'] },
   ],
   devices: [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', online: false, cpu: null, mem: null, temp: null, firmware: null }],
   containers: [{ name: 'openshell-worker-a-2b91', state: 'up 6d', image: 'openshell/sandbox:2026.4' }],
@@ -35,7 +40,14 @@ export const MOCK = {
   _audit: { chain: { ok: true, count: 1204 }, recent: [] },
   snapshots_by_agent: [{ label: 'worker-a', sb: 'worker-a', items: [{ ver: 'v1', name: 'baseline', ts: '2026-07-03T14-02-33-771Z' }] }],
   inference: { model: 'nemotron-super', provider: 'vllm-local', reachable: true, endpoint: 'inference.local/v1' },
-  proactive_enabled: true, patrol: { enabled: true }, patrol_log: [],
+  // real key is d.proactive (see api.js `proactive: d.proactive || null`) — summary/summary_en
+  // mirrors teamlead-proactive.sh's real bilingual output; a mock with no Chinese here can't catch
+  // the "proactive page shows a raw Chinese sentence in EN mode" bug (that's how it shipped).
+  proactive: { enabled: true, patrol_interval_sec: 1200, digest_interval_sec: 3600, safety_net: true,
+    last_patrol: '2026-07-10 09:30:01', last_critical: 0, last_warning: 0, last_routine: 0, snooze_until: 0,
+    summary: '機隊 1 台;開單 0;CVE affected 84;憑證高風險 0\n- lab-asus-ebg19p-01: offline',
+    summary_en: 'Fleet: 1 device(s); open tickets 0; CVE affected 84; cert high-risk 0\n- lab-asus-ebg19p-01: offline',
+    log: [] },
   governance_c: { up: true, reviews: [], backups: [], backup_count: 0, firmware: {}, skills_count: 0, curations: [] },
   settings: {}, flow: [],
   eval: { history: [
