@@ -25,6 +25,7 @@ venv/
 data/bus/inbox/*
 data/bus/outbox/*
 data/logs/*
+chats/*
 !**/.gitkeep
 *.log
 services/bridge/jira-tickets/
