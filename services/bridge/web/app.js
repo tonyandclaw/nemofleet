@@ -358,6 +358,7 @@ const I18N = {
   'request': { en: 'request', zh: '需求' },
   'report / escalate': { en: 'report / escalate', zh: '回報 / 升級' },
   'front desk · coordinate · execute worker-c verdicts': { en: 'front desk · coordinate · execute worker-c verdicts', zh: '對人前台 · 協調 · 執行 worker-c 判決' },
+  'front desk · coordinator': { en: 'front desk · coordinator', zh: '前台 · 協調者' },
   'scoped egress · L7 deny-by-default': { en: 'scoped egress · L7 deny-by-default', zh: 'scoped 出向 · L7 預設全拒' },
   'real device': { en: 'real device', zh: '真實設備' },
   'upstream intel': { en: 'upstream intel', zh: '上游情資' },
@@ -491,6 +492,7 @@ const I18N = {
   'No affected components — SBOM clean or scan pending.': { en: 'No affected components — SBOM clean or scan pending.', zh: '無受影響元件 — SBOM 乾淨或掃描中。' },
   'Guardrail': { en: 'Guardrail', zh: '守門' },
   'local NIM screens: prompt-injection / out-of-scope / destructive → block': { en: 'local NIM screens: prompt-injection / out-of-scope / destructive → block', zh: '本地 NIM 篩:prompt-injection / 越權 / 破壞性 → 攔截' },
+  'screens every request': { en: 'screens every request', zh: '審查每個請求' },
   'allowed only': { en: 'allowed only', zh: '僅放行通過者' },
   'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.': { en: 'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.', zh: '守門:每筆進站請求在艦隊動作前先由本地 NIM 篩 prompt-injection / 越權 / 破壞性 —— 並在 /fix 動作閘再檢一次。' },
   'FLEET FROZEN': { en: 'FLEET FROZEN', zh: '全隊已凍結' },
@@ -1579,44 +1581,48 @@ const TOPO_ICON = {
 function TIcon({ k, size = 15, style }) {
   return html`<svg class="ticon" width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style=${style} dangerouslySetInnerHTML=${{ __html: TOPO_ICON[k] || '' }}></svg>`;
 }
-// right-angle elbow routing (MacWeb-style), not a bezier S-curve: straight L segments only, with
-// stroke-linejoin="round" doing the corner-rounding. A curve baked into `d` would distort into a
-// flat ellipse under this SVG's non-uniform preserveAspectRatio="none" stretch (width is 100% of
-// a variable container, height is a small fixed px — often 10-20x more horizontal stretch than
-// vertical); stroke-linejoin rounds the joint in stroke-width space, which isn't subject to that.
-function fanD(nTop, nBottom) {
-  const xs = n => Array.from({ length: n }, (_, i) => (n === 1 ? 50 : (i + 0.5) / n * 100));
-  const top = xs(nTop), bot = xs(nBottom), n = Math.max(nTop, nBottom), midY = 50;
-  return Array.from({ length: n }, (_, i) => {
-    const tx = nTop === 1 ? top[0] : top[i], bx = nBottom === 1 ? bot[0] : bot[i];
-    return tx === bx ? `M ${tx} 2 L ${bx} 98` : `M ${tx} 2 L ${tx} ${midY} L ${bx} ${midY} L ${bx} 98`;
-  });
+// Single fixed-canvas diagram (viewBox-scaled uniformly, like a hand-drawn network diagram —
+// not the earlier per-row "railwrap" strips, which had to stretch non-uniformly to fill each
+// row's width against a fixed small height and made proper rounded elbow corners distort). One
+// shared coordinate space means tiles (foreignObject) and connector paths line up exactly, and a
+// genuine rounded corner (quadratic Q, not just stroke-linejoin) now renders correctly because
+// the whole canvas scales evenly regardless of container width.
+function elbow(x1, y1, x2, y2, midY, r = 12) {
+  if (x1 === x2) return `M ${x1} ${y1} L ${x2} ${y2}`;
+  const dir = x2 > x1 ? 1 : -1;
+  return `M ${x1} ${y1} L ${x1} ${midY - r} Q ${x1} ${midY} ${x1 + r * dir} ${midY} `
+       + `L ${x2 - r * dir} ${midY} Q ${x2} ${midY} ${x2} ${midY + r} L ${x2} ${y2}`;
 }
-const FanRail = memo(function FanRail({ nTop, nBottom, colors, colorVar = '--ink3', flow, muted, height = 40, label }) {
-  const paths = fanD(nTop, nBottom);
-  const single = nTop === 1 && nBottom === 1;
-  return html`<div class=${'railwrap' + (single ? ' railwrap-single' : '')} style=${{ height: height + 'px' }}>
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
-      <defs><marker id="topoArrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
-      ${paths.map((dstr, i) => html`<path key=${i} d=${dstr} fill="none" stroke-width=${muted ? 1.4 : 2}
-        stroke-linejoin="round" stroke-linecap="round"
-        class=${flow ? 'topo-flow' : ''} marker-end="url(#topoArrow)"
-        style=${{ stroke: colors ? `var(${colors[i % colors.length]})` : `var(${colorVar})`, opacity: muted ? .6 : .92 }}/>`)}
-    </svg>
-    ${label ? html`<span class="railchip">${label}</span>` : null}
-  </div>`;
-});
-const BiRail = memo(function BiRail({ downLabel, upLabel, height = 40 }) {
-  return html`<div class="railwrap railwrap-single birail" style=${{ height: height + 'px' }}>
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
-      <defs><marker id="topoArrow2" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
-      <path d="M38 2 L38 98" class="topo-flow" fill="none" stroke-width="2" marker-end="url(#topoArrow2)" style=${{ stroke: 'var(--accent)' }}/>
-      <path d="M62 98 L62 2" class="topo-flow" fill="none" stroke-width="2" marker-end="url(#topoArrow2)" style=${{ stroke: 'var(--s-aqua)' }}/>
-    </svg>
-    <span class="railchip" style=${{ left: '30%' }}>↓ ${downLabel}</span>
-    <span class="railchip" style=${{ left: '70%' }}>↑ ${upLabel}</span>
-  </div>`;
-});
+function Wire({ d, color = 'var(--ink3)', w = 2.2, dash, flow, opacity = .95, arrow = true }) {
+  return html`<path d=${d} fill="none" stroke-width=${w} stroke-linejoin="round" stroke-linecap="round"
+    class=${flow ? 'topo-flow' : ''} marker-end=${arrow ? 'url(#topoArrow)' : null}
+    stroke-dasharray=${dash || null} style=${{ stroke: color, opacity }}/>`;
+}
+// pill-badge width from an estimated char count, not getBBox() — getBBox() needs the element
+// already laid out (throws in some environments, e.g. plain jsdom) and a same-pass estimate never fails.
+function Badge({ x, y, text }) {
+  const FS = 10.5, w = text.length * FS * 0.6 + 18, h = FS + 8;
+  return html`<g>
+    <rect x=${x - w / 2} y=${y - h / 2 - 1} width=${w} height=${h} rx="999" stroke-width="1"
+      style=${{ fill: 'var(--panel2)', stroke: 'var(--line2)' }}/>
+    <text x=${x} y=${y} dy="0.32em" text-anchor="middle" font-size=${FS}
+      style=${{ fontFamily: 'var(--mono)', fill: 'var(--ink2)' }}>${text}</text>
+  </g>`;
+}
+function TopoTile({ x, y, w, h, cls, icon, label, sub, tag, badge, statusUp, osh }) {
+  return html`<foreignObject x=${x - w / 2} y=${y} width=${w} height=${h}>
+    <div class=${'archbox ' + cls} style=${{ width: '100%', height: '100%', margin: 0 }}>
+      ${badge ? html`<span class="zonebadge">${badge}</span>` : null}
+      ${osh ? html`<span class="oshtag">openshell</span>` : null}
+      <div style=${{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        ${statusUp !== undefined ? html`<${Dot} s=${statusUp ? 'on' : 'off'}/>` : null}
+        <${TIcon} k=${icon} size=${15}/> <b>${label}</b>
+      </div>
+      ${tag ? html`<span class="tag g">${tag}</span>` : null}
+      ${sub ? html`<span class="muted">${sub}</span>` : null}
+    </div>
+  </foreignObject>`;
+}
 const ArchitectureView = memo(function ArchitectureView({ d }) {
   const nodes = d.nodes || [];
   const dot = (up) => html`<${Dot} s=${up ? 'on' : 'off'}/>`;
@@ -1637,32 +1643,68 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
   const leadUp = (nodes.find(n => n.tag === 'lead') || {}).up;
   const wUp = tag => (nodes.find(n => n.tag === tag) || {}).up;
   const nimUp = d.inference && d.inference.reachable !== false;
+  const deviceUp = (d.devices && d.devices[0] && d.devices[0].online) === true;
+
+  // ── topology coordinates (one fixed design space, 1080 wide — see docs/design/architecture.md) ──
+  const cx = 540;
+  const human = { cx, y: 26, w: 110, h: 72 };
+  const guard = { cx, y: 164, w: 160, h: 72 };
+  const lead = { cx, y: 344, w: 132, h: 72 };
+  const wa = { cx: 210, y: 498, w: 116, h: 84 };
+  const wb = { cx: 540, y: 498, w: 116, h: 84 };
+  const wc = { cx: 870, y: 498, w: 116, h: 84 };
+  const dev = { cx: 210, y: 730, w: 116, h: 60 };
+  const ext = { cx: 540, y: 730, w: 116, h: 60 };
+  const jira = { cx: 870, y: 730, w: 116, h: 60 };
+  const nim = { cx, y: 880, w: 460, h: 88 };
+  const WORKERS = [['ops', wa, 'var(--s-aqua)', wUp('ops')], ['sec', wb, 'var(--s-violet)', wUp('sec')], ['gov', wc, 'var(--s-yellow)', wUp('gov')]];
+
+  const busY = 650, nimTapY = 800;
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Architecture')}</h2><span class="lbl">${t('Nemoclaw × OpenShell × Hermes · governed 4-node fleet')}</span></div>
     <${Panel} title=${t('Topology')} label=${t('human at the apex · hub-and-spoke')}>
-      <div class="topo">
-        <div class="topo-row"><div class="archbox human"><${TIcon} k="human" size=${17}/> <b>${t('Human')}</b> <span class="muted">· Telegram / Email · approval_token</span></div></div>
-        <${FanRail} nTop=${1} nBottom=${1} flow=${true} colorVar="--accent" label=${'↓ ' + t('request')}/>
-        <div class="topo-row"><div class="archbox guardrail"><${TIcon} k="shield" size=${17}/> <b>${t('Guardrail')}</b> <span class="muted">${t('local NIM screens: prompt-injection / out-of-scope / destructive → block')}</span></div></div>
-        <${BiRail} downLabel=${t('allowed only')} upLabel=${t('report / escalate')}/>
-        <div class="topo-plane">
-          <div class="archplane-hd"><span class="archplane-mark">◆</span> <b>Nemoclaw</b> <span class="muted">· ${t('control plane · provisions the sandboxes · policy · routes inference')}</span></div>
-          <div class="topo-row"><div class="osh"><span class="oshtag">openshell</span><div class="archbox lead">${dot(leadUp)} <${TIcon} k="server" size=${15}/> <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div></div>
-          <${FanRail} nTop=${1} nBottom=${3} colors=${['--s-aqua', '--s-violet', '--s-yellow']} label="worker_bridge (/32+token) · A2A · :9099"/>
-          <div class="topo-row topo-row3">${['ops', 'sec', 'gov'].map((tag) => { const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C'; const gly = tag === 'ops' ? 'wrench' : tag === 'sec' ? 'shieldcheck' : 'scale';
-            return html`<div key=${tag} class="osh"><span class="oshtag">openshell</span><div class=${'archbox w-' + tag}><span class="zonebadge">${zn}</span>${dot(wUp(tag))} <${TIcon} k=${gly} size=${15}/> <b>${nm}</b> <span class="tag g">${t(tag)}</span></div></div>`; })}</div>
-        </div>
-        <${FanRail} nTop=${3} nBottom=${3} muted=${true} label=${t('scoped egress · L7 deny-by-default')}/>
-        <div class="topo-row topo-row3">
-          <div class="archbox device"><${TIcon} k="router" size=${15}/> ${dot((d.devices && d.devices[0] && d.devices[0].online) === true)} ASUS EBG19P <span class="muted">· ${t('real device')}</span></div>
-          <div class="archbox ext"><${TIcon} k="link" size=${15}/> GitHub · NVD · OSV <span class="muted">· ${t('upstream intel')}</span></div>
-          <div class="archbox ext"><${TIcon} k="ticket" size=${15}/> Jira <span class="muted">· ${t('escalations')}</span></div>
-        </div>
-        <div class="archnim">
-          <div class="archnim-hd"><${TIcon} k="cpu" size=${20}/> ${dot(nimUp)} <b>${t('local NIM')}</b> — Nemotron 3 Super 120B · <span class="mono">/v1</span></div>
-          <div class="archnim-taps">${[['team-lead', leadUp], ['worker-a', wUp('ops')], ['worker-b', wUp('sec')], ['worker-c', wUp('gov')]].map(([nm, up]) =>
-            html`<span key=${nm} class="niptap">${dot(up)} ${nm}</span>`)}
-            <span class="muted" style=${{ marginLeft: 'auto' }}>${t('all nodes route here')}</span></div>
-        </div>
+      <div class="diagram-scroll">
+        <svg viewBox="0 0 1080 1000" width="100%">
+          <defs><marker id="topoArrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
+          <rect x="60" y="320" width="960" height="410" rx="20" fill="none" stroke-dasharray="4 5" style=${{ stroke: 'color-mix(in srgb, var(--s-blue) 55%, transparent)' }}/>
+          <text x="86" y="352" font-size="13" style=${{ fill: 'var(--s-blue)', fontWeight: 700 }}>◆ Nemoclaw</text>
+          <text x="86" y="369" font-size="11.5" style=${{ fill: 'var(--ink3)' }}>${t('control plane · provisions the sandboxes · policy · routes inference')}</text>
+
+          <${Wire} d=${elbow(human.cx, human.y + human.h, guard.cx, guard.y, (human.y + human.h + guard.y) / 2)} color="var(--accent)" flow=${true}/>
+          <${Badge} x=${human.cx - 60} y=${(human.y + human.h + guard.y) / 2} text=${'↓ ' + t('request')}/>
+          <${Wire} d=${elbow(guard.cx - 14, guard.y + guard.h, lead.cx - 14, lead.y, (guard.y + guard.h + lead.y) / 2)} color="var(--accent)" flow=${true}/>
+          <${Wire} d=${elbow(lead.cx + 14, lead.y, guard.cx + 14, guard.y + guard.h, (guard.y + guard.h + lead.y) / 2)} color="var(--s-aqua)" flow=${true}/>
+          <${Badge} x=${guard.cx - 14} y=${guard.y + guard.h + 30} text=${'↓ ' + t('allowed only')}/>
+          <${Badge} x=${guard.cx + 14} y=${lead.y - 30} text=${'↑ ' + t('report / escalate')}/>
+
+          ${WORKERS.map(([tag, w, color]) => html`<${Wire} key=${'wl-' + tag} d=${elbow(lead.cx, lead.y + lead.h, w.cx, w.y, (lead.y + lead.h + w.y) / 2)} color=${color}/>`)}
+          <${Badge} x=${lead.cx} y=${(lead.y + lead.h + wa.y) / 2 - 16} text="worker_bridge (/32+token) · A2A · :9099"/>
+
+          ${WORKERS.map(([tag, w]) => html`<${Wire} key=${'wb-' + tag} d=${`M ${w.cx} ${w.y + w.h} L ${w.cx} ${busY}`} color="var(--ink3)" w=${1.6} opacity=${.7} arrow=${false}/>`)}
+          <${Wire} d=${`M ${wa.cx} ${busY} L ${wc.cx} ${busY}`} color="var(--ink3)" w=${1.6} opacity=${.7} arrow=${false}/>
+          ${[dev, ext, jira].map((w, i) => html`<${Wire} key=${'be-' + i} d=${`M ${w.cx} ${busY} L ${w.cx} ${w.y}`} color="var(--ink3)" w=${1.6} opacity=${.7}/>`)}
+          <${Badge} x=${cx} y=${busY - 14} text=${t('scoped egress · L7 deny-by-default')}/>
+
+          <${Wire} d=${elbow(lead.cx + lead.w / 2 + 4, lead.y + lead.h / 2, nim.cx - 2, nimTapY, (lead.y + lead.h / 2 + nimTapY) / 2, 14)} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85}/>
+          ${WORKERS.map(([tag, w]) => html`<${Wire} key=${'wn-' + tag} d=${elbow(w.cx, w.y + w.h, w === wb ? nim.cx + 2 : nim.cx, nimTapY, (w.y + w.h + nimTapY) / 2, 14)} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85}/>`)}
+          <${Wire} d=${`M ${nim.cx} ${nimTapY} L ${nim.cx} ${nim.y}`} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85} arrow=${false}/>
+          <${Badge} x=${cx + 170} y=${nimTapY - 12} text=${t('all nodes route here')}/>
+
+          <${TopoTile} x=${human.cx} y=${human.y} w=${human.w} h=${human.h} cls="human" icon="human" label=${t('Human')} sub="Telegram · Email"/>
+          <${TopoTile} x=${guard.cx} y=${guard.y} w=${guard.w} h=${guard.h} cls="guardrail" icon="shield" label=${t('Guardrail')} sub=${t('screens every request')}/>
+          <${TopoTile} x=${lead.cx} y=${lead.y} w=${lead.w} h=${lead.h} cls="lead" icon="server" label="team-lead" sub=${t('front desk · coordinator')} statusUp=${leadUp} osh=${true}/>
+          ${WORKERS.map(([tag, w, color, up]) => { const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C'; const gly = tag === 'ops' ? 'wrench' : tag === 'sec' ? 'shieldcheck' : 'scale';
+            return html`<${TopoTile} key=${tag} x=${w.cx} y=${w.y} w=${w.w} h=${w.h} cls=${'w-' + tag} icon=${gly} label=${nm} tag=${t(tag)} badge=${zn} statusUp=${up} osh=${true}/>`; })}
+          <${TopoTile} x=${dev.cx} y=${dev.y} w=${dev.w} h=${dev.h} cls="device sm" icon="router" label="EBG19P" sub=${t('real device')} statusUp=${deviceUp}/>
+          <${TopoTile} x=${ext.cx} y=${ext.y} w=${ext.w} h=${ext.h} cls="ext sm" icon="link" label="upstream" sub="GitHub · NVD · OSV"/>
+          <${TopoTile} x=${jira.cx} y=${jira.y} w=${jira.w} h=${jira.h} cls="ext sm" icon="ticket" label="Jira" sub=${t('escalations')}/>
+          <foreignObject x=${nim.cx - nim.w / 2} y=${nim.y} width=${nim.w} height=${nim.h}>
+            <div class="archnim" style=${{ width: '100%', height: '100%', margin: 0 }}>
+              <div class="archnim-hd"><${TIcon} k="cpu" size=${18}/> ${(up => html`<${Dot} s=${up ? 'on' : 'off'}/>`)(nimUp)} <b>${t('local NIM')}</b> — Nemotron 3 Super 120B · <span class="mono">/v1</span></div>
+              <div class="archnim-taps">${[['team-lead', leadUp], ['worker-a', wUp('ops')], ['worker-b', wUp('sec')], ['worker-c', wUp('gov')]].map(([nm, up]) =>
+                html`<span key=${nm} class="niptap">${(u => html`<${Dot} s=${u ? 'on' : 'off'}/>`)(up)} ${nm}</span>`)}</div>
+            </div>
+          </foreignObject>
+        </svg>
       </div>
       <div class="topo-legend">
         <span><i class="lswatch" style=${{ background: 'var(--accent)' }}></i>${t('legend_authority')}</span>
