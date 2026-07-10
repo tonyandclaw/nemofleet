@@ -11,7 +11,13 @@ TASKS = f"{EVAL}/tasks.jsonl"
 LESSONS = f"{EVAL}/lessons.json"
 LEDGER = f"{EVAL}/ledgers/LEDGER.md"
 HISTORY = f"{EVAL}/ledgers/history.jsonl"   # structured per-run record (LEDGER.md stays the human-readable log)
+SKILL_OUTCOMES = f"{EVAL}/skill-outcomes.jsonl"   # raw ledger: which "skill"-tagged task passed/failed, when
+SKILL_STATS = f"{BASE}/skills/skill-stats.json"   # computed r_task summary; lives under skills/ so it rides
+                                                    # along with boot-stack.sh's existing skills/ → worker-c sync
 HERMES = f"http://127.0.0.1:{os.environ.get('HERMES_API_PORT', '8642')}/v1/chat/completions"
+
+sys.path.insert(0, os.path.join(BASE, "services", "bridge"))
+from wi_skills import compute_skill_stats  # noqa: E402 — r_task: replay skill-outcomes.jsonl into a stats summary
 
 def load_lessons():
     try:
@@ -124,11 +130,30 @@ def main():
         elif had_lesson:
             recovered = True
             lessons.pop(tid, None)  # 通過了,清掉舊教訓
+        # r_task:任務若宣告 "skill"(見 eval/tasks.jsonl),把這輪 pass/fail 記進 skill-outcomes.jsonl。
+        # 跟 lessons 沉澱同一個原則:errored(逾時/連線)是 transient 噪音,不算一次真的技能成效量測。
+        skill = tk.get("skill")
+        if skill and not errored:
+            try:
+                with open(SKILL_OUTCOMES, "a") as f:
+                    f.write(json.dumps({"ts": ts, "skill": skill, "task_id": tid, "pass": passed}, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
         results.append({"id": tid, "desc": tk.get("desc",""), "category": tk.get("category","general"), "pass": passed,
                         "errored": errored, "err": err,
                         "fails": fails, "recovered": recovered,
                         "content": content[:300], "injected_lessons": prior})
     save_lessons(lessons)
+    # r_task:重放整份 outcome ledger 算最新的每技能成效統計(純函式、全量重算,不做增量更新 —
+    # 跟這個檔案其他地方一樣,寧可每次算好算滿,也不要留增量更新的漂移風險)。
+    try:
+        outcomes = [json.loads(l) for l in open(SKILL_OUTCOMES) if l.strip()]
+    except Exception:
+        outcomes = []
+    skill_stats = compute_skill_stats(outcomes) if outcomes else {}
+    if skill_stats:
+        os.makedirs(os.path.dirname(SKILL_STATS), exist_ok=True)
+        json.dump(skill_stats, open(SKILL_STATS, "w"), ensure_ascii=False, indent=2)
 
     npass = sum(1 for r in results if r["pass"]); n = len(results)
     nerr = sum(1 for r in results if r["errored"])
@@ -168,6 +193,11 @@ def main():
             print(f"        - {fa}")
     print(f"教訓沉澱:{LESSONS}(目前 {sum(len(v) for v in lessons.values())} 條,涵蓋 {len(lessons)} 個任務)")
     print(f"歷史帳本:{LEDGER}")
+    if skill_stats:
+        print(f"r_task 技能成效:{SKILL_STATS}(涵蓋 {len(skill_stats)} 個技能)")
+        for name, s in sorted(skill_stats.items()):
+            flag = "" if s["sample_ok"] else " (樣本數不足,未達判斷門檻)"
+            print(f"  {name}: {s['passes']}/{s['uses']} = {s['success_rate']}{flag}")
     sys.exit(0 if npass == n else 1)
 
 if __name__ == "__main__":

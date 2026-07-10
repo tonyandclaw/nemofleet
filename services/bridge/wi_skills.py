@@ -9,6 +9,11 @@
 # unit-tested pure functions, and host them on worker-c — which is already the change-governance / QA
 # officer, a natural home for curating the fleet's procedural memory. Skills stay human-auditable Markdown
 # + YAML frontmatter (nemofleet and SkillOS share this format). No side effects.
+#
+# r_task (task-outcome reward): compute_skill_stats() replays eval.py's per-skill outcome ledger into a
+# success-rate summary, attached to curate()'s result as informational context (see its docstring for
+# why it's deliberately non-gating). Still not the paper's RL-trained reward — a deterministic, real
+# analog of the same "judge a skill by whether tasks using it succeed" signal, same trade-off as above.
 import re
 import math
 
@@ -95,9 +100,42 @@ def skill_quality(text, max_body_lines=120):
     return sk, checks
 
 
-def curate(op, text, existing, name="", dup_threshold=0.6):
+def compute_skill_stats(outcomes, min_samples=3):
+    """SkillOS's r_task reward, as a deterministic (non-trained) aggregate: replay a flat list of
+    {skill, pass} outcome events (produced by eval.py attributing eval/tasks.jsonl results to the
+    "skill" field a task declares) into a per-skill success-rate summary. Pure function → this is the
+    whole "judge a skill by whether tasks that used it actually succeeded" signal, computed without
+    the paper's RL/GRPO training loop (see the module docstring — no training environment exists here).
+    outcomes: [{"skill": str, "pass": bool, "ts": str|None}, ...] (already filtered to non-transient
+    events by the caller — an infra/timeout error is not a verdict on the skill, same principle
+    eval.py already applies to lessons.json). Returns {skill_name: {uses, passes, success_rate,
+    sample_ok, last_ts}}; sample_ok=False until min_samples uses accumulate, so a skill isn't judged
+    off one lucky/unlucky run."""
+    stats = {}
+    for o in outcomes:
+        name = o.get("skill")
+        if not name:
+            continue
+        s = stats.setdefault(name, {"uses": 0, "passes": 0, "last_ts": None})
+        s["uses"] += 1
+        s["passes"] += 1 if o.get("pass") else 0
+        ts = o.get("ts")
+        if ts and (s["last_ts"] is None or ts > s["last_ts"]):
+            s["last_ts"] = ts
+    for s in stats.values():
+        s["success_rate"] = round(s["passes"] / s["uses"], 3) if s["uses"] else None
+        s["sample_ok"] = s["uses"] >= min_samples
+    return stats
+
+
+def curate(op, text, existing, name="", dup_threshold=0.6, downstream_stats=None):
     """Validate a curator operation (insert / update / delete) → binding verdict.
-    existing = [{name, description, body}]. Mirrors SkillOS's insert/update/delete under quality signals."""
+    existing = [{name, description, body}]. Mirrors SkillOS's insert/update/delete under quality signals.
+    downstream_stats (optional): {skill_name: {uses, passes, success_rate, sample_ok, last_ts}} from
+    compute_skill_stats() — attached to the result as informational r_task context ONLY. It never
+    enters `checks`/`failed`, so it cannot affect verdict/score: a skill with a rough track record is
+    surfaced for a human/curator to see, not auto-rejected off what may still be a thin sample. Turning
+    this into a binding gate is a deliberate future step, not an oversight."""
     op = (op or "").lower()
     if op == "delete":
         found = any(s.get("name") == name for s in existing)
@@ -115,9 +153,13 @@ def curate(op, text, existing, name="", dup_threshold=0.6):
                        "detail": "無高度重疊技能" if not_dup else "與『%s』重疊 %d%% — 建議 update 而非新增(SkillOS 抗膨脹)" % (dup_name, int(dup_score * 100)),
                        "detail_en": "no highly-overlapping skill" if not_dup else "%d%% overlap with '%s' — suggest update instead of insert (SkillOS anti-proliferation)" % (int(dup_score * 100), dup_name)})
     failed = [c for c in checks if not c["pass"]]
-    return {"op": op or "insert", "name": sk["name"], "verdict": "approve" if not failed else "reject",
-            "score": round(100 * (len(checks) - len(failed)) / max(len(checks), 1)),
-            "checks": checks, "reasons": [c["detail"] for c in failed],
-            "reasons_en": [c["detail_en"] for c in failed],
-            "required_fixes": ["修正 %s(%s)" % (c["name"], c["detail"]) for c in failed],
-            "required_fixes_en": ["fix %s (%s)" % (c["name"], c["detail_en"]) for c in failed]}
+    result = {"op": op or "insert", "name": sk["name"], "verdict": "approve" if not failed else "reject",
+              "score": round(100 * (len(checks) - len(failed)) / max(len(checks), 1)),
+              "checks": checks, "reasons": [c["detail"] for c in failed],
+              "reasons_en": [c["detail_en"] for c in failed],
+              "required_fixes": ["修正 %s(%s)" % (c["name"], c["detail"]) for c in failed],
+              "required_fixes_en": ["fix %s (%s)" % (c["name"], c["detail_en"]) for c in failed]}
+    ds = (downstream_stats or {}).get(sk["name"] or name)
+    if ds:
+        result["downstream_stats"] = ds
+    return result

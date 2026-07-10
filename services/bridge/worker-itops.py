@@ -2519,23 +2519,38 @@ def run_review(kind, subject):
     del REVIEWS[:-40]
     return v
 SKILLS_REPO = os.environ.get("SKILLS_REPO", "")   # 技能庫目錄(boot 同步給 worker-c);worker-c 當 SkillOS curator
+def _load_skill_stats():
+    """r_task:讀 eval.py 算好、eval.sh 同步進來的 skill-stats.json(SKILLS_REPO 底下,跟 skills/ 一起
+    boot 時同步 + 每次 eval 跑完額外 docker cp 刷新)。缺檔/壞檔 → 空 dict(沒有下游成效資料,不影響任何判決)。"""
+    if not SKILLS_REPO:
+        return {}
+    try:
+        with open(os.path.join(SKILLS_REPO, "skill-stats.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 def _load_skills():
     out = []
     if SKILLS_REPO and os.path.isdir(SKILLS_REPO):
+        stats = _load_skill_stats()
         for root, _dirs, files in os.walk(SKILLS_REPO):
             for fn in files:
                 if fn.endswith(".md"):
                     try:
-                        out.append(wi_skills.parse_skill(open(os.path.join(root, fn), encoding="utf-8").read()))
+                        sk = wi_skills.parse_skill(open(os.path.join(root, fn), encoding="utf-8").read())
+                        if sk["name"] in stats:
+                            sk["downstream_stats"] = stats[sk["name"]]
+                        out.append(sk)
                     except Exception:
                         pass
     return out
 CURATIONS = []
 def run_skill_curate(op, name, text):
-    """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹)→ 綁定判決;記入 CURATIONS 供 console。"""
+    """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹 + r_task 下游成效資訊)→ 綁定判決;
+    記入 CURATIONS 供 console。r_task 只附資訊,不影響 verdict(見 wi_skills.curate 的 docstring)。"""
     if not _zone_has("curate"):
         return {"note": "skill 治理屬 zone C(治理官)職責", "note_en": "skill governance is the zone C (governance officer)'s job", "zone": ZONE}
-    v = wi_skills.curate(op, text or "", _load_skills(), name=name)
+    v = wi_skills.curate(op, text or "", _load_skills(), name=name, downstream_stats=_load_skill_stats())
     CURATIONS.append({"ts": time.strftime("%H:%M:%S"), "op": v.get("op"), "name": v.get("name") or name,
                       "verdict": v.get("verdict"), "reason": (v.get("reasons") or [""])[0]})
     del CURATIONS[:-40]
@@ -2694,7 +2709,8 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, skill_search(_q))
             else:
                 _sk = _load_skills()
-                self._send(200, {"count": len(_sk), "skills": [s["name"] for s in _sk]})
+                self._send(200, {"count": len(_sk),
+                                 "skills": [{"name": s["name"], "downstream_stats": s.get("downstream_stats")} for s in _sk]})
         elif self.path == "/curations":   # worker-c 最近的技能治理判決(console)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
