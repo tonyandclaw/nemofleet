@@ -1610,7 +1610,7 @@ function Badge({ x, y, text }) {
   </g>`;
 }
 function TopoTile({ x, y, w, h, cls, icon, label, sub, tag, badge, statusUp, osh }) {
-  return html`<foreignObject x=${x - w / 2} y=${y} width=${w} height=${h}>
+  return html`<foreignObject x=${x - w / 2} y=${y} width=${w} height=${h} style=${{ overflow: 'visible' }}>
     <div class=${'archbox ' + cls} style=${{ width: '100%', height: '100%', margin: 0 }}>
       ${badge ? html`<span class="zonebadge">${badge}</span>` : null}
       ${osh ? html`<span class="oshtag">openshell</span>` : null}
@@ -1649,10 +1649,10 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
   const cx = 540;
   const human = { cx, y: 26, w: 110, h: 72 };
   const guard = { cx, y: 164, w: 160, h: 72 };
-  const lead = { cx, y: 344, w: 132, h: 72 };
-  const wa = { cx: 210, y: 498, w: 116, h: 84 };
-  const wb = { cx: 540, y: 498, w: 116, h: 84 };
-  const wc = { cx: 870, y: 498, w: 116, h: 84 };
+  const lead = { cx, y: 344, w: 148, h: 84 };
+  const wa = { cx: 210, y: 498, w: 124, h: 92 };
+  const wb = { cx: 540, y: 498, w: 124, h: 92 };
+  const wc = { cx: 870, y: 498, w: 124, h: 92 };
   const dev = { cx: 210, y: 730, w: 116, h: 60 };
   const ext = { cx: 540, y: 730, w: 116, h: 60 };
   const jira = { cx: 870, y: 730, w: 116, h: 60 };
@@ -1697,7 +1697,7 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
           <${TopoTile} x=${dev.cx} y=${dev.y} w=${dev.w} h=${dev.h} cls="device sm" icon="router" label="EBG19P" sub=${t('real device')} statusUp=${deviceUp}/>
           <${TopoTile} x=${ext.cx} y=${ext.y} w=${ext.w} h=${ext.h} cls="ext sm" icon="link" label="upstream" sub="GitHub · NVD · OSV"/>
           <${TopoTile} x=${jira.cx} y=${jira.y} w=${jira.w} h=${jira.h} cls="ext sm" icon="ticket" label="Jira" sub=${t('escalations')}/>
-          <foreignObject x=${nim.cx - nim.w / 2} y=${nim.y} width=${nim.w} height=${nim.h}>
+          <foreignObject x=${nim.cx - nim.w / 2} y=${nim.y} width=${nim.w} height=${nim.h} style=${{ overflow: 'visible' }}>
             <div class="archnim" style=${{ width: '100%', height: '100%', margin: 0 }}>
               <div class="archnim-hd"><${TIcon} k="cpu" size=${18}/> ${(up => html`<${Dot} s=${up ? 'on' : 'off'}/>`)(nimUp)} <b>${t('local NIM')}</b> — Nemotron 3 Super 120B · <span class="mono">/v1</span></div>
               <div class="archnim-taps">${[['team-lead', leadUp], ['worker-a', wUp('ops')], ['worker-b', wUp('sec')], ['worker-c', wUp('gov')]].map(([nm, up]) =>

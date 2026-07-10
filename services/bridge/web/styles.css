@@ -372,7 +372,7 @@ html[data-density="spacious"] .kpis{gap:20px}
    exactly regardless of container width. Narrow viewports scroll horizontally rather than
    squeezing the diagram unreadable. */
 .diagram-scroll{overflow-x:auto;border-radius:14px}
-.diagram-scroll svg{display:block;width:100%;height:auto;min-width:720px}
+.diagram-scroll>svg{display:block;width:100%;height:auto;min-width:720px}
 .topo-flow{stroke-dasharray:6 5;animation:topoflow 1s linear infinite}
 @keyframes topoflow{to{stroke-dashoffset:-22}}
 @media (prefers-reduced-motion: reduce){.topo-flow{animation:none}}
