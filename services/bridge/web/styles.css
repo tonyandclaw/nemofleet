@@ -365,21 +365,53 @@ html[data-density="spacious"] .kpis{gap:20px}
 .certbanner-ico{font-size:20px;flex:none}
 .certbanner b{font-size:13px}
 
-/* ── architecture view ── */
-.archmap{display:flex;flex-direction:column;align-items:center;gap:0}
-.archrow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;width:100%}
-.archworkers{gap:14px}
-.archbox{background:var(--raise);border:1px solid var(--line2);border-radius:10px;padding:12px 16px;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:wrap;color:var(--ink)}
+/* ── architecture view: topology diagram ──
+   Rows stack in normal flow; connectors (railwrap) are small self-contained SVG strips between
+   rows, not one giant page-spanning overlay — so nothing needs runtime DOM measurement and the
+   diagram stays correct across screen widths / i18n text-length changes. */
+.topo{display:flex;flex-direction:column;align-items:center;gap:0}
+.topo-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;width:100%}
+.topo-row3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;width:100%}
+.topo-row3 .archbox{width:100%}
+.archbox{background:linear-gradient(180deg,var(--panel-hi),transparent 40%),var(--raise);
+  box-shadow:0 1px 0 var(--panel-hi) inset,0 8px 20px -14px var(--shadow);
+  border:1px solid var(--line2);border-radius:12px;padding:12px 16px;font-size:13.5px;
+  display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:wrap;color:var(--ink);
+  transition:transform .18s ease,box-shadow .18s ease}
+.archbox:hover{transform:translateY(-1px);box-shadow:0 1px 0 var(--panel-hi) inset,0 12px 26px -14px var(--shadow)}
 .archbox .muted{color:var(--ink2)}
-.archbox.archworkers>*,.archworkers .archbox{flex-direction:column;align-items:flex-start;min-width:150px}
+.topo-row3 .archbox{flex-direction:column;align-items:flex-start;min-width:150px}
 .archbox.human{border-color:var(--ink3);font-weight:600}
-.archbox.guardrail { border-color: color-mix(in srgb, var(--accent) 45%, var(--line2)); background: color-mix(in srgb, var(--accent) 7%, var(--panel2)); }
-.archbox.guardrail b { color: var(--accent); }
-.archbox.lead{border-color:var(--s-blue)}
-.archbox.w-ops{border-color:var(--s-aqua)}.archbox.w-sec{border-color:var(--s-violet)}.archbox.w-gov{border-color:var(--s-yellow)}
+.archbox.guardrail{border-color:color-mix(in srgb,var(--accent) 50%,var(--line2));
+  background:linear-gradient(180deg,var(--panel-hi),transparent 40%),color-mix(in srgb,var(--accent) 8%,var(--panel2))}
+.archbox.guardrail b{color:var(--accent)}
+.archbox.lead{border-color:var(--s-blue);background:linear-gradient(180deg,var(--panel-hi),transparent 40%),color-mix(in srgb,var(--s-blue) 6%,var(--raise))}
+.archbox.w-ops{border-color:var(--s-aqua);background:linear-gradient(180deg,var(--panel-hi),transparent 40%),color-mix(in srgb,var(--s-aqua) 6%,var(--raise))}
+.archbox.w-sec{border-color:var(--s-violet);background:linear-gradient(180deg,var(--panel-hi),transparent 40%),color-mix(in srgb,var(--s-violet) 6%,var(--raise))}
+.archbox.w-gov{border-color:var(--s-yellow);background:linear-gradient(180deg,var(--panel-hi),transparent 40%),color-mix(in srgb,var(--s-yellow) 6%,var(--raise))}
 .archbox.device{border-color:var(--ink3)}.archbox.ext{border-color:var(--line2)}
-.archconn{color:var(--ink2);font-size:11px;font-family:var(--mono);padding:9px 0;text-align:center;opacity:.85}
-.archnim{margin-top:14px;padding:12px 16px;border-radius:10px;background:color-mix(in srgb,var(--s-yellow) 12%,transparent);border:1px solid color-mix(in srgb,var(--s-yellow) 34%,transparent);font-size:12.5px;text-align:center;width:100%;color:var(--ink)}
+.ticon{flex:none;opacity:.85}
+/* connector rails — small self-contained SVG strips, percentage coordinate space */
+.railwrap{position:relative;width:100%}
+.railwrap svg{display:block}
+.railwrap-single{max-width:420px;margin:0 auto}
+.topo-flow{stroke-dasharray:5 5;animation:topoflow 1s linear infinite}
+@keyframes topoflow{to{stroke-dashoffset:-20}}
+.railchip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);white-space:nowrap;
+  font-size:10.5px;font-family:var(--mono);color:var(--ink2);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:999px;padding:3px 10px;box-shadow:var(--sh)}
+.railwrap.birail .railchip{transform:translate(-50%,-50%)}
+.archnim{margin-top:16px;padding:14px 18px;border-radius:14px;width:100%;color:var(--ink);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--s-yellow) 16%,transparent),color-mix(in srgb,var(--s-yellow) 5%,transparent) 60%),var(--raise);
+  border:1px solid color-mix(in srgb,var(--s-yellow) 40%,transparent);
+  box-shadow:0 1px 0 var(--panel-hi) inset,0 0 0 1px color-mix(in srgb,var(--s-yellow) 14%,transparent),0 14px 30px -18px var(--shadow)}
+.archnim-hd{display:flex;align-items:center;gap:8px;font-size:13.5px;justify-content:center}
+.archnim-taps{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:10px;
+  padding-top:10px;border-top:1px solid color-mix(in srgb,var(--s-yellow) 24%,transparent);font-size:11.5px;color:var(--ink2)}
+.niptap{display:flex;align-items:center;gap:6px;font-family:var(--mono)}
+.topo-legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--ink3)}
+.topo-legend span{display:flex;align-items:center;gap:6px}
+.lswatch{display:inline-block;width:16px;height:2.5px;border-radius:2px}
 .archlayers{display:grid;gap:12px}
 .archlayer{padding:12px 14px;border:1px solid var(--line2);border-radius:9px;background:var(--raise)}
 .archlayer .muted{color:var(--ink2)}
@@ -421,8 +453,8 @@ html[data-density="spacious"] .kpis{gap:20px}
 .actcard.on .act-meta{color:var(--warn)}
 
 /* ── architecture topology: Nemoclaw control-plane frame + OpenShell per-agent sandbox ── */
-.archplane{width:100%;border:1px dashed color-mix(in srgb,var(--s-blue) 55%,transparent);border-radius:15px;
-  padding:14px 18px 18px;background:color-mix(in srgb,var(--s-blue) 6%,transparent);
+.topo-plane{width:100%;border:1px dashed color-mix(in srgb,var(--s-blue) 55%,transparent);border-radius:16px;
+  padding:16px 18px 20px;background:radial-gradient(120% 100% at 50% 0%,color-mix(in srgb,var(--s-blue) 8%,transparent),transparent 70%),color-mix(in srgb,var(--s-blue) 4%,transparent);
   display:flex;flex-direction:column;align-items:center;gap:0;position:relative}
 .archplane-hd{align-self:flex-start;font-size:12px;color:var(--ink2);margin-bottom:14px}
 .archplane-hd b{color:var(--s-blue);font-size:13.5px;font-weight:700}
@@ -432,8 +464,8 @@ html[data-density="spacious"] .kpis{gap:20px}
 .oshtag{position:absolute;top:-8px;left:11px;font-size:8.5px;font-family:var(--mono);letter-spacing:.1em;
   text-transform:uppercase;color:var(--accent);background:var(--bg);padding:1px 7px;
   border:1px solid color-mix(in srgb,var(--accent) 34%,transparent);border-radius:20px}
-.archworkers .osh{flex:1;min-width:168px;display:flex}
-.archworkers .osh .archbox{width:100%}
+.topo-row3 .osh{min-width:168px;display:flex}
+.topo-row3 .osh .archbox{width:100%}
 
 /* ── policy editor: least-privilege classification + filesystem ── */
 .lpsum{display:flex;gap:10px;align-items:flex-start;padding:10px 13px;border-radius:10px;margin-bottom:12px;border:1px solid;font-size:12.5px}

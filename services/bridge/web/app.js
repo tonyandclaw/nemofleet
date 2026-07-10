@@ -364,6 +364,9 @@ const I18N = {
   'escalations': { en: 'escalations', zh: '升級工單' },
   'local NIM': { en: 'local NIM', zh: '本地 NIM' },
   'all nodes route here': { en: 'all nodes route here', zh: '四節點都路由到這' },
+  'legend_authority': { en: 'human ↔ guardrail authority chain', zh: '人 ↔ guardrail 授權鏈' },
+  'legend_delegate': { en: 'team-lead → worker delegation', zh: 'team-lead → worker 委派' },
+  'legend_egress': { en: 'scoped network egress', zh: 'scoped 出向' },
   'The four layers': { en: 'The four layers', zh: '四層架構' },
   'what each does': { en: 'what each does', zh: '各層職責' },
   'host control plane': { en: 'host control plane', zh: 'host 控制面' },
@@ -1556,6 +1559,55 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
           ]}/></${Panel}>`}
     </div></div>`;
 });
+// ── Topology diagram: hand-authored connector rails (percentage coordinate space, no DOM
+// measurement needed) instead of plain "↓ text" arrows — see docs/design/architecture.md for
+// the topology this renders. fanD() covers 3 shapes with one formula: 1→N (diverge, e.g. team-lead
+// fanning out to workers), N→1 (converge), N→N (parallel lanes) — whichever side has 1 point stays
+// centered, the other side's points are evenly spaced, so the same helper draws all of them.
+const TOPO_ICON = {
+  human: '<circle cx="12" cy="8" r="3.3"/><path d="M5.3 20c0-3.7 3-6 6.7-6s6.7 2.3 6.7 6"/>',
+  shield: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/>',
+  server: '<rect x="4" y="5" width="16" height="6" rx="1.5"/><rect x="4" y="13" width="16" height="6" rx="1.5"/><path d="M7.5 8h.01M7.5 16h.01"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>',
+  link: '<circle cx="7" cy="12" r="3"/><circle cx="17" cy="12" r="3"/><path d="M10 12h4"/>',
+  ticket: '<path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/>',
+  router: '<rect x="3" y="9" width="18" height="7" rx="1.5"/><path d="M7 9V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2M7 19h.01M11 19h.01M15 19h.01"/>',
+};
+function TIcon({ k, size = 15, style }) {
+  return html`<svg class="ticon" width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style=${style} dangerouslySetInnerHTML=${{ __html: TOPO_ICON[k] || '' }}></svg>`;
+}
+function fanD(nTop, nBottom) {
+  const xs = n => Array.from({ length: n }, (_, i) => (n === 1 ? 50 : (i + 0.5) / n * 100));
+  const top = xs(nTop), bot = xs(nBottom), n = Math.max(nTop, nBottom);
+  return Array.from({ length: n }, (_, i) => {
+    const tx = nTop === 1 ? top[0] : top[i], bx = nBottom === 1 ? bot[0] : bot[i], my = 55;
+    return `M ${tx} 2 C ${tx} ${my}, ${bx} ${my}, ${bx} 98`;
+  });
+}
+const FanRail = memo(function FanRail({ nTop, nBottom, colors, colorVar = '--ink3', flow, muted, height = 40, label }) {
+  const paths = fanD(nTop, nBottom);
+  const single = nTop === 1 && nBottom === 1;
+  return html`<div class=${'railwrap' + (single ? ' railwrap-single' : '')} style=${{ height: height + 'px' }}>
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
+      <defs><marker id="topoArrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
+      ${paths.map((dstr, i) => html`<path key=${i} d=${dstr} fill="none" stroke-width=${muted ? 1.4 : 2}
+        class=${flow ? 'topo-flow' : ''} marker-end="url(#topoArrow)"
+        style=${{ stroke: colors ? `var(${colors[i % colors.length]})` : `var(${colorVar})`, opacity: muted ? .6 : .92 }}/>`)}
+    </svg>
+    ${label ? html`<span class="railchip">${label}</span>` : null}
+  </div>`;
+});
+const BiRail = memo(function BiRail({ downLabel, upLabel, height = 40 }) {
+  return html`<div class="railwrap railwrap-single birail" style=${{ height: height + 'px' }}>
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
+      <defs><marker id="topoArrow2" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/></marker></defs>
+      <path d="M38 2 L38 98" class="topo-flow" fill="none" stroke-width="2" marker-end="url(#topoArrow2)" style=${{ stroke: 'var(--accent)' }}/>
+      <path d="M62 98 L62 2" class="topo-flow" fill="none" stroke-width="2" marker-end="url(#topoArrow2)" style=${{ stroke: 'var(--s-aqua)' }}/>
+    </svg>
+    <span class="railchip" style=${{ left: '30%' }}>↓ ${downLabel}</span>
+    <span class="railchip" style=${{ left: '70%' }}>↑ ${upLabel}</span>
+  </div>`;
+});
 const ArchitectureView = memo(function ArchitectureView({ d }) {
   const nodes = d.nodes || [];
   const dot = (up) => html`<${Dot} s=${up ? 'on' : 'off'}/>`;
@@ -1573,25 +1625,40 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
     t('Single source of knowledge — knowledge/ (approved baseline + security keys); version-hash aligned fleet-wide.'),
     t('Governed self-evolution — new skills pass worker-c /skill-review (SkillOS quality gate) before landing.'),
   ];
+  const leadUp = (nodes.find(n => n.tag === 'lead') || {}).up;
+  const wUp = tag => (nodes.find(n => n.tag === tag) || {}).up;
+  const nimUp = d.inference && d.inference.reachable !== false;
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Architecture')}</h2><span class="lbl">${t('Nemoclaw × OpenShell × Hermes · governed 4-node fleet')}</span></div>
     <${Panel} title=${t('Topology')} label=${t('human at the apex · hub-and-spoke')}>
-      <div class="archmap">
-        <div class="archrow"><div class="archbox human">${t('Human')} <span class="muted">· Telegram / Email · approval_token</span></div></div>
-        <div class="archconn">↓ ${t('request')}</div>
-        <div class="archrow"><div class="archbox guardrail">🛡 <b>${t('Guardrail')}</b> <span class="muted">${t('local NIM screens: prompt-injection / out-of-scope / destructive → block')}</span></div></div>
-        <div class="archconn">↓ ${t('allowed only')} · ↑ ${t('report / escalate')}</div>
-        <div class="archplane">
+      <div class="topo">
+        <div class="topo-row"><div class="archbox human"><${TIcon} k="human" size=${17}/> <b>${t('Human')}</b> <span class="muted">· Telegram / Email · approval_token</span></div></div>
+        <${FanRail} nTop=${1} nBottom=${1} flow=${true} colorVar="--accent" label=${'↓ ' + t('request')}/>
+        <div class="topo-row"><div class="archbox guardrail"><${TIcon} k="shield" size=${17} style=${{ color: 'var(--accent)' }}/> <b>${t('Guardrail')}</b> <span class="muted">${t('local NIM screens: prompt-injection / out-of-scope / destructive → block')}</span></div></div>
+        <${BiRail} downLabel=${t('allowed only')} upLabel=${t('report / escalate')}/>
+        <div class="topo-plane">
           <div class="archplane-hd"><span class="archplane-mark">◆</span> <b>Nemoclaw</b> <span class="muted">· ${t('control plane · provisions the sandboxes · policy · routes inference')}</span></div>
-          <div class="archrow"><div class="osh"><span class="oshtag">openshell</span><div class="archbox lead">${dot((nodes.find(n => n.tag === 'lead') || {}).up)} <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div></div>
-          <div class="archconn">↓ worker_bridge (/32 + token) · A2A · :9099</div>
-          <div class="archrow archworkers">${['ops', 'sec', 'gov'].map((tag) => { const n = nodes.find(x => x.tag === tag) || {}; const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C';
-            return html`<div key=${tag} class="osh"><span class="oshtag">openshell</span><div class=${'archbox w-' + tag}>${dot(n.up)} <b>${nm}</b> <span class="tag ${'g'}">${t(tag)}</span><div class="muted" style=${{ fontSize: '11px', marginTop: '3px' }}>zone ${zn}</div></div></div>`; })}</div>
+          <div class="topo-row"><div class="osh"><span class="oshtag">openshell</span><div class="archbox lead">${dot(leadUp)} <${TIcon} k="server" size=${15}/> <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div></div>
+          <${FanRail} nTop=${1} nBottom=${3} colors=${['--s-aqua', '--s-violet', '--s-yellow']} label="worker_bridge (/32+token) · A2A · :9099"/>
+          <div class="topo-row topo-row3">${['ops', 'sec', 'gov'].map((tag) => { const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C';
+            return html`<div key=${tag} class="osh"><span class="oshtag">openshell</span><div class=${'archbox w-' + tag}>${dot(wUp(tag))} <b>${nm}</b> <span class="tag g">${t(tag)}</span><div class="muted" style=${{ fontSize: '11px', marginTop: '3px' }}>zone ${zn}</div></div></div>`; })}</div>
         </div>
-        <div class="archconn">↓ ${t('scoped egress · L7 deny-by-default')}</div>
-        <div class="archrow"><div class="archbox device">${dot((d.devices && d.devices[0] && d.devices[0].online) === true)} ASUS EBG19P <span class="muted">· ${t('real device')}</span></div>
-          <div class="archbox ext">GitHub · NVD · OSV <span class="muted">· ${t('upstream intel')}</span></div>
-          <div class="archbox ext">Jira <span class="muted">· ${t('escalations')}</span></div></div>
-        <div class="archnim">${dot(d.inference && d.inference.reachable !== false)} ${t('local NIM')} — Nemotron 3 Super 120B · <span class="mono">/v1</span> · ${t('all nodes route here')}</div>
+        <${FanRail} nTop=${3} nBottom=${3} muted=${true} label=${t('scoped egress · L7 deny-by-default')}/>
+        <div class="topo-row topo-row3">
+          <div class="archbox device"><${TIcon} k="router" size=${15}/> ${dot((d.devices && d.devices[0] && d.devices[0].online) === true)} ASUS EBG19P <span class="muted">· ${t('real device')}</span></div>
+          <div class="archbox ext"><${TIcon} k="link" size=${15}/> GitHub · NVD · OSV <span class="muted">· ${t('upstream intel')}</span></div>
+          <div class="archbox ext"><${TIcon} k="ticket" size=${15}/> Jira <span class="muted">· ${t('escalations')}</span></div>
+        </div>
+        <div class="archnim">
+          <div class="archnim-hd"><${TIcon} k="cpu" size=${20} style=${{ color: 'var(--s-yellow)' }}/> ${dot(nimUp)} <b>${t('local NIM')}</b> — Nemotron 3 Super 120B · <span class="mono">/v1</span></div>
+          <div class="archnim-taps">${[['team-lead', leadUp], ['worker-a', wUp('ops')], ['worker-b', wUp('sec')], ['worker-c', wUp('gov')]].map(([nm, up]) =>
+            html`<span key=${nm} class="niptap">${dot(up)} ${nm}</span>`)}
+            <span class="muted" style=${{ marginLeft: 'auto' }}>${t('all nodes route here')}</span></div>
+        </div>
+      </div>
+      <div class="topo-legend">
+        <span><i class="lswatch" style=${{ background: 'var(--accent)' }}></i>${t('legend_authority')}</span>
+        <span><i class="lswatch" style=${{ background: 'var(--s-aqua)' }}></i>${t('legend_delegate')}</span>
+        <span><i class="lswatch muted" style=${{ background: 'var(--ink3)' }}></i>${t('legend_egress')}</span>
       </div>
     </${Panel}>
     <div class="grid1" style=${{ marginTop: '12px' }}>
