@@ -1,7 +1,3 @@
-{"ts": "2026-07-10 07:40:30", "critical": [], "warning": [], "routine": [], "digest_sent": true, "safety_net_fired": false}
-
-{"ts": "2026-07-10 08:00:42", "critical": [], "warning": [], "routine": [], "digest_sent": false, "safety_net_fired": false}
-
 {"ts": "2026-07-10 08:20:54", "critical": [], "warning": [], "routine": [], "digest_sent": false, "safety_net_fired": false}
 
 {"ts": "2026-07-10 08:41:06", "critical": [], "warning": [], "routine": [], "digest_sent": true, "safety_net_fired": false}
@@ -97,3 +93,7 @@
 {"ts": "2026-07-10 21:07:07", "critical": [], "warning": [], "routine": [], "stale": ["lab-asus-ebg19p-01 已連續 7 輪巡邏仍離線,尚未解決"], "digest_sent": true, "lookaround_sent": false, "safety_net_fired": false}
 
 {"ts": "2026-07-10 21:29:57", "critical": [], "warning": [], "routine": [], "stale": ["lab-asus-ebg19p-01 已連續 8 輪巡邏仍離線,尚未解決"], "digest_sent": false, "lookaround_sent": true, "safety_net_fired": false}
+
+{"ts": "2026-07-10 21:52:26", "critical": [], "warning": [], "routine": [], "stale": ["lab-asus-ebg19p-01 已連續 9 輪巡邏仍離線,尚未解決"], "digest_sent": false, "lookaround_sent": true, "safety_net_fired": false}
+
+{"ts": "2026-07-10 22:13:38", "critical": [], "warning": [], "routine": [], "stale": ["lab-asus-ebg19p-01 已連續 10 輪巡邏仍離線,尚未解決"], "digest_sent": true, "lookaround_sent": false, "safety_net_fired": false}

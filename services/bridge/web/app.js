@@ -1572,6 +1572,9 @@ const TOPO_ICON = {
   link: '<circle cx="7" cy="12" r="3"/><circle cx="17" cy="12" r="3"/><path d="M10 12h4"/>',
   ticket: '<path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/>',
   router: '<rect x="3" y="9" width="18" height="7" rx="1.5"/><path d="M7 9V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2M7 19h.01M11 19h.01M15 19h.01"/>',
+  wrench: '<path d="M14.5 3.5a4 4 0 0 0-5 5L4 14l2.5 2.5 5.5-5.5a4 4 0 0 0 5-5l-2.3 2.3-2-2z"/>',
+  shieldcheck: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/><path d="M9.5 11.5 11.3 13.3 14.8 9.8"/>',
+  scale: '<path d="M12 3.5v17M6 7.5h12M8 7.5 5 14h6zM16 7.5 13 14h6zM8.5 20.5h7"/>',
 };
 function TIcon({ k, size = 15, style }) {
   return html`<svg class="ticon" width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style=${style} dangerouslySetInnerHTML=${{ __html: TOPO_ICON[k] || '' }}></svg>`;
@@ -1633,14 +1636,14 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
       <div class="topo">
         <div class="topo-row"><div class="archbox human"><${TIcon} k="human" size=${17}/> <b>${t('Human')}</b> <span class="muted">· Telegram / Email · approval_token</span></div></div>
         <${FanRail} nTop=${1} nBottom=${1} flow=${true} colorVar="--accent" label=${'↓ ' + t('request')}/>
-        <div class="topo-row"><div class="archbox guardrail"><${TIcon} k="shield" size=${17} style=${{ color: 'var(--accent)' }}/> <b>${t('Guardrail')}</b> <span class="muted">${t('local NIM screens: prompt-injection / out-of-scope / destructive → block')}</span></div></div>
+        <div class="topo-row"><div class="archbox guardrail"><${TIcon} k="shield" size=${17}/> <b>${t('Guardrail')}</b> <span class="muted">${t('local NIM screens: prompt-injection / out-of-scope / destructive → block')}</span></div></div>
         <${BiRail} downLabel=${t('allowed only')} upLabel=${t('report / escalate')}/>
         <div class="topo-plane">
           <div class="archplane-hd"><span class="archplane-mark">◆</span> <b>Nemoclaw</b> <span class="muted">· ${t('control plane · provisions the sandboxes · policy · routes inference')}</span></div>
           <div class="topo-row"><div class="osh"><span class="oshtag">openshell</span><div class="archbox lead">${dot(leadUp)} <${TIcon} k="server" size=${15}/> <b>team-lead</b> <span class="muted">${t('front desk · coordinate · execute worker-c verdicts')}</span></div></div></div>
           <${FanRail} nTop=${1} nBottom=${3} colors=${['--s-aqua', '--s-violet', '--s-yellow']} label="worker_bridge (/32+token) · A2A · :9099"/>
-          <div class="topo-row topo-row3">${['ops', 'sec', 'gov'].map((tag) => { const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C';
-            return html`<div key=${tag} class="osh"><span class="oshtag">openshell</span><div class=${'archbox w-' + tag}>${dot(wUp(tag))} <b>${nm}</b> <span class="tag g">${t(tag)}</span><div class="muted" style=${{ fontSize: '11px', marginTop: '3px' }}>zone ${zn}</div></div></div>`; })}</div>
+          <div class="topo-row topo-row3">${['ops', 'sec', 'gov'].map((tag) => { const nm = tag === 'ops' ? 'worker-a' : tag === 'sec' ? 'worker-b' : 'worker-c'; const zn = tag === 'ops' ? 'A' : tag === 'sec' ? 'B' : 'C'; const gly = tag === 'ops' ? 'wrench' : tag === 'sec' ? 'shieldcheck' : 'scale';
+            return html`<div key=${tag} class="osh"><span class="oshtag">openshell</span><div class=${'archbox w-' + tag}><span class="zonebadge">${zn}</span>${dot(wUp(tag))} <${TIcon} k=${gly} size=${15}/> <b>${nm}</b> <span class="tag g">${t(tag)}</span></div></div>`; })}</div>
         </div>
         <${FanRail} nTop=${3} nBottom=${3} muted=${true} label=${t('scoped egress · L7 deny-by-default')}/>
         <div class="topo-row topo-row3">
@@ -1649,7 +1652,7 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
           <div class="archbox ext"><${TIcon} k="ticket" size=${15}/> Jira <span class="muted">· ${t('escalations')}</span></div>
         </div>
         <div class="archnim">
-          <div class="archnim-hd"><${TIcon} k="cpu" size=${20} style=${{ color: 'var(--s-yellow)' }}/> ${dot(nimUp)} <b>${t('local NIM')}</b> — Nemotron 3 Super 120B · <span class="mono">/v1</span></div>
+          <div class="archnim-hd"><${TIcon} k="cpu" size=${20}/> ${dot(nimUp)} <b>${t('local NIM')}</b> — Nemotron 3 Super 120B · <span class="mono">/v1</span></div>
           <div class="archnim-taps">${[['team-lead', leadUp], ['worker-a', wUp('ops')], ['worker-b', wUp('sec')], ['worker-c', wUp('gov')]].map(([nm, up]) =>
             html`<span key=${nm} class="niptap">${dot(up)} ${nm}</span>`)}
             <span class="muted" style=${{ marginLeft: 'auto' }}>${t('all nodes route here')}</span></div>
