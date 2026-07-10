@@ -15,7 +15,8 @@ try:
     import yaml  # 解析 openshell policy get 的 YAML(唯讀政策檢視)
 except Exception:
     yaml = None
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
+import urllib.request
 
 PORT = int(os.environ.get("DASHBOARD_PORT", "8899"))
 import glob as _glob
@@ -761,7 +762,6 @@ def do_recipient(op, name, telegram, email):
     return last
 
 NOTIFIED_FILE = f"{BRIDGE}/notified.json"
-NOTIFY_SENDER = os.environ.get("NOTIFY_SENDER", "tony@demo.local")   # Hermes email 白名單授權寄件者(觸發 Telegram 推播)
 def _load_notified():
     try:
         return set(json.load(open(NOTIFIED_FILE, encoding="utf-8")))
@@ -790,11 +790,27 @@ def _dlp(text, ctx=""):
 def _alert_email(to, subject, body):
     body = _dlp(body, f"email→{to}")
     sh(f"bash {MAIL}/send-to.sh {shlex.quote(to)} {shlex.quote(subject)} {shlex.quote(body)}", 25)
+def _telegram_send(chat_id, text):
+    tok = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not tok or not chat_id:
+        return False
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{tok}/sendMessage",
+            data=urlencode({"chat_id": chat_id, "text": text}).encode(), method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return bool(json.loads(r.read()).get("ok"))
+    except Exception as e:
+        print("[telegram send]", e, flush=True)
+        return False
+
 def _alert_telegram(chat_id, text):
+    # 直送 Telegram Bot API(host-side,同 teamlead-proactive.sh 的 deterministic_alert()/wake_teamlead()
+    # 送達機制)。舊版試著把訊息寄進 team-lead 的信箱(TEAMLEAD_EMAIL),指望它自己呼叫 send_message 工具
+    # 轉發——但那個信箱從未設定、Hermes 也從未啟用任何 email adapter 去讀它,這條路一直靜默失敗,新工單/
+    # 異常/syslog 告警從來沒有真的送達過 Telegram(見 2026-07-10 對 teamlead-proactive.sh 的同款修法)。
     text = _dlp(text, f"telegram→{chat_id}")
-    body = (f"Hermes,請務必實際呼叫你的 send_message 工具,發 Telegram 訊息到 chat id {chat_id},"
-            f"內容為「{text}」。不要只在回信說明,要真的呼叫工具發送。")
-    sh(f"bash {MAIL}/send-mail-as.sh {shlex.quote(NOTIFY_SENDER)} {shlex.quote('NemoClaw 告警轉發')} {shlex.quote(body)}", 25)
+    return _telegram_send(chat_id, text)
 def notify_loop():
     """新工單 → 通知每位收件人(Email 直送真實 SMTP;Telegram 經 Hermes)。首啟以現有工單為基線、不補發歷史。"""
     time.sleep(10)
