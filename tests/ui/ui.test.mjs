@@ -29,6 +29,23 @@ for (const route of VIEWS) {
   });
 }
 
+// ── i18n: the mirror-image bug — a view built entirely from hardcoded English literals (never
+// wrapped in t()) passes every check above (nothing "leaks" in EN mode) but silently never shows
+// a word of Chinese either. This is exactly how the Scorecard view shipped: fully readable, zero
+// Chinese leak, and yet 0% translated. Isolate each view's own .viewfade root (excluding the shared
+// nav chrome, which is always translated) and require it to contain real Chinese content in zh mode.
+for (const route of VIEWS) {
+  test(`view '${route}' actually shows Chinese in Chinese mode (own content, not just chrome)`, async () => {
+    const { window, cleanup } = await mount({ route, lang: 'zh', close: false });
+    try {
+      const body = window.document.querySelector('.viewfade');
+      assert.ok(body, `'${route}' has no .viewfade root — can't isolate view content from nav chrome`);
+      const hits = body.textContent.match(/[一-鿿]/g) || [];
+      assert.ok(hits.length >= 5, `'${route}' shows almost no Chinese in zh mode (${hits.length} CJK chars found) — likely built from hardcoded English literals never wrapped in t()`);
+    } finally { cleanup(); }
+  });
+}
+
 // ── i18n: in Chinese mode the chrome is actually translated (nav shows 中文) ──
 test('Chinese mode translates the nav', async () => {
   const { text } = await mount({ route: 'overview', lang: 'zh' });

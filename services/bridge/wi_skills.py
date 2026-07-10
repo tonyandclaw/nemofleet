@@ -77,17 +77,21 @@ def skill_quality(text, max_body_lines=120):
     checks = []
     fm_ok = bool(sk["name"] and sk["description"])
     checks.append({"name": "frontmatter", "pass": fm_ok,
-                   "detail": "有 name + description(可被檢索/稽核)" if fm_ok else "缺 YAML frontmatter 的 name/description"})
+                   "detail": "有 name + description(可被檢索/稽核)" if fm_ok else "缺 YAML frontmatter 的 name/description",
+                   "detail_en": "has name + description (retrievable/auditable)" if fm_ok else "missing name/description in YAML frontmatter"})
     kebab = bool(re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", sk["name"] or ""))
     checks.append({"name": "name-format", "pass": kebab,
-                   "detail": "name 為 kebab-case" if kebab else "name 非 kebab-case"})
+                   "detail": "name 為 kebab-case" if kebab else "name 非 kebab-case",
+                   "detail_en": "name is kebab-case" if kebab else "name is not kebab-case"})
     body_ok = len(sk["body"]) >= 20
     checks.append({"name": "has-body", "pass": body_ok,
-                   "detail": "有指令內容" if body_ok else "指令內容過短/空"})
+                   "detail": "有指令內容" if body_ok else "指令內容過短/空",
+                   "detail_en": "has instruction content" if body_ok else "instruction content too short/empty"})
     lines = sk["body"].count("\n") + 1
     concise = lines <= max_body_lines
     checks.append({"name": "concise", "pass": concise,
-                   "detail": "精簡(非逐字軌跡複製)" if concise else "過長(%d 行 > %d)— 疑似逐字複製,SkillOS compression 建議壓縮" % (lines, max_body_lines)})
+                   "detail": "精簡(非逐字軌跡複製)" if concise else "過長(%d 行 > %d)— 疑似逐字複製,SkillOS compression 建議壓縮" % (lines, max_body_lines),
+                   "detail_en": "concise (not a verbatim trajectory copy)" if concise else "too long (%d lines > %d) — looks like a verbatim copy, SkillOS compression suggests condensing" % (lines, max_body_lines)})
     return sk, checks
 
 
@@ -98,17 +102,22 @@ def curate(op, text, existing, name="", dup_threshold=0.6):
     if op == "delete":
         found = any(s.get("name") == name for s in existing)
         return {"op": "delete", "name": name, "verdict": "approve" if found else "reject",
-                "checks": [{"name": "exists", "pass": found, "detail": "存在於 repo" if found else "repo 無此技能"}],
-                "reasons": [] if found else ["repo 無此技能:" + name], "required_fixes": []}
+                "checks": [{"name": "exists", "pass": found, "detail": "存在於 repo" if found else "repo 無此技能",
+                           "detail_en": "exists in repo" if found else "no such skill in repo"}],
+                "reasons": [] if found else ["repo 無此技能:" + name],
+                "reasons_en": [] if found else ["no such skill in repo: " + name], "required_fixes": [], "required_fixes_en": []}
     sk, checks = skill_quality(text)
     if op == "insert":
         dup_score, dup_name = max(((_overlap(sk["body"], s.get("body", "")), s.get("name", "")) for s in existing),
                                   default=(0.0, ""))
         not_dup = dup_score < dup_threshold
         checks.append({"name": "non-redundant", "pass": not_dup,
-                       "detail": "無高度重疊技能" if not_dup else "與『%s』重疊 %d%% — 建議 update 而非新增(SkillOS 抗膨脹)" % (dup_name, int(dup_score * 100))})
+                       "detail": "無高度重疊技能" if not_dup else "與『%s』重疊 %d%% — 建議 update 而非新增(SkillOS 抗膨脹)" % (dup_name, int(dup_score * 100)),
+                       "detail_en": "no highly-overlapping skill" if not_dup else "%d%% overlap with '%s' — suggest update instead of insert (SkillOS anti-proliferation)" % (int(dup_score * 100), dup_name)})
     failed = [c for c in checks if not c["pass"]]
     return {"op": op or "insert", "name": sk["name"], "verdict": "approve" if not failed else "reject",
             "score": round(100 * (len(checks) - len(failed)) / max(len(checks), 1)),
             "checks": checks, "reasons": [c["detail"] for c in failed],
-            "required_fixes": ["修正 %s(%s)" % (c["name"], c["detail"]) for c in failed]}
+            "reasons_en": [c["detail_en"] for c in failed],
+            "required_fixes": ["修正 %s(%s)" % (c["name"], c["detail"]) for c in failed],
+            "required_fixes_en": ["fix %s (%s)" % (c["name"], c["detail_en"]) for c in failed]}

@@ -26,7 +26,9 @@ def _verdict(target, kind, checks, ref=""):
         "score": round(100 * (len(checks) - len(failed)) / max(len(checks), 1)),
         "target": target, "kind": kind, "checks": checks,
         "reasons": [c["detail"] for c in failed],
+        "reasons_en": [c.get("detail_en", c["detail"]) for c in failed],
         "required_fixes": ["修正 %s(%s)" % (c["name"], c["detail"]) for c in failed],
+        "required_fixes_en": ["fix %s (%s)" % (c["name"], c.get("detail_en", c["detail"])) for c in failed],
         "subject_ref": ref,
     }
 
@@ -41,16 +43,19 @@ def review_remediation(subject, baseline_text, security_keys):
     # gate 1 — verified:worker-a 有重讀驗證(ok 欄位 + after 快照都在)
     verified = subject.get("ok") is not None and bool(subject.get("after"))
     checks.append({"name": "verified", "pass": verified,
-                   "detail": "有重讀驗證(ok + after)" if verified else "缺 ok / after — 未驗證就回報"})
+                   "detail": "有重讀驗證(ok + after)" if verified else "缺 ok / after — 未驗證就回報",
+                   "detail_en": "has read-back verification (ok + after)" if verified else "missing ok/after — reported without verifying"})
     # gate 2 — baseline-match:被處理的安全鍵,after 值須等於核准 baseline
     mismatched = [k for k in security_keys if k in after and k in base and after[k] != base[k]]
     bm = not mismatched
     checks.append({"name": "baseline-match", "pass": bm,
-                   "detail": "安全鍵符合核准 baseline" if bm else "仍偏離 baseline:" + ", ".join(mismatched)})
+                   "detail": "安全鍵符合核准 baseline" if bm else "仍偏離 baseline:" + ", ".join(mismatched),
+                   "detail_en": "security keys match the approved baseline" if bm else "still deviates from baseline: " + ", ".join(mismatched)})
     # gate 3 — success-consistent:回報 ok=true 卻仍偏離 baseline = 可疑,擋
     consistent = not (subject.get("ok") and mismatched)
     checks.append({"name": "success-consistent", "pass": consistent,
-                   "detail": "回報成功且值一致" if consistent else "回報 ok=true 但值仍偏離 baseline"})
+                   "detail": "回報成功且值一致" if consistent else "回報 ok=true 但值仍偏離 baseline",
+                   "detail_en": "reported success and values are consistent" if consistent else "reported ok=true but values still deviate from baseline"})
     # gate 4 — scope:修改只該動宣告的目標鍵;before→after 若動到「其他」安全鍵 = 範圍外副作用,擋
     before = subject.get("before") or {}
     if isinstance(before, str):
@@ -60,7 +65,8 @@ def review_remediation(subject, baseline_text, security_keys):
         changed = [k for k in security_keys if k in before and k in after and before[k] != after[k] and k != target]
         in_scope = not changed
         checks.append({"name": "scope", "pass": in_scope,
-                       "detail": "只動了目標鍵" if in_scope else "改動溢出到範圍外的安全鍵:" + ", ".join(changed)})
+                       "detail": "只動了目標鍵" if in_scope else "改動溢出到範圍外的安全鍵:" + ", ".join(changed),
+                       "detail_en": "only touched the target key" if in_scope else "change overflowed into out-of-scope security keys: " + ", ".join(changed)})
     return _verdict("worker-a", "remediation", checks, subject.get("bug", ""))
 
 
@@ -70,17 +76,20 @@ def review_cve(subject):
     checks = []
     has_ev = bool(subject.get("component")) and bool(subject.get("our_version"))
     checks.append({"name": "evidence", "pass": has_ev,
-                   "detail": "有元件 + 版本佐證" if has_ev else "缺元件 / 版本佐證"})
+                   "detail": "有元件 + 版本佐證" if has_ev else "缺元件 / 版本佐證",
+                   "detail_en": "has component + version evidence" if has_ev else "missing component/version evidence"})
     ok_cve = (not aff) or bool(subject.get("cve"))
     checks.append({"name": "cve-id", "pass": ok_cve,
-                   "detail": "affected 附 CVE id" if ok_cve else "判 affected 卻無 CVE id"})
+                   "detail": "affected 附 CVE id" if ok_cve else "判 affected 卻無 CVE id",
+                   "detail_en": "affected verdict has a CVE id" if ok_cve else "judged affected but no CVE id"})
     # version-consistency:判 affected 且有修復版本 → our_version 應 < fixed(否則 affected 判定可疑)
     fixed = subject.get("fixed_version") or subject.get("fixed")
     ver = subject.get("our_version")
     if aff and fixed and ver:
         vc = _vt(ver) < _vt(fixed)
         checks.append({"name": "version-consistent", "pass": vc,
-                       "detail": "our_version < fixed,affected 判定一致" if vc else "our_version 已 >= fixed,affected 判定可疑(疑假陽性)"})
+                       "detail": "our_version < fixed,affected 判定一致" if vc else "our_version 已 >= fixed,affected 判定可疑(疑假陽性)",
+                       "detail_en": "our_version < fixed, affected verdict is consistent" if vc else "our_version already >= fixed, affected verdict looks suspicious (possible false positive)"})
     return _verdict("worker-b", "cve", checks, subject.get("cve", ""))
 
 
@@ -90,7 +99,7 @@ def review(kind, subject, baseline_text="", security_keys=None):
         return review_remediation(subject or {}, baseline_text, security_keys or [])
     if kind in ("cve", "source"):
         return review_cve(subject or {})
-    return {"verdict": "approve", "kind": kind, "note": "無對應審查閘,放行", "checks": []}
+    return {"verdict": "approve", "kind": kind, "note": "無對應審查閘,放行", "note_en": "no matching review gate, passed through", "checks": []}
 
 
 def annotate_redo(verdict, history, redo_cap=2):
@@ -108,4 +117,5 @@ def annotate_redo(verdict, history, redo_cap=2):
     verdict["escalate"] = verdict["redo_count"] > redo_cap
     if verdict["escalate"]:
         verdict["required_fixes"] = ["重做已達上限(%d 次)— 停止重派,升級真人(Telegram/Email + Jira)" % redo_cap]
+        verdict["required_fixes_en"] = ["redo cap reached (%d times) — stop redispatching, escalate to a human (Telegram/Email + Jira)" % redo_cap]
     return verdict

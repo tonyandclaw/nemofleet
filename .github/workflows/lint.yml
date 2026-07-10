@@ -1,7 +1,9 @@
-# CI: zero-dependency checks. `make lint` (bash -n + py_compile), `make test` (stdlib unittest),
-# and `make itest` (integration: the worker endpoint + dashboard started standalone with plain
-# python3 + curl — no NemoClaw/OpenShell/NIM/device). The heavier e2e that needs live sandboxes
-# stays on the dev box (make health / tests/e2e-*.sh).
+# CI: `make lint` (bash -n + py_compile), `make test` (stdlib unittest), `make itest` (integration:
+# the worker endpoint + dashboard started standalone with plain python3 + curl — no NemoClaw/
+# OpenShell/NIM/device), and `make uitest` (jsdom render + i18n-completeness checks — the one
+# real dependency this CI takes on, specifically because the "translate to English, half the app
+# is still Chinese" bug kept shipping when this only ran manually/locally; see tests/ui/ui.test.mjs).
+# The heavier e2e that needs live sandboxes stays on the dev box (make health / tests/e2e-*.sh).
 name: ci
 on:
   push:
@@ -15,3 +17,4 @@ jobs:
       - run: make lint
       - run: make test
       - run: make itest
+      - run: make uitest

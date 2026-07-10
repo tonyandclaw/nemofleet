@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # eval.py — 真實任務 eval + 規則評分 + 負案例沉澱(下次自動回灌教訓)。
 # 閉環:跑任務 → 規則檢查 → 記 LEDGER → 失敗寫入 lessons.json → 下次把該任務的教訓 prepend 進 prompt。
-# 在 host 跑(呼叫 Hermes API :8642)。零額外 LLM judge,評分純規則,成本=每任務 1 次 bounded 推理 turn。
-import json, re, os, sys, time, urllib.request, datetime
+# 在 host 跑,經 `openshell forward` 到 team-lead 的 Hermes API :8642(帶 gateway token 認證 —
+# 見 eval.sh,它會先確保 forward 存在)。零額外 LLM judge,評分純規則,成本=每任務 1 次 bounded 推理 turn。
+import json, re, os, sys, time, urllib.request, datetime, subprocess
 
 EVAL = os.path.dirname(os.path.abspath(__file__))   # nemofleet/eval
 BASE = os.path.dirname(EVAL)                          # repo root
 TASKS = f"{EVAL}/tasks.jsonl"
 LESSONS = f"{EVAL}/lessons.json"
 LEDGER = f"{EVAL}/ledgers/LEDGER.md"
+HISTORY = f"{EVAL}/ledgers/history.jsonl"   # structured per-run record (LEDGER.md stays the human-readable log)
 HERMES = f"http://127.0.0.1:{os.environ.get('HERMES_API_PORT', '8642')}/v1/chat/completions"
 
 def load_lessons():
@@ -20,10 +22,29 @@ def load_lessons():
 def save_lessons(d):
     json.dump(d, open(LESSONS, "w"), ensure_ascii=False, indent=2)
 
-def call_hermes(prompt, maxtok):
-    body = json.dumps({"model": "hermes-agent", "stream": False, "max_tokens": maxtok,
+def get_gateway_token():
+    # The gateway rejects unauthenticated calls (API_SERVER_KEY minted per sandbox — this
+    # harness predates that requirement and never sent one). HERMES_GATEWAY_TOKEN overrides;
+    # otherwise ask nemoclaw for team-lead's current token. Best-effort: an empty/missing
+    # token just means the call below will 401, which call_hermes surfaces as a normal
+    # (transient) error like any other connection failure.
+    tok = os.environ.get("HERMES_GATEWAY_TOKEN")
+    if tok:
+        return tok
+    try:
+        out = subprocess.run(["nemoclaw", "team-lead", "gateway-token", "--quiet"],
+                             capture_output=True, text=True, timeout=15)
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+def call_hermes(prompt, maxtok, token):
+    body = json.dumps({"model": "nemotron-super", "stream": False, "max_tokens": maxtok,
                        "messages": [{"role": "user", "content": prompt}]}).encode()
-    req = urllib.request.Request(HERMES, data=body, headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(HERMES, data=body, headers=headers)
     with urllib.request.urlopen(req, timeout=240) as r:
         d = json.loads(r.read())
     return d["choices"][0]["message"].get("content") or ""
@@ -68,6 +89,9 @@ def main():
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lessons = load_lessons()
     tasks = [json.loads(l) for l in open(TASKS) if l.strip()]
+    token = get_gateway_token()
+    if not token:
+        print("⚠ 拿不到 gateway token(nemoclaw 不在 PATH 或 team-lead 未註冊)— 呼叫大概率 401,視同 transient 錯誤處理")
     results = []
     for tk in tasks:
         tid = tk["id"]; prompt = tk["prompt"]
@@ -75,7 +99,7 @@ def main():
         if prior:
             prompt = "（過去教訓,請務必避免重蹈:\n" + "\n".join(f"- {x}" for x in prior) + "\n）\n\n" + prompt
         try:
-            content = call_hermes(prompt, tk.get("maxtok", 200))
+            content = call_hermes(prompt, tk.get("maxtok", 200), token)
             err = None
         except Exception as e:
             content, err = "", f"呼叫失敗: {e}"
@@ -100,13 +124,25 @@ def main():
         elif had_lesson:
             recovered = True
             lessons.pop(tid, None)  # 通過了,清掉舊教訓
-        results.append({"id": tid, "desc": tk.get("desc",""), "pass": passed,
+        results.append({"id": tid, "desc": tk.get("desc",""), "category": tk.get("category","general"), "pass": passed,
                         "errored": errored, "err": err,
                         "fails": fails, "recovered": recovered,
                         "content": content[:300], "injected_lessons": prior})
     save_lessons(lessons)
 
     npass = sum(1 for r in results if r["pass"]); n = len(results)
+    nerr = sum(1 for r in results if r["errored"])
+    # 結構化歷史(給 dashboard 畫競爭力趨勢用;LEDGER.md 保持人類可讀,這份只是額外附加)。
+    # 全部 errored(呼叫層/認證層掛掉)不算一次真的競爭力量測 — 跳過,避免趨勢圖出現假的 0% 尖峰。
+    if nerr < n:
+        by_cat = {}
+        for r in results:
+            c = by_cat.setdefault(r["category"], {"pass": 0, "n": 0})
+            c["n"] += 1; c["pass"] += 1 if r["pass"] else 0
+        with open(HISTORY, "a") as f:
+            f.write(json.dumps({"ts": ts, "npass": npass, "n": n, "by_category": by_cat,
+                                "recovered": sum(1 for r in results if r["recovered"]),
+                                "lessons_active": sum(len(v) for v in lessons.values())}, ensure_ascii=False) + "\n")
     # 寫 LEDGER.md
     with open(LEDGER, "a") as f:
         f.write(f"\n## eval {ts} — {npass}/{n} 通過\n")
@@ -120,7 +156,6 @@ def main():
             for fa in r["fails"]:
                 f.write(f"    - 失敗:{fa}\n")
     # 終端摘要
-    nerr = sum(1 for r in results if r["errored"])
     tail = f"(其中 {nerr} 個呼叫逾時,未沉澱)" if nerr else ""
     print(f"== eval {ts} ==  分數 {npass}/{n} {tail}")
     for r in results:

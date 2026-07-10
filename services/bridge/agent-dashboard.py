@@ -129,32 +129,33 @@ def do_user_op(body, actor):
 def _do_user_op(body, actor):
     op = body.get("op"); email = (body.get("email") or "").strip().lower(); u = load_users()
     if op == "add":
-        if not _EMAIL_RE.match(email): return {"ok": False, "msg": "Email 格式不正確"}
-        if email in u: return {"ok": False, "msg": "帳號已存在"}
-        if not (body.get("password") or ""): return {"ok": False, "msg": "需密碼"}
+        if not _EMAIL_RE.match(email): return {"ok": False, "msg": "Email 格式不正確", "msg_en": "Invalid email format"}
+        if email in u: return {"ok": False, "msg": "帳號已存在", "msg_en": "Account already exists"}
+        if not (body.get("password") or ""): return {"ok": False, "msg": "需密碼", "msg_en": "Password required"}
         role = body.get("role") if body.get("role") in ("admin", "viewer") else "viewer"
-        u[email] = _mkuser(body["password"], role); save_users(u); return {"ok": True, "msg": f"已新增 {email}"}
+        u[email] = _mkuser(body["password"], role); save_users(u)
+        return {"ok": True, "msg": f"已新增 {email}", "msg_en": f"Added {email}"}
     if op == "del":
-        if email == actor: return {"ok": False, "msg": "不能刪除自己"}
-        if u.pop(email, None) is None: return {"ok": False, "msg": "查無此帳號"}
+        if email == actor: return {"ok": False, "msg": "不能刪除自己", "msg_en": "Cannot delete yourself"}
+        if u.pop(email, None) is None: return {"ok": False, "msg": "查無此帳號", "msg_en": "Account not found"}
         save_users(u)
         for sid in [sd for sd, v in list(SESSIONS.items()) if v["email"] == email]: SESSIONS.pop(sid, None)
-        return {"ok": True, "msg": f"已刪除 {email}"}
+        return {"ok": True, "msg": f"已刪除 {email}", "msg_en": f"Deleted {email}"}
     if op == "role":
         r = body.get("role")
-        if email not in u: return {"ok": False, "msg": "查無此帳號"}
-        if r not in ("admin", "viewer"): return {"ok": False, "msg": "角色不正確"}
-        if email == actor and r != "admin": return {"ok": False, "msg": "不能取消自己的管理員"}
+        if email not in u: return {"ok": False, "msg": "查無此帳號", "msg_en": "Account not found"}
+        if r not in ("admin", "viewer"): return {"ok": False, "msg": "角色不正確", "msg_en": "Invalid role"}
+        if email == actor and r != "admin": return {"ok": False, "msg": "不能取消自己的管理員", "msg_en": "Cannot remove your own admin role"}
         u[email]["role"] = r; save_users(u)
         for v in SESSIONS.values():
             if v["email"] == email: v["role"] = r
         return {"ok": True, "msg": f"{email} → {r}"}
     if op == "pw":
-        if email not in u: return {"ok": False, "msg": "查無此帳號"}
-        if not (body.get("password") or ""): return {"ok": False, "msg": "需密碼"}
+        if email not in u: return {"ok": False, "msg": "查無此帳號", "msg_en": "Account not found"}
+        if not (body.get("password") or ""): return {"ok": False, "msg": "需密碼", "msg_en": "Password required"}
         salt = secrets.token_hex(16); u[email]["salt"] = salt; u[email]["pwhash"] = _pwhash(body["password"], salt); u[email]["must_change"] = False
-        save_users(u); return {"ok": True, "msg": f"{email} 密碼已重設"}
-    return {"ok": False, "msg": "未知操作"}
+        save_users(u); return {"ok": True, "msg": f"{email} 密碼已重設", "msg_en": f"{email}'s password has been reset"}
+    return {"ok": False, "msg": "未知操作", "msg_en": "Unknown operation"}
 def do_auth_config(body):
     with _USERS_LOCK:
         return _do_auth_config(body)
@@ -168,7 +169,7 @@ def _do_auth_config(body):
         except Exception: pass
     if "ip_whitelist" in body:
         a["ip_whitelist"] = [x.strip() for x in str(body["ip_whitelist"]).split(",") if x.strip()]
-    save_auth(a); return {"ok": True, "msg": "存取設定已更新", "auth": a}
+    save_auth(a); return {"ok": True, "msg": "存取設定已更新", "msg_en": "Access settings updated", "auth": a}
 LOGIN_HTML = r"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NemoFleet 登入</title><link rel="icon" type="image/svg+xml" href="/brand.svg"><style>
 *{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 28%,#171922,#0b0b0d);color:#f2f2f4;font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
 .box{width:344px;background:#161618;border:1px solid #2a2a31;border-radius:18px;padding:30px 28px;box-shadow:0 24px 70px rgba(0,0,0,.55)}
@@ -281,7 +282,7 @@ def collect():
     return _CACHE["data"]
 def _collect_impl():
     now = time.time()
-    d = {"now": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "mttr": "44 秒"}
+    d = {"now": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "mttr": "44 秒", "mttr_en": "44 sec"}
 
     rows = sh("docker ps --format '{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}|{{.RunningFor}}|{{.ID}}'", 5).splitlines()
     d["containers"] = []
@@ -317,6 +318,7 @@ def _collect_impl():
             continue
         h = ep(c, "/health"); m = ep(c, "/monitor")
         node = {"label": label, "name": short(c), "zone": h.get("zone") or ("zone " + label), "role": h.get("role") or _ZROLE.get(label, ""),
+                "role_en": h.get("role_en") or _ZROLE.get(label, ""),
                 "caps": h.get("caps", []), "alive": bool(h), "up": bool(h), "tag": _ZTAG.get(label, "ops"), "port": _ZPORT.get(label, 9099),
                 "alerts": m.get("alerts", 0),
                 "monitor": [{"asset": x["asset"].replace("lab-", ""), "status": x.get("status"),
@@ -430,7 +432,8 @@ def _collect_impl():
                 pass
         if oks:
             recent = oks[-10:]
-            d["mttr"] = f"{round(sum(x['secs'] for x in recent) / len(recent))} 秒"
+            _mttr_secs = round(sum(x['secs'] for x in recent) / len(recent))
+            d["mttr"] = f"{_mttr_secs} 秒"; d["mttr_en"] = f"{_mttr_secs} sec"
             d["mttr_n"] = len(oks); d["mttr_last"] = oks[-1]["secs"]
     except Exception:
         pass
@@ -486,7 +489,12 @@ def _collect_impl():
     allowed = [e for e in alln if e["verb"] == "ALLOWED"][:34]
     d["events"] = sorted(denied + allowed, key=lambda e: e["ts"], reverse=True)
     allowed_total = sum(gov["allowed"].values())
-    d["governance"] = {**gov, "allowed": allowed_total, "allowed_by_policy": gov["allowed"], "benign": gov["denied_benign"]}
+    # events lives directly on governance (not just the top-level d["events"] alias) so the
+    # "Recent governed actions" panel gets these t/ts/target/policy/verb-shaped rows and never
+    # silently falls back to d["timeline"]'s differently-shaped sk/tm/a/b rows (a dead cross-category
+    # feed from the removed classic UI) — that mismatch was why Time showed "—" for every row.
+    d["governance"] = {**gov, "allowed": allowed_total, "allowed_by_policy": gov["allowed"],
+                       "benign": gov["denied_benign"], "events": d["events"]}
 
     HISTORY.append({"ts": time.strftime("%H:%M:%S"), "allowed": allowed_total, "telegram": d["telegram_recent"], "denied": gov["denied"]})
     del HISTORY[:-40]
@@ -615,9 +623,23 @@ def _collect_impl():
     _ps = d.get("proactive") or {}
     if _ps.get("last_patrol"):
         _t = _ps["last_patrol"].split(" ")[-1] if " " in _ps["last_patrol"] else _ps["last_patrol"]
-        _flow.append({"ts": _t, "node": "team-lead", "peer": "human", "task": "patrol",
+        _flow.append({"ts": _t, "sk": _sk(_ps["last_patrol"]), "node": "team-lead", "peer": "human", "task": "patrol",
                       "status": "done", "detail": "%s crit / %s routine" % (_ps.get("last_critical", 0), _ps.get("last_routine", 0))})
-    d["flow"] = sorted(_flow, key=lambda e: e.get("ts", ""), reverse=True)[:30]
+    try:
+        _eh = [json.loads(l) for l in open(f"{DIR}/eval/ledgers/history.jsonl", encoding="utf-8") if l.strip()]
+        if _eh:
+            _lr = _eh[-1]
+            _t = _lr["ts"].split(" ")[-1] if " " in _lr.get("ts", "") else _lr.get("ts", "")
+            _flow.append({"ts": _t, "sk": _sk(_lr.get("ts", "")), "node": "team-lead", "peer": "human", "task": "eval run",
+                          "status": "done", "detail": "%s/%s passed" % (_lr.get("npass", 0), _lr.get("n", 0))})
+    except Exception:
+        pass
+    # cross-source merge: "sk" (date-qualified) is authoritative; bare "ts" (HH:MM:SS, no date) would
+    # wrap around at midnight and let a stale yesterday-evening "working" event outrank a real one from
+    # this morning — that was the cause of nodes looking permanently stuck. Legacy rows from before
+    # this fix have no "sk" at all — treat them as unknown/oldest ("") rather than deriving a fake key
+    # from their bare time, which can misread e.g. "23:37" as numerically larger than a real "sk".
+    d["flow"] = sorted(_flow, key=lambda e: e.get("sk") or "", reverse=True)[:30]
     _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": {}, "skills_count": 0, "curations": []}
     try:
         _rv = json.loads(_worker_get("worker-c", "/reviews", timeout=6) or "{}")
@@ -631,6 +653,11 @@ def _collect_impl():
     except Exception:
         pass
     d["governance_c"] = _gc
+    try:
+        _eh = [json.loads(l) for l in open(f"{DIR}/eval/ledgers/history.jsonl", encoding="utf-8") if l.strip()][-30:]
+    except Exception:
+        _eh = []
+    d["eval"] = {"history": _eh, "latest": (_eh[-1] if _eh else {})}
     _CACHE["ts"] = now; _CACHE["data"] = d
     return d
 
@@ -680,14 +707,15 @@ def _worker_get(frag, path, timeout=16):
 def do_config(k, v):
     # 管理設定:推到兩台 worker endpoint 的 /settings(各容器持久化;掃描迴圈讀取)
     if k not in ALLOWED_CFG:
-        return {"ok": False, "msg": "不允許的設定"}
+        return {"ok": False, "msg": "不允許的設定", "msg_en": "Setting not allowed"}
     ok, _ = _worker_post("/settings", {k: v})
     if ok and k in ("cert_rsa_min", "cert_expire_warn_days", "cert_sig_min", "cert_cipher_policy", "cert_ec_min"):
         _worker_get("worker-a", "/cert-scan")   # 改門檻 → 立刻重掃刷新報表(避免時間差)
     if ok and k in ("sast_src", "sast_ref"):
         _worker_get("worker-b", "/source-cve")  # 改原始碼來源 → 立刻重新同步 + 掃描
     _CACHE["ts"] = 0
-    return {"ok": ok, "msg": f"{k} 已更新" if ok else "更新失敗(端點未回 ok)"}
+    return {"ok": ok, "msg": f"{k} 已更新" if ok else "更新失敗(端點未回 ok)",
+            "msg_en": f"{k} updated" if ok else "Update failed (endpoint did not return ok)"}
 
 def do_cert_policy(params):
     # 憑證政策:每設備覆寫 / 自訂 cipher 家族 → 推兩台 + 觸發重掃
@@ -695,7 +723,7 @@ def do_cert_policy(params):
     if ok:
         _worker_get("worker-a", "/cert-scan")
     _CACHE["ts"] = 0
-    return {"ok": ok, "msg": "憑證政策已更新" if ok else "更新失敗"}
+    return {"ok": ok, "msg": "憑證政策已更新" if ok else "更新失敗", "msg_en": "Cert policy updated" if ok else "Update failed"}
 
 def do_recipient(op, name, telegram, email):
     # 通知對象增刪:推到兩台 endpoint /recipients;新增且有 email → 寄歡迎信(真實 SMTP,可驗證)
@@ -710,19 +738,21 @@ def do_recipient(op, name, telegram, email):
                 _alert_telegram(telegram, f"NemoClaw 測試通知:{name or ''} 的 Telegram 告警通道正常")
                 msgs.append("Telegram")
         except Exception as e:
-            return {"ok": False, "msg": f"測試送出失敗:{e}"}
-        return {"ok": bool(msgs), "msg": ("已送出測試(" + " + ".join(msgs) + ")") if msgs else "此對象未設任何通道"}
+            return {"ok": False, "msg": f"測試送出失敗:{e}", "msg_en": f"Test send failed: {e}"}
+        return {"ok": bool(msgs), "msg": ("已送出測試(" + " + ".join(msgs) + ")") if msgs else "此對象未設任何通道",
+                "msg_en": ("Test sent (" + " + ".join(msgs) + ")") if msgs else "This recipient has no channel configured"}
     ok, last_text = _worker_post("/recipients", {"op": op, "name": name, "telegram": telegram, "email": email})
     try:
         last = json.loads(last_text)
     except Exception:
-        last = {"ok": ok, "msg": "更新成功" if ok else "更新失敗"}
+        last = {"ok": ok, "msg": "更新成功" if ok else "更新失敗", "msg_en": "Update succeeded" if ok else "Update failed"}
     if op == "add" and last.get("ok") and email:
         try:
             subj = "NemoClaw 通知對象啟用"
             text = f"{name} 您好,您已被加入 NemoClaw 告警 / 工單通知對象。此信用於確認 Email 通道可達。"
             sh(f"bash {MAIL}/send-to.sh {shlex.quote(email)} {shlex.quote(subj)} {shlex.quote(text)}", 25)
             last["msg"] = (last.get("msg", "") + " · 已寄歡迎信")
+            last["msg_en"] = (last.get("msg_en", last.get("msg", "")) + " · welcome email sent")
         except Exception:
             pass
     _CACHE["ts"] = 0
@@ -854,7 +884,10 @@ FLOW_LOG = f"{DIR}/data/flow-log.jsonl"
 def _flow_append(node, peer, task, status, detail=""):
     try:
         os.makedirs(os.path.dirname(FLOW_LOG), exist_ok=True)
-        ev = {"ts": time.strftime("%H:%M:%S"), "node": str(node)[:20], "peer": str(peer)[:20],
+        # "sk" carries the date (unlike the display-only "ts") so cross-source sorting doesn't
+        # wrap around at midnight — a bare "23:37" from yesterday must not outrank "09:29" today.
+        ev = {"ts": time.strftime("%H:%M:%S"), "sk": time.strftime("%Y%m%d%H%M%S"),
+              "node": str(node)[:20], "peer": str(peer)[:20],
               "task": str(task)[:40], "status": str(status)[:16], "detail": str(detail)[:100]}
         try:
             lines = [l for l in open(FLOW_LOG, encoding="utf-8") if l.strip()][-59:]
@@ -873,34 +906,45 @@ def do_action(do):
         except Exception:
             pass
         _flow_append("team-lead", "human", "patrol (GUI)", "working")
-        return {"ok": True, "msg": "已請求立即巡邏(≤20s 生效)"}
+        return {"ok": True, "msg": "已請求立即巡邏(≤20s 生效)", "msg_en": "Patrol requested (takes effect within 20s)"}
     if do in ("snooze30", "snooze120", "snooze_off"):
         until = 0 if do == "snooze_off" else int(time.time()) + (1800 if do == "snooze30" else 7200)
         do_config("proactive_snooze_until", until)
         _CACHE["ts"] = 0
-        return {"ok": True, "msg": ("已靜音 critical 主動告警至 " + time.strftime("%H:%M", time.localtime(until))) if until else "已取消靜音"}
+        hhmm = time.strftime("%H:%M", time.localtime(until))
+        return {"ok": True, "msg": (f"已靜音 critical 主動告警至 {hhmm}") if until else "已取消靜音",
+                "msg_en": (f"Critical alerts snoozed until {hhmm}") if until else "Snooze cancelled"}
     if do == "refresh":
-        _CACHE["ts"] = 0; return {"ok": True, "msg": "已重新整理"}
+        _CACHE["ts"] = 0; return {"ok": True, "msg": "已重新整理", "msg_en": "Refreshed"}
+    if do == "run_eval":
+        try:
+            open(f"{DIR}/data/eval-trigger", "w").close()
+        except Exception:
+            pass
+        _flow_append("team-lead", "human", "eval run (GUI)", "working")
+        return {"ok": True, "msg": "已請求立即跑 eval(≤20s 生效,跑完見 Scorecard)",
+                "msg_en": "Eval requested (takes effect within 20s; see Scorecard when it finishes)"}
     if do == "cve" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m20 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/cve\"", 25)
-        _flow_append("worker-b", "human", "CVE rescan (GUI)", "working")
-        _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重掃設備 CVE"}
+        _flow_append("worker-b", "human", "CVE rescan (GUI)", "done")
+        _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重掃設備 CVE", "msg_en": "worker-b rescanned device CVEs"}
     if do == "source" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m25 -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/source-cve\"", 30)
-        _flow_append("worker-b", "human", "source scan (GUI)", "working")
-        _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重跑原始碼分析(SBOM/SAST)"}
+        _flow_append("worker-b", "human", "source scan (GUI)", "done")
+        _CACHE["ts"] = 0; return {"ok": True, "msg": "節點 B 已重跑原始碼分析(SBOM/SAST)", "msg_en": "worker-b re-ran source analysis (SBOM/SAST)"}
     if do == "nuclei" and ct2:
         sh(f"docker exec {ct2} sh -c \"curl -s -m20 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/nuclei-scan\"", 25)
-        _flow_append("worker-b", "human", "nuclei scan (GUI)", "working")
-        _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)"}
+        _flow_append("worker-b", "human", "nuclei scan (GUI)", "done")
+        _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)",
+                "msg_en": "worker-b triggered an active nuclei scan (runs in the background, refresh shortly)"}
     if do == "backup":
         ct3 = ct("worker-c")
         if ct3:
             sh(f"docker exec {ct3} sh -c \"curl -s -m20 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/backup\"", 25)
-            _flow_append("worker-c", "human", "backup (GUI)", "working")
-            _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-c 已觸發設定備份"}
-        return {"ok": False, "msg": "worker-c 未部署"}
-    return {"ok": False, "msg": "未知動作"}
+            _flow_append("worker-c", "human", "backup (GUI)", "done")
+            _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-c 已觸發設定備份", "msg_en": "worker-c triggered a config backup"}
+        return {"ok": False, "msg": "worker-c 未部署", "msg_en": "worker-c not deployed"}
+    return {"ok": False, "msg": "未知動作", "msg_en": "unknown action"}
 
 # ── Emergency kill-switch — freeze/unfreeze the whole fleet ───────────────────────────────────────
 # docker pause = SIGSTOP: the agent processes are frozen instantly (not just egress-blocked) and can
@@ -933,63 +977,73 @@ def do_freeze(on, actor=""):
         json.dump(st, open(FREEZE_FILE, "w"))
     except Exception:
         pass
+    _miss_zh = f"(缺 {','.join(missing)})" if missing else ""
+    _miss_en = f" (missing {','.join(missing)})" if missing else ""
     audit(actor or "system", "fleet-freeze" if on else "fleet-unfreeze",
-          f"{'凍結' if on else '解凍'} {len(changed)} agents: {','.join(changed)}" + (f"(缺 {','.join(missing)})" if missing else ""), "", True)
+          f"{'凍結' if on else '解凍'} {len(changed)} agents: {','.join(changed)}" + _miss_zh, "", True,
+          detail_en=f"{'Froze' if on else 'Unfroze'} {len(changed)} agents: {','.join(changed)}" + _miss_en)
     _flow_append("nemoclaw", "human", ("KILL-SWITCH: freeze fleet" if on else "KILL-SWITCH: resume fleet"), "done",
                  f"{op} {len(changed)} agents by {actor}")
     _CACHE["ts"] = 0
     return {"ok": True, "frozen": bool(on), "agents": changed,
             "msg": (f"🛑 全隊已凍結({len(changed)} agents 已 pause)—— 一切動作立即停止,dashboard/推理仍可用"
-                    if on else f"▶ 全隊已解凍({len(changed)} agents 已恢復)")}
+                    if on else f"▶ 全隊已解凍({len(changed)} agents 已恢復)"),
+            "msg_en": (f"🛑 Fleet frozen ({len(changed)} agents paused) — everything stops immediately, dashboard/inference still up"
+                      if on else f"▶ Fleet resumed ({len(changed)} agents restored)")}
 
 AUDIT_FILE = os.path.expanduser("~/.config/nemoclaw/ebg19p-audit.jsonl")
 DEV_MSG = {"sync": "EBG19P 已強制同步", "harden": "EBG19P 已套用安全基準(關 UPnP/WPS、開 DoS)",
            "restart": "EBG19P 防火牆/無線服務已重啟", "block": "已送出未授權設備封鎖"}
+DEV_MSG_EN = {"sync": "EBG19P force-synced", "harden": "EBG19P security baseline applied (UPnP/WPS off, DoS protection on)",
+              "restart": "EBG19P firewall/wireless services restarted", "block": "Unauthorized-device block sent"}
 
 def do_snapshot(op, sel, sb="worker-a"):
     # NemoClaw 快照 create / restore(逐沙箱)。localhost only · admin-gated · 白名單 + shlex.quote
     # 注意:restore CLI 即使「Restore failed」也回 rc=0,故成功要看輸出文字,不能只看退出碼。
     sel = (sel or "").strip()
     if sb not in ("team-lead", "worker-a", "worker-b", "worker-c"):
-        return {"ok": False, "msg": "sandbox 不合法"}
+        return {"ok": False, "msg": "sandbox 不合法", "msg_en": "Invalid sandbox"}
     if op == "delete":
         # 無 CLI delete;快照即 rebuild-backups/<sb>/<timestamp> 目錄 → 嚴格驗 timestamp 後 rmtree(防路徑穿越)
         ts = sel
         if not re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$", ts):
-            return {"ok": False, "msg": "timestamp 格式不合法"}
+            return {"ok": False, "msg": "timestamp 格式不合法", "msg_en": "Invalid timestamp format"}
         base = os.path.realpath(os.path.expanduser(f"~/.nemoclaw/rebuild-backups/{sb}"))
         target = os.path.realpath(os.path.join(base, ts))
         if target != os.path.join(base, ts) or not target.startswith(base + os.sep) or not os.path.isdir(target):
-            return {"ok": False, "msg": "找不到該快照目錄"}
+            return {"ok": False, "msg": "找不到該快照目錄", "msg_en": "Snapshot directory not found"}
         try:
             import shutil; shutil.rmtree(target)
         except Exception as e:
-            return {"ok": False, "msg": f"刪除失敗:{e}"}
+            return {"ok": False, "msg": f"刪除失敗:{e}", "msg_en": f"Delete failed: {e}"}
         _CACHE["ts"] = 0
-        return {"ok": True, "msg": f"已刪除 {sb} 快照 {ts}"}
+        return {"ok": True, "msg": f"已刪除 {sb} 快照 {ts}", "msg_en": f"Deleted {sb} snapshot {ts}"}
     if op == "create":
         nm = re.sub(r"[^A-Za-z0-9._-]", "-", sel)[:40] or ("ui-" + time.strftime("%Y%m%d-%H%M%S"))
         cmd = f"nemoclaw {sb} snapshot create --name {shlex.quote(nm)} 2>&1"; tmo = 90
     elif op == "restore":
         if not re.match(r"^[A-Za-z0-9._:-]+$", sel):
-            return {"ok": False, "msg": "selector 不合法"}
+            return {"ok": False, "msg": "selector 不合法", "msg_en": "Invalid selector"}
         cmd = f"nemoclaw {sb} snapshot restore {shlex.quote(sel)} 2>&1"; tmo = 150
     else:
-        return {"ok": False, "msg": "未知操作"}
+        return {"ok": False, "msg": "未知操作", "msg_en": "Unknown operation"}
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=tmo, env=ENV)
     except Exception as e:
-        return {"ok": False, "msg": f"執行失敗:{e}"}
+        return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
     out = ((r.stdout or "") + (r.stderr or "")).strip()
     if op == "create":
         ok = r.returncode == 0 and "created" in out.lower()
-        mv = re.search(r"(v\d+)", out); msg = (f"已於 {sb} 建立快照 {mv.group(1) if mv else nm}" if ok else "建立快照失敗")
+        mv = re.search(r"(v\d+)", out)
+        msg = (f"已於 {sb} 建立快照 {mv.group(1) if mv else nm}" if ok else "建立快照失敗")
+        msg_en = (f"Created snapshot {mv.group(1) if mv else nm} on {sb}" if ok else "Snapshot creation failed")
     else:
         ok = "restored" in out.lower() and "restore failed" not in out.lower()
         msg = (f"已從 {sel} 復原 {sb}" if ok else "復原失敗(運行中沙箱無法 in-place 還原,請走重建流程)")
+        msg_en = (f"Restored {sb} from {sel}" if ok else "Restore failed (a running sandbox can't restore in-place — use the rebuild flow)")
     if ok:
         _CACHE["ts"] = 0   # 清快取 → 快照 list 立即刷新
-    return {"ok": ok, "msg": msg, "out": out[-400:]}
+    return {"ok": ok, "msg": msg, "msg_en": msg_en, "out": out[-400:]}
 
 def _strip_ansi(s):
     return re.sub(r"\x1b\[[0-9;]*m", "", s or "")
@@ -1040,6 +1094,8 @@ def _osh_settings(sb):
 
 _SB_LABELS = {"team-lead": "Hermes · 對人前台", "worker-a": "worker-a · IT 運維",
               "worker-b": "worker-b · 資安分析"}
+_SB_LABELS_EN = {"team-lead": "Hermes · human front desk", "worker-a": "worker-a · IT ops",
+                 "worker-b": "worker-b · security analysis"}
 def _list_agent_sandboxes():
     """枚舉實際存在的 agent 沙箱(供 GUI 政策編輯器切換)。讀 openshell sandbox list,附友善標籤。"""
     out, names = sh("openshell sandbox list 2>/dev/null", 12), []
@@ -1050,7 +1106,7 @@ def _list_agent_sandboxes():
     # 維持 Hermes→A→B 的順序;只回已知 agent 沙箱
     order = ["team-lead", "worker-a", "worker-b"]
     ordered = [n for n in order if n in names] + [n for n in names if n not in order]
-    return [{"name": n, "label": _SB_LABELS.get(n, n)} for n in ordered]
+    return [{"name": n, "label": _SB_LABELS.get(n, n), "label_en": _SB_LABELS_EN.get(n, n)} for n in ordered]
 
 def do_policy_get(sb):
     if not _policy_sb_ok(sb): sb = "team-lead"
@@ -1217,25 +1273,26 @@ def do_sys(do, sb="", tail="200", provider="", model="", chan="", a1="", a2="", 
 def do_policy(op, body):
     # OpenShell policy 編輯:preset 開關 / prove / prove-gated apply。localhost · admin · 差異式證明把關
     sb = body.get("sb") or "team-lead"
-    if not _policy_sb_ok(sb): return {"ok": False, "msg": "sandbox 不合法"}
+    if not _policy_sb_ok(sb): return {"ok": False, "msg": "sandbox 不合法", "msg_en": "Invalid sandbox"}
     if op == "setting":
         key = body.get("key", ""); val = str(body.get("value", ""))
-        if not re.match(r"^[a-z0-9_]+$", key): return {"ok": False, "msg": "key 不合法"}
+        if not re.match(r"^[a-z0-9_]+$", key): return {"ok": False, "msg": "key 不合法", "msg_en": "Invalid key"}
         if val == "unset":
             cmd = f"openshell settings delete {shlex.quote(sb)} --key {shlex.quote(key)}"
         elif val in ("true", "false"):
             cmd = f"openshell settings set {shlex.quote(sb)} --key {shlex.quote(key)} --value {val}"
         else:
-            return {"ok": False, "msg": "value 須為 true/false/unset"}
+            return {"ok": False, "msg": "value 須為 true/false/unset", "msg_en": "Value must be true/false/unset"}
         try:
             r = subprocess.run(cmd + " 2>&1", shell=True, capture_output=True, text=True, timeout=30, env=ENV)
         except Exception as e:
-            return {"ok": False, "msg": f"執行失敗:{e}"}
+            return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
         out = _strip_ansi((r.stdout or "") + (r.stderr or "")); ok = r.returncode == 0
-        return {"ok": ok, "msg": (f"已設定 {key} = {val}" if ok else "設定失敗"), "out": out[-400:]}
+        return {"ok": ok, "msg": (f"已設定 {key} = {val}" if ok else "設定失敗"),
+                "msg_en": (f"Set {key} = {val}" if ok else "Setting failed"), "out": out[-400:]}
     if op == "preset":
         name = body.get("name", ""); on = bool(body.get("on")); dry = bool(body.get("dry"))
-        if not re.match(r"^[A-Za-z0-9._-]+$", name): return {"ok": False, "msg": "preset 不合法"}
+        if not re.match(r"^[A-Za-z0-9._-]+$", name): return {"ok": False, "msg": "preset 不合法", "msg_en": "Invalid preset"}
         # 裂腦修正:收回一個「gateway 有但本地 registry 沒有」的 preset 時,nemoclaw policy-remove 的 guard
         # 只看本地 registry → 誤判 not applied 而拒收。先 policy-add 納管進 registry,再 policy-remove 真的從 gateway 移除。
         desync = False
@@ -1245,6 +1302,7 @@ def do_policy(op, body):
             if dry:
                 return {"ok": True, "dry": True, "nochange": False,
                         "msg": "預覽(未套用):此 preset 在 gateway 啟用但本地 state 缺失;將先納管再移除以真正收回",
+                        "msg_en": "Preview (not applied): this preset is active on the gateway but missing from local state; will register it locally first, then remove, to actually revoke it",
                         "out": f"{name}: active on gateway, missing from local state → 修正後移除"}
             try:
                 ra = subprocess.run(f"nemoclaw {shlex.quote(sb)} policy-add {shlex.quote(name)} --yes",
@@ -1252,48 +1310,51 @@ def do_policy(op, body):
                 rr = subprocess.run(f"nemoclaw {shlex.quote(sb)} policy-remove {shlex.quote(name)} --yes",
                                     shell=True, capture_output=True, text=True, timeout=90, env=ENV)
             except Exception as e:
-                return {"ok": False, "msg": f"執行失敗:{e}"}
+                return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
             out = _strip_ansi((ra.stdout or "") + (ra.stderr or "") + "\n" + (rr.stdout or "") + (rr.stderr or ""))
             still = any(p["name"] == name and p["active"] for p in _policy_presets(sb))
             ok = (rr.returncode == 0) and not still
             return {"ok": ok, "dry": False, "nochange": False,
                     "msg": ("已收回 " + name + "(已修正 gateway 與本地狀態不同步)") if ok else ("收回失敗:" + name),
+                    "msg_en": ("Revoked " + name + " (fixed the gateway/local state desync)") if ok else ("Revoke failed: " + name),
                     "out": out[-800:]}
         verb = "policy-add" if on else "policy-remove"; flag = "--dry-run" if dry else "--yes"
         try:
             r = subprocess.run(f"nemoclaw {shlex.quote(sb)} {verb} {shlex.quote(name)} {flag}",
                                shell=True, capture_output=True, text=True, timeout=90, env=ENV)
         except Exception as e:
-            return {"ok": False, "msg": f"執行失敗:{e}"}
+            return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
         out = _strip_ansi((r.stdout or "") + (r.stderr or "")); ok = r.returncode == 0
         low = out.lower(); first = ((out.strip().split("\n") or [""])[0]).strip()
         nochange = any(k in low for k in ("not applied", "already", "no changes"))
         if dry:
-            msg = "預覽(未套用)"
+            msg = "預覽(未套用)"; msg_en = "Preview (not applied)"
         elif nochange:
-            msg = "未變更:" + first; ok = True
+            msg = "未變更:" + first; msg_en = "No change: " + first; ok = True
         elif ok:
             msg = "已" + ("開放" if on else "收回") + " " + name
+            msg_en = ("Opened " if on else "Revoked ") + name
         else:
-            msg = "失敗:" + (first or "見輸出")
-        return {"ok": ok, "dry": dry, "nochange": nochange, "msg": msg, "out": out[-800:]}
+            msg = "失敗:" + (first or "見輸出"); msg_en = "Failed: " + (first or "see output")
+        return {"ok": ok, "dry": dry, "nochange": nochange, "msg": msg, "msg_en": msg_en, "out": out[-800:]}
     if op == "rule_remove":   # 細粒度:移除單一網路規則(openshell policy update --remove-rule)
         name = body.get("name", ""); dry = bool(body.get("dry"))
-        if not re.match(r"^[A-Za-z0-9._-]+$", name): return {"ok": False, "msg": "rule 名稱不合法"}
+        if not re.match(r"^[A-Za-z0-9._-]+$", name): return {"ok": False, "msg": "rule 名稱不合法", "msg_en": "Invalid rule name"}
         flag = "--dry-run" if dry else "--wait --timeout 60"
         try:
             r = subprocess.run(f"openshell policy update {shlex.quote(sb)} --remove-rule {shlex.quote(name)} {flag}",
                                shell=True, capture_output=True, text=True, timeout=90, env=ENV)
         except Exception as e:
-            return {"ok": False, "msg": f"執行失敗:{e}"}
+            return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
         out = _strip_ansi((r.stdout or "") + (r.stderr or "")); ok = r.returncode == 0
-        return {"ok": ok, "dry": dry, "msg": ("預覽(未套用)" if dry else (("已移除規則 " + name) if ok else "移除失敗")), "out": out[-800:]}
+        return {"ok": ok, "dry": dry, "msg": ("預覽(未套用)" if dry else (("已移除規則 " + name) if ok else "移除失敗")),
+                "msg_en": ("Preview (not applied)" if dry else (("Removed rule " + name) if ok else "Removal failed")), "out": out[-800:]}
     if op == "endpoint_add":  # 細粒度:新增 host:port:access(+可選 binary)
         host = (body.get("host") or "").strip(); port = str(body.get("port") or "443").strip()
         access = (body.get("access") or "full").strip(); bins = body.get("binaries") or []
         dry = bool(body.get("dry"))
-        if not re.match(r"^[A-Za-z0-9.*_-]+$", host): return {"ok": False, "msg": "host 不合法"}
-        if not re.match(r"^\d{1,5}$", port): return {"ok": False, "msg": "port 不合法"}
+        if not re.match(r"^[A-Za-z0-9.*_-]+$", host): return {"ok": False, "msg": "host 不合法", "msg_en": "Invalid host"}
+        if not re.match(r"^\d{1,5}$", port): return {"ok": False, "msg": "port 不合法", "msg_en": "Invalid port"}
         if access not in ("full", "rest", "websocket"): access = "full"
         binflags = " ".join(f"--binary {shlex.quote(b)}" for b in bins if re.match(r"^[/A-Za-z0-9._-]+$", b))
         flag = "--dry-run" if dry else "--wait --timeout 60"
@@ -1301,24 +1362,28 @@ def do_policy(op, body):
             r = subprocess.run(f"openshell policy update {shlex.quote(sb)} --add-endpoint {shlex.quote(host + ':' + port + ':' + access)} {binflags} {flag}",
                                shell=True, capture_output=True, text=True, timeout=90, env=ENV)
         except Exception as e:
-            return {"ok": False, "msg": f"執行失敗:{e}"}
+            return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
         out = _strip_ansi((r.stdout or "") + (r.stderr or "")); ok = r.returncode == 0
-        return {"ok": ok, "dry": dry, "msg": ("預覽(未套用)" if dry else (("已新增 " + host + ":" + port) if ok else "新增失敗")), "out": out[-800:]}
+        return {"ok": ok, "dry": dry, "msg": ("預覽(未套用)" if dry else (("已新增 " + host + ":" + port) if ok else "新增失敗")),
+                "msg_en": ("Preview (not applied)" if dry else (("Added " + host + ":" + port) if ok else "Add failed")), "out": out[-800:]}
     if op == "prove":
         gaps, rc0, out = _prove(body.get("raw", ""))
         base = body.get("baseline")
         worse = (base is not None and gaps >= 0 and gaps > int(base))
         return {"ok": True, "gaps": gaps, "pass": rc0, "worse": worse,
-                "msg": (f"critical/high 缺口 = {gaps}" + (" ⚠ 比現行更差" if worse else " · 未變差")), "out": out[-1500:]}
+                "msg": (f"critical/high 缺口 = {gaps}" + (" ⚠ 比現行更差" if worse else " · 未變差")),
+                "msg_en": (f"critical/high gaps = {gaps}" + (" ⚠ worse than current" if worse else " · no regression")), "out": out[-1500:]}
     if op == "apply":
         raw = body.get("raw", "")
         cand, _rc, cout = _prove(raw)
         if cand < 0:
-            return {"ok": False, "msg": "prove 無法解析(政策可能語法錯誤),已拒絕套用", "out": cout[-1500:]}
+            return {"ok": False, "msg": "prove 無法解析(政策可能語法錯誤),已拒絕套用",
+                    "msg_en": "prove could not parse the policy (possible syntax error) — apply rejected", "out": cout[-1500:]}
         base, _b, _bo = _prove(_policy_raw(sb))   # 現行 live 政策基線
         if base >= 0 and cand > base:
             return {"ok": False, "blocked": True, "gaps": cand, "baseline_gaps": base,
-                    "msg": f"❌ 已拒絕:此改動讓 critical/high 缺口由 {base} 增為 {cand}", "out": cout[-1500:]}
+                    "msg": f"❌ 已拒絕:此改動讓 critical/high 缺口由 {base} 增為 {cand}",
+                    "msg_en": f"❌ Rejected: this change would raise critical/high gaps from {base} to {cand}", "out": cout[-1500:]}
         os.makedirs(POLICY_PROVE_DIR, exist_ok=True)
         pf = f"{POLICY_PROVE_DIR}/apply.yaml"
         with open(pf, "w") as fh: fh.write(raw)
@@ -1326,16 +1391,17 @@ def do_policy(op, body):
             r = subprocess.run(f"openshell policy set --policy {shlex.quote(pf)} {shlex.quote(sb)} --wait --timeout 40",
                                shell=True, capture_output=True, text=True, timeout=75, env=ENV)
         except Exception as e:
-            return {"ok": False, "msg": f"套用失敗:{e}"}
+            return {"ok": False, "msg": f"套用失敗:{e}", "msg_en": f"Apply failed: {e}"}
         sout = _strip_ansi((r.stdout or "") + (r.stderr or "")); sok = r.returncode == 0
         return {"ok": sok, "gaps": cand, "baseline_gaps": base,
-                "msg": (f"✅ prove 通過(缺口 {cand} ≤ 現行 {base})並已套用" if sok else "prove 通過但 set 失敗"), "out": sout[-1000:]}
-    return {"ok": False, "msg": "未知操作"}
+                "msg": (f"✅ prove 通過(缺口 {cand} ≤ 現行 {base})並已套用" if sok else "prove 通過但 set 失敗"),
+                "msg_en": (f"✅ prove passed (gaps {cand} ≤ current {base}) and applied" if sok else "prove passed but set failed"), "out": sout[-1000:]}
+    return {"ok": False, "msg": "未知操作", "msg_en": "Unknown operation"}
 
 def do_device_action(do):
     # EBG19P 運維快速處置(寫入經 host executor;localhost only;二次確認在前端;每筆稽核)
     if do not in ("sync", "harden", "restart", "block"):
-        return {"ok": False, "msg": "不允許的設備動作"}
+        return {"ok": False, "msg": "不允許的設備動作", "msg_en": "Device action not allowed"}
     arg = ""
     if do == "block":  # 取目前未授權 MAC(node A /assets);無對象則略過
         cto = ct("worker-a")
@@ -1346,20 +1412,23 @@ def do_device_action(do):
             except Exception:
                 arg = ""
         if not arg:
-            return {"ok": True, "msg": "目前無未授權設備,無需封鎖"}
+            return {"ok": True, "msg": "目前無未授權設備,無需封鎖", "msg_en": "No unauthorized device right now, nothing to block"}
     out = sh(f"bash {DIR}/scripts/ebg19p-action.sh {shlex.quote(do)} {shlex.quote(arg)}", 60)
     _CACHE["ts"] = 0
     ok = "RESULT=ok" in out or "RESULT=skipped" in out
     msg = DEV_MSG.get(do, "完成") + (f"({arg})" if arg else "")
-    return {"ok": ok, "msg": msg if ok else (DEV_MSG.get(do, "動作") + " 失敗(設備不可達或登入失敗,見稽核)")}
+    msg_en = DEV_MSG_EN.get(do, "Done") + (f" ({arg})" if arg else "")
+    return {"ok": ok, "msg": msg if ok else (DEV_MSG.get(do, "動作") + " 失敗(設備不可達或登入失敗,見稽核)"),
+            "msg_en": msg_en if ok else (DEV_MSG_EN.get(do, "Action") + " failed (device unreachable or login failed, see audit)")}
 
 
 ADMIN_AUDIT = os.environ.get("DASH_AUDIT_FILE") or os.path.expanduser("~/.config/nemoclaw/admin-audit.jsonl")
 _AUDIT_LOCK = threading.Lock()
 def _audit_canon(e):
     return json.dumps([e["seq"], e["ts"], e["actor"], e["action"], e["detail"], e["ip"], e["ok"]], ensure_ascii=False)
-def audit(actor, action, detail, ip, ok=True):
+def audit(actor, action, detail, ip, ok=True, detail_en=None):
     # 防竄改:每筆 hash = sha256(prev_hash + canonical(entry)),串成鏈,改任一筆都會斷鏈。
+    # detail_en 是純顯示欄位,_audit_canon() 不讀它,不影響雜湊鏈。
     try:
         with _AUDIT_LOCK:
             os.makedirs(os.path.dirname(ADMIN_AUDIT), exist_ok=True)
@@ -1372,6 +1441,8 @@ def audit(actor, action, detail, ip, ok=True):
                     j = json.loads(last); prev = j.get("hash", "0" * 64); seq = int(j.get("seq", 0)) + 1
             e = {"seq": seq, "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "actor": actor or "?",
                  "action": action, "detail": (detail or "")[:300], "ip": ip or "", "ok": bool(ok)}
+            if detail_en:
+                e["detail_en"] = detail_en[:300]
             e["prev_hash"] = prev
             e["hash"] = hashlib.sha256((prev + _audit_canon(e)).encode()).hexdigest()
             with open(ADMIN_AUDIT, "a", encoding="utf-8") as fp:
@@ -1556,11 +1627,11 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"email": sess["email"], "role": sess["role"]}), "application/json; charset=utf-8")
         if p == "/api/audit":
             if sess["role"] != "admin":
-                return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限"}), "application/json; charset=utf-8")
+                return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限", "msg_en": "Admin permission required"}), "application/json; charset=utf-8")
             return self._send(200, json.dumps({"recent": load_audit(80), "chain": verify_audit()}, ensure_ascii=False), "application/json; charset=utf-8")
         if p == "/api/policy-get":
             if sess["role"] != "admin":
-                return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限"}), "application/json; charset=utf-8")
+                return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限", "msg_en": "Admin permission required"}), "application/json; charset=utf-8")
             sb = parse_qs(urlparse(self.path).query).get("sb", ["team-lead"])[0]
             try:
                 return self._send(200, json.dumps(do_policy_get(sb), ensure_ascii=False), "application/json; charset=utf-8")
@@ -1629,7 +1700,7 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/logout":
             audit(sess["email"], "logout", "", self._cip()); SESSIONS.pop(self._sid(), None); return self._send_cookie(200, {"ok": True}, sid="")
         if sess["role"] != "admin":
-            return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限"}), "application/json; charset=utf-8")
+            return self._send(403, json.dumps({"ok": False, "msg": "需要管理員權限", "msg_en": "Admin permission required"}), "application/json; charset=utf-8")
         audit(sess["email"], p, urlparse(self.path).query, self._cip())
         if p == "/api/users":
             return self._send(200, json.dumps(do_user_op(self._body(), sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
@@ -1639,13 +1710,13 @@ class H(BaseHTTPRequestHandler):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
             if do in ("freeze", "unfreeze"):   # 緊急凍結全隊 —— 高衝擊,僅管理員
                 if sess["role"] != "admin":
-                    return self._send(403, json.dumps({"ok": False, "msg": "緊急凍結需要管理員權限"}), "application/json; charset=utf-8")
+                    return self._send(403, json.dumps({"ok": False, "msg": "緊急凍結需要管理員權限", "msg_en": "Emergency freeze requires admin permission"}), "application/json; charset=utf-8")
                 try:
                     return self._send(200, json.dumps(do_freeze(do == "freeze", sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
                 except Exception as e:
                     return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup"):
-                return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作"}), "application/json; charset=utf-8")
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval"):
+                return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作", "msg_en": "Action not allowed"}), "application/json; charset=utf-8")
             try:
                 self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")
             except Exception as e:

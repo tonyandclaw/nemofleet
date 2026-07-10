@@ -1,1 +1,5 @@
-{}
+{
+  "SEC1-cve-verdict": [
+    "用詞需明確包含下列任一詞:升級、upgrade、patch、修補"
+  ]
+}

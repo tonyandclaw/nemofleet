@@ -110,9 +110,10 @@ def _post_jira_governed(ticket):
         print(f"[JIRA EGRESS] error {e}", flush=True)
         return (False, str(e))
 
-def open_jira(summary, description, kind, asset="lab-asus-ebg19p-01", priority="High"):
+def open_jira(summary, description, kind, asset="lab-asus-ebg19p-01", priority="High", summary_en=None, description_en=None):
     """worker 的升級路徑:修不了 / 需人工核准 → 開 Jira 工單給工程師(人在迴路)。
-    寫本機工單檔(來源真相)+ 經 policy:jira 治理 egress 送 Jira(產生 ALLOWED log)。"""
+    寫本機工單檔(來源真相)+ 經 policy:jira 治理 egress 送 Jira(產生 ALLOWED log)。
+    summary_en/description_en 為選填 — 有給才附,讓 dashboard 的 jira_tickets 面板能在英文模式正確顯示。"""
     os.makedirs(JIRA_DIR, exist_ok=True)
     JIRA_SEQ["n"] += 1
     tid = "NETOPS-" + time.strftime("%Y%m%d-%H%M%S") + f"-{JIRA_SEQ['n']:02d}"
@@ -120,6 +121,10 @@ def open_jira(summary, description, kind, asset="lab-asus-ebg19p-01", priority="
               "asset": asset, "priority": priority, "status": "Open",
               "assignee": "network-engineer", "description": description,
               "created": time.strftime("%Y-%m-%d %H:%M:%S"), "source": "worker IT operator"}
+    if summary_en:
+        ticket["summary_en"] = summary_en
+    if description_en:
+        ticket["description_en"] = description_en
     # 受治理的 egress 送單(policy:jira);best-effort,結果記進工單
     eg_ok, eg_msg = _post_jira_governed(ticket)
     ticket["egress"] = {"governed": eg_ok, "via": "policy:jira", "detail": eg_msg}
@@ -147,6 +152,7 @@ FLEET = [
 ZONE = os.environ.get("BRIDGE_ZONE", "A").upper()
 wi_flow.configure(ZONE)
 ZONE_ROLE = {"A": "IT 運維 / 網路管理", "B": "資安 / 原始碼分析", "C": "變更治理 / QA 監督"}
+ZONE_ROLE_EN = {"A": "IT ops / network management", "B": "security / source analysis", "C": "change governance / QA oversight"}
 ZONE_MONITOR = {
   "A": {"lab-asus-ebg19p-01"},   # 運維管:真實 EBG19P 商用閘道
   "B": set(),                     # 資安節點:CVE / 原始碼分析(不綁特定設備監控)
@@ -243,23 +249,23 @@ def save_setting(k, v):
         return _save_setting(k, v)
 def _save_setting(k, v):
     if k not in SETTINGS_DEFAULTS:
-        return {"ok": False, "msg": f"未知設定 {k}"}
+        return {"ok": False, "msg": f"未知設定 {k}", "msg_en": f"Unknown setting {k}"}
     if isinstance(SETTINGS_DEFAULTS[k], bool):
         v = str(v).lower() in ("1", "true", "on", "yes")
     elif isinstance(SETTINGS_DEFAULTS[k], int):
         try:
             v = int(v)
         except Exception:
-            return {"ok": False, "msg": "需數字"}
+            return {"ok": False, "msg": "需數字", "msg_en": "Must be a number"}
     if k == "notify_channels":
         toks = [x.strip() for x in str(v).split(",") if x.strip()]
         if not toks or any(x not in _NOTIFY_OK for x in toks):
-            return {"ok": False, "msg": f"通知管道不合法 {v}"}
+            return {"ok": False, "msg": f"通知管道不合法 {v}", "msg_en": f"Invalid notify channel {v}"}
         v = ",".join(toks)
     elif k == "quiet_days":
         v = sorted({int(x) for x in str(v).split(",") if x.strip().isdigit() and 0 <= int(x) <= 6})
     elif k in _SET_RANGE and v not in _SET_RANGE[k]:
-        return {"ok": False, "msg": f"{k} 不允許的值 {v}"}
+        return {"ok": False, "msg": f"{k} 不允許的值 {v}", "msg_en": f"{k} does not allow value {v}"}
     s = load_settings(); s[k] = v
     os.makedirs(WD, exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -302,30 +308,31 @@ def _recipient_op(op, name="", telegram="", email=""):
     if op == "add":
         name = (name or "").strip(); telegram = (telegram or "").strip(); email = (email or "").strip()
         if not name:
-            return {"ok": False, "msg": "需姓名"}
+            return {"ok": False, "msg": "需姓名", "msg_en": "Name required"}
         if not telegram and not email:
-            return {"ok": False, "msg": "至少填 Telegram chat id 或 Email"}
+            return {"ok": False, "msg": "至少填 Telegram chat id 或 Email", "msg_en": "Fill in at least a Telegram chat id or Email"}
         if email and not _EMAIL_RE.match(email):
-            return {"ok": False, "msg": "Email 格式不正確"}
+            return {"ok": False, "msg": "Email 格式不正確", "msg_en": "Invalid email format"}
         if telegram and not telegram.isdigit():
-            return {"ok": False, "msg": "Telegram chat id 需為數字"}
+            return {"ok": False, "msg": "Telegram chat id 需為數字", "msg_en": "Telegram chat id must be numeric"}
         if any(r.get("name") == name or (email and r.get("email") == email) for r in lst):
-            return {"ok": False, "msg": "已存在同名或同 Email 的對象"}
+            return {"ok": False, "msg": "已存在同名或同 Email 的對象", "msg_en": "A recipient with this name or email already exists"}
         lst.append({"name": name, "telegram": telegram, "email": email})
         save_recipients(lst)
-        return {"ok": True, "msg": f"已新增通知對象 {name}", "recipients": lst}
+        return {"ok": True, "msg": f"已新增通知對象 {name}", "msg_en": f"Added recipient {name}", "recipients": lst}
     if op == "del":
         key = (email or name or "").strip()
         new = [r for r in lst if r.get("email") != key and r.get("name") != key]
         save_recipients(new)
-        return {"ok": True, "msg": "已刪除", "recipients": new}
-    return {"ok": False, "msg": "未知操作"}
+        return {"ok": True, "msg": "已刪除", "msg_en": "Deleted", "recipients": new}
+    return {"ok": False, "msg": "未知操作", "msg_en": "Unknown operation"}
 def run_cve_scan(trigger="api"):
     """對機隊逐台×逐 CVE 比對,嚴謹分級:affected / not_affected / unknown_inventory_gap / needs_review。
     affected 的自動開 Jira 升級工程師。回傳報表(確定性;trigger=schedule 為內建定期排程觸發)。"""
     if not _zone_has("cve"):
-        return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+        return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE), "role_en": ZONE_ROLE_EN.get(ZONE),
                 "note": "CVE 掃描為資安節點(zone B)職責;本節點為運維,不掃 CVE。",
+                "note_en": "CVE scanning is the security node's (zone B) job; this node is ops and doesn't scan CVEs.",
                 "fleet_size": 0, "cve_count": 0, "counts": {}, "findings": [], "jira_opened": []}
     # 真實 SBOM:有原始碼 SBOM 的資產(ebg19p)設備 CVE 分級也用真版本,與原始碼節點一致(不再 unknown)
     real_sbom = _load_real_sbom()
@@ -595,8 +602,9 @@ def run_cert_scan(trigger="api"):
     """逐設備盤點對外服務的憑證與加密協定,主動提醒:不受信任 / 弱演算法 / 將過期 / 已過期 / 弱協定 / 弱cipher / 弱SSH。
     高風險(過期/不受信任/弱協定…severity High)自動開 Jira 升級(去重)。回傳報表(確定性;與 CVE 同模式)。"""
     if not _zone_has("cert"):
-        return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+        return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE), "role_en": ZONE_ROLE_EN.get(ZONE),
                 "note": "憑證/弱加密盤點為運維節點(zone A)職責;本節點不掃。",
+                "note_en": "Certificate/weak-cipher inventory is the ops node's (zone A) job; this node doesn't scan it.",
                 "device_count": 0, "counts": {}, "severity": {}, "findings": [], "jira_opened": []}
     _cfg = load_settings()
     findings = []
@@ -977,7 +985,9 @@ def run_syslog_analysis():
         for f in [x for x in findings if x["sev"] == "high"]:
             t = _open_jira_dedup(f"[syslog] {f['title']}",
                                  "worker-a syslog 進階分析命中:\n" + f["title"] + "\n證據:\n  " + "\n  ".join(f.get("evidence", [])),
-                                 kind="syslog", asset=_SYSLOG_ASSET)
+                                 kind="syslog", asset=_SYSLOG_ASSET,
+                                 summary_en=f"[syslog] {f.get('title_en') or f['title']}",
+                                 description_en="worker-a syslog analysis hit:\n" + (f.get('title_en') or f['title']) + "\nEvidence:\n  " + "\n  ".join(f.get("evidence_en") or f.get("evidence", [])))
             if t:
                 tickets.append(t)
     out["jira_opened"] = tickets
@@ -1676,14 +1686,14 @@ def _autopatch_line(cwe, line):
         new = re.sub(r'=\s*"[^"]*"', '= getenv("SECRET_FROM_SECURE_STORE") /* FIX(CWE-798): 從安全儲存載入,勿硬編 */', line, count=1)
         return new if new != line else None
     return None
-def _open_jira_dedup(summary, description, kind, asset, priority="High"):
+def _open_jira_dedup(summary, description, kind, asset, priority="High", summary_en=None, description_en=None):
     try:
         for l in open(JIRA_QUEUE, encoding="utf-8"):
             if json.loads(l).get("summary") == summary:
                 return None
     except Exception:
         pass
-    return open_jira(summary, description, kind, asset, priority)["id"]
+    return open_jira(summary, description, kind, asset, priority, summary_en, description_en)["id"]
 SEMGREP_RULES = os.environ.get("SEMGREP_RULES", "/usr/local/share/semgrep-rules")
 SEMGREP_BIN = os.environ.get("SEMGREP_BIN", "/root/.local/bin/semgrep")
 
@@ -1781,7 +1791,7 @@ def _last_source_report():
     try:
         return json.load(open(f"{WD}/source-cve-report.json", encoding="utf-8"))
     except Exception:
-        return {"ts": None, "note": "尚無報告 — 背景掃描進行中,稍後刷新", "sast_findings": [], "sbom": [],
+        return {"ts": None, "note": "尚無報告 — 背景掃描進行中,稍後刷新", "note_en": "No report yet — background scan in progress, refresh shortly", "sast_findings": [], "sbom": [],
                 "sbom_packages": 0, "cve_with_source": [], "sast_source": "not-synced", "sast_engine": "pending",
                 "semgrep_langs": sorted(_installed_semgrep_langs())}
 
@@ -2008,8 +2018,9 @@ def run_source_scan():
     """有原始碼後:① 由 packages.manifest 生 SBOM ② 同台 CVE 由 unknown_inventory_gap 升級為 affected/not_affected(版本+SBOM 證據)
     ③ 對 source 做 pattern-based SAST,危險樣式附 file:line + code 證據。affected/SAST 命中 → 開 Jira(治理 egress)。"""
     if not _zone_has("source"):
-        return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+        return {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE), "role_en": ZONE_ROLE_EN.get(ZONE),
                 "note": "原始碼分析(SBOM/SAST/設計文件)為資安節點(zone B)職責;本節點為運維,不做。",
+                "note_en": "Source analysis (SBOM/SAST/design docs) is the security node's (zone B) job; this node is ops and doesn't do it.",
                 "sbom": [], "cve_with_source": [], "sast_findings": [], "jira_opened": []}
     global SRC_REPO, SRC_REF
     _set_source_phase("syncing")
@@ -2029,7 +2040,7 @@ def run_source_scan():
         # Persist + log even on the "nothing to scan" paths — otherwise a misconfigured/empty source
         # just leaves the LAST successful report on screen forever with zero indication anything ran
         # (the GUI's "Sync & scan" looked like a no-op because nothing here ever touched the report file).
-        rep = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+        rep = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "zone": ZONE, "role": ZONE_ROLE.get(ZONE), "role_en": ZONE_ROLE_EN.get(ZONE),
                "note": note, "note_en": note_en, "sast_source": "not-synced", "sbom_source": "not-synced", "src": loc,
                "sbom": [], "sbom_packages": 0, "cve_with_source": [], "sast_findings": [], "jira_opened": [],
                "semgrep_langs": sorted(_installed_semgrep_langs())}
@@ -2321,33 +2332,41 @@ def run_source_scan():
 # ── 真實 EBG19P 設定 remediation(worker-a 維運動作;device-aware,回報正確設備)──
 # cred 由 boot-stack 以 -e EBG19P_CRED="ip|user|pass" 注入(僅 zone A;A 管 ebg19p)。容器可直連 EBG。
 EBG_CRED = os.environ.get("EBG19P_CRED", "").strip()
-EBG_ACTIONS = {   # bug → (nvram key, 目標值, action_script, 人類描述) — worker-a 對 EBG19P 的確定性安全操作集
+EBG_ACTIONS = {   # bug → (nvram key, 目標值, action_script, 人類描述, English description) — worker-a 對 EBG19P 的確定性安全操作集
   # 無線
-  "ebg-wps":    ("wps_enable", "0", "restart_wireless", "停用 WPS(WiFi Protected Setup,PIN 易被暴力破解)"),
-  "ebg-wps-on": ("wps_enable", "1", "restart_wireless", "啟用 WPS(測試用)"),
+  "ebg-wps":    ("wps_enable", "0", "restart_wireless", "停用 WPS(WiFi Protected Setup,PIN 易被暴力破解)",
+                 "Disable WPS (WiFi Protected Setup — PIN is easily brute-forced)"),
+  "ebg-wps-on": ("wps_enable", "1", "restart_wireless", "啟用 WPS(測試用)", "Enable WPS (for testing)"),
   # 服務 / 攻擊面
-  "ebg-upnp":   ("upnp_enable", "0", "restart_firewall", "停用 UPnP(避免內部服務自動對外開埠)"),
-  "ebg-samba":  ("enable_samba", "0", "restart_nasapps", "停用 Samba 網路芳鄰檔案分享(縮小攻擊面)"),
-  "ebg-ftp":    ("enable_ftp", "0", "restart_nasapps", "停用 FTP 伺服器"),
-  "ebg-ddns":   ("ddns_enable_x", "0", "restart_ddns", "停用 DDNS 動態網域"),
+  "ebg-upnp":   ("upnp_enable", "0", "restart_firewall", "停用 UPnP(避免內部服務自動對外開埠)",
+                 "Disable UPnP (prevents internal services from auto-opening external ports)"),
+  "ebg-samba":  ("enable_samba", "0", "restart_nasapps", "停用 Samba 網路芳鄰檔案分享(縮小攻擊面)",
+                 "Disable Samba file sharing (reduces attack surface)"),
+  "ebg-ftp":    ("enable_ftp", "0", "restart_nasapps", "停用 FTP 伺服器", "Disable the FTP server"),
+  "ebg-ddns":   ("ddns_enable_x", "0", "restart_ddns", "停用 DDNS 動態網域", "Disable DDNS dynamic domain"),
   # 遠端管理服務
-  "ebg-telnet": ("telnetd_enable", "0", "restart_time", "停用 Telnet(明文遠端管理,務必關)"),
-  "ebg-ssh":    ("sshd_enable", "0", "restart_time", "停用 SSH 服務(未使用時關閉以縮小面)"),
-  "ebg-wanweb": ("misc_http_x", "0", "restart_httpd", "停用 WAN 遠端網頁管理(避免管理介面暴露在外網)"),
+  "ebg-telnet": ("telnetd_enable", "0", "restart_time", "停用 Telnet(明文遠端管理,務必關)",
+                 "Disable Telnet (plaintext remote admin — must be off)"),
+  "ebg-ssh":    ("sshd_enable", "0", "restart_time", "停用 SSH 服務(未使用時關閉以縮小面)",
+                 "Disable SSH (turn off when unused to reduce attack surface)"),
+  "ebg-wanweb": ("misc_http_x", "0", "restart_httpd", "停用 WAN 遠端網頁管理(避免管理介面暴露在外網)",
+                 "Disable WAN remote web admin (keeps the admin UI off the public internet)"),
   # 防火牆 / 威脅防護
-  "ebg-dos":    ("fw_dos_x", "1", "restart_firewall", "啟用 DoS 防護(防 SYN flood / port scan)"),
-  "ebg-fw-on":  ("fw_enable_x", "1", "restart_firewall", "啟用防火牆"),
+  "ebg-dos":    ("fw_dos_x", "1", "restart_firewall", "啟用 DoS 防護(防 SYN flood / port scan)",
+                 "Enable DoS protection (guards against SYN flood / port scans)"),
+  "ebg-fw-on":  ("fw_enable_x", "1", "restart_firewall", "啟用防火牆", "Enable the firewall"),
 }
 # 多鍵操作(一次套用多個 nvram + 用主鍵驗證)。AiProtection 需 EULA+總開關+功能+DPI 引擎一起開。
 EBG_MULTI = {
   "ebg-aiprotect": {
     "sets": [("TM_EULA", "1"), ("wrs_enable", "1"), ("wrs_mals_enable", "1"), ("bwdpi_db_enable", "1")],
     "script": "restart_wrs", "verify_key": "wrs_mals_enable", "want": "1",
-    "desc": "啟用 AiProtection 惡意網站封鎖(TrendMicro WRS;含 EULA+總開關+DPI 引擎)"},
+    "desc": "啟用 AiProtection 惡意網站封鎖(TrendMicro WRS;含 EULA+總開關+DPI 引擎)",
+    "desc_en": "Enable AiProtection malicious-site blocking (TrendMicro WRS; EULA + master switch + DPI engine)"},
   "ebg-aiprotect-off": {
     "sets": [("wrs_enable", "0"), ("wrs_mals_enable", "0")],
     "script": "restart_wrs", "verify_key": "wrs_mals_enable", "want": "0",
-    "desc": "停用 AiProtection 惡意網站封鎖"},
+    "desc": "停用 AiProtection 惡意網站封鎖", "desc_en": "Disable AiProtection malicious-site blocking"},
 }
 def run_ebg_remediate(bug):
     """真實對 EBG19P 套用安全 remediation:login → applyapp.cgi(apply)→ 重讀驗證(restart 期間 token 失效會重登)。
@@ -2355,20 +2374,22 @@ def run_ebg_remediate(bug):
     t0 = time.time(); asset = "lab-asus-ebg19p-01"
     # 正規化單鍵 / 多鍵 → sets(要寫的 nvram 對)+ 主驗證鍵 key/want
     if bug in EBG_MULTI:
-        sp = EBG_MULTI[bug]; sets = sp["sets"]; script = sp["script"]; desc = sp["desc"]
+        sp = EBG_MULTI[bug]; sets = sp["sets"]; script = sp["script"]; desc = sp["desc"]; desc_en = sp["desc_en"]
         key, want = sp["verify_key"], sp["want"]
     else:
-        key, want, script, desc = EBG_ACTIONS[bug]; sets = [(key, want)]
+        key, want, script, desc, desc_en = EBG_ACTIONS[bug]; sets = [(key, want)]
     try:
         ip, user, pw = ebg19p.parse_cred(EBG_CRED)
     except ebg19p.EBG19PError:
         return {"ok": False, "bug": bug, "asset": asset, "error": "EBG19P 憑證未注入(boot-stack 需傳 EBG19P_CRED)",
+                "error_en": "EBG19P credential not injected (boot-stack needs to pass EBG19P_CRED)",
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
     dev = ebg19p.EBG19PClient(ip, user, pw)
     try:
         dev.login()
     except ebg19p.EBG19PError as e:
         return {"ok": False, "bug": bug, "asset": asset, "error": f"EBG19P 登入失敗({ip}): {e}",
+                "error_en": f"EBG19P login failed ({ip}): {e}",
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
     before = dev.nvget(key)
     try:
@@ -2392,17 +2413,20 @@ def run_ebg_remediate(bug):
         time.sleep(2)
     verify = "ok" if after == want else ("changed_wrong" if after is not None else "inconclusive_session_busy")
     ok = (after == want)
-    res = {"ok": ok, "bug": bug, "asset": asset, "action": desc, "nvram_key": key,
+    res = {"ok": ok, "bug": bug, "asset": asset, "action": desc, "action_en": desc_en, "nvram_key": key,
            "before": before, "after": after, "want": want, "verify": verify, "via": f"applyapp.cgi/{script}",
            "secs": round(time.time() - t0, 1), "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
     print(f"[EBG REMEDIATE] {bug} {key}:{before}->{after} ok={ok} verify={verify}", flush=True)
     if verify == "changed_wrong":   # 只在「確實讀到非目標值」才升級;讀不到不開單(避免假陰性洗單)
         res["jira"] = open_jira(f"worker 無法自動套用 EBG19P {desc}",
                                 f"自動 remediation 後驗收未通過。key={key} 預期 {want},實際 {before}->{after}。請工程師確認。",
-                                kind="ebg-remediate-failed", asset=asset, priority="High")
+                                kind="ebg-remediate-failed", asset=asset, priority="High",
+                                summary_en=f"worker could not auto-apply EBG19P {desc_en}",
+                                description_en=f"Verification failed after automatic remediation. key={key} expected {want}, actual {before}->{after}. Please have an engineer confirm.")
         res["escalated"] = True
     elif verify == "inconclusive_session_busy":
         res["note"] = "apply 已送出;驗證讀取被 EBG 單一 session(host streamer)佔用打斷,請稍後以 /monitor 重查確認"
+        res["note_en"] = "Apply was sent; the verification read was interrupted by EBG's single-session (host streamer) lock — recheck shortly via /monitor"
     return res
 def run_ebg_remediate_bg(bug):
     BUSY["on"] = True
@@ -2425,7 +2449,7 @@ def _ebg_client():
 def run_backup(trigger="api"):
     """對 EBG19P 拍設定快照(nvget 受管 nvram 鍵 + firmver)→ 版本化存檔。無 cred → 降級。"""
     if not _zone_has("backup"):
-        return {"available": False, "note": "backup 屬 zone C(治理官)職責", "zone": ZONE}
+        return {"available": False, "note": "backup 屬 zone C(治理官)職責", "note_en": "backup is the zone C (governance officer)'s job", "zone": ZONE}
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     try:
         c = _ebg_client()
@@ -2455,35 +2479,37 @@ def list_backups():
     return {"count": len(ids), "backups": ids[:20], "dir": BACKUP_DIR}
 def firmware_status():
     if not _zone_has("firmware"):
-        return {"note": "firmware 屬 zone C 職責", "zone": ZONE}
+        return {"note": "firmware 屬 zone C 職責", "note_en": "firmware is zone C's job", "zone": ZONE}
     cur = "unknown(需 EBG19P 連線)"
     try:
         cur = _ebg_client().nvget("firmver") or cur
     except Exception:
         pass
     return {"current": cur, "available": [], "urgency": "normal", "cve_driven": [],
-            "note": "ASUS 韌體來源未設定(需 worker-c-allow-firmware egress);urgency 由 worker-b CVE 驅動"}
+            "note": "ASUS 韌體來源未設定(需 worker-c-allow-firmware egress);urgency 由 worker-b CVE 驅動",
+            "note_en": "ASUS firmware source not configured (needs worker-c-allow-firmware egress); urgency is driven by worker-b's CVE findings"}
 def run_rollback(to, approval_token=""):
     """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。需真機驗證。"""
     if not _zone_has("rollback"):
-        return {"ok": False, "note": "rollback 屬 zone C 職責", "zone": ZONE}
+        return {"ok": False, "note": "rollback 屬 zone C 職責", "note_en": "rollback is zone C's job", "zone": ZONE}
     if not approval_token:
-        return {"ok": False, "error": "高風險動作需 approval_token(人核准);見 worker-c-spec §5"}
+        return {"ok": False, "error": "高風險動作需 approval_token(人核准);見 worker-c-spec §5",
+                "error_en": "High-risk action needs an approval_token (human-approved); see worker-c-spec §5"}
     p = f"{BACKUP_DIR}/{to}.json"
     if not os.path.exists(p):
-        return {"ok": False, "error": "找不到備份 %s" % to}
+        return {"ok": False, "error": "找不到備份 %s" % to, "error_en": "Backup not found: %s" % to}
     try:
         bk = json.load(open(p, encoding="utf-8"))
         c = _ebg_client()
         c.apply("restart_all", list((bk.get("config") or {}).items()), wait=15)
         return {"ok": True, "restored_to": to, "keys": len(bk.get("config") or {}), "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     except Exception as e:
-        return {"ok": False, "error": "rollback 失敗(需真機):%s" % e}
+        return {"ok": False, "error": "rollback 失敗(需真機):%s" % e, "error_en": "Rollback failed (needs a real device): %s" % e}
 REVIEWS = []
 def run_review(kind, subject):
     """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層;記入 REVIEWS 供 console。"""
     if not _zone_has("review"):
-        return {"note": "review 屬 zone C(治理官)職責", "zone": ZONE}
+        return {"note": "review 屬 zone C(治理官)職責", "note_en": "review is the zone C (governance officer)'s job", "zone": ZONE}
     v = wi_review.review(kind, subject or {}, knowledge.baseline_conf("ebg19p"), knowledge.security_keys("ebg19p"))
     v = wi_review.annotate_redo(v, REVIEWS)   # 護欄:同 subject 重做計數;達上限 → escalate 真人
     REVIEWS.append({"ts": time.strftime("%H:%M:%S"), "kind": kind, "target": v.get("target"),
@@ -2508,7 +2534,7 @@ CURATIONS = []
 def run_skill_curate(op, name, text):
     """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹)→ 綁定判決;記入 CURATIONS 供 console。"""
     if not _zone_has("curate"):
-        return {"note": "skill 治理屬 zone C(治理官)職責", "zone": ZONE}
+        return {"note": "skill 治理屬 zone C(治理官)職責", "note_en": "skill governance is the zone C (governance officer)'s job", "zone": ZONE}
     v = wi_skills.curate(op, text or "", _load_skills(), name=name)
     CURATIONS.append({"ts": time.strftime("%H:%M:%S"), "op": v.get("op"), "name": v.get("name") or name,
                       "verdict": v.get("verdict"), "reason": (v.get("reasons") or [""])[0]})
@@ -2608,7 +2634,7 @@ def _a2a_run(skill, params):
     if skill in ("cert-scan", "cert"): return _single_flight("cert", run_cert_scan)
     if skill in ("source-scan", "source"):
         return _summarize_source_report_for_a2a(_single_flight("source", run_source_scan))
-    if skill in ("nuclei", "nuclei-scan"): return wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(POST /nuclei-scan 或排程觸發)"}
+    if skill in ("nuclei", "nuclei-scan"): return wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(POST /nuclei-scan 或排程觸發)", "note_en": "Not scanned yet (POST /nuclei-scan or wait for the schedule)"}
     if skill in ("syslog", "log-analysis"): return _single_flight("log-analysis", run_syslog_analysis)
     if skill in ("remediate", "fix") or skill in EBG_ACTIONS or skill in EBG_MULTI:
         bug = params.get("bug") or (skill if (skill in EBG_ACTIONS or skill in EBG_MULTI) else "")
@@ -2632,7 +2658,7 @@ class H(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok", "service": "worker-itops", "scenarios": list(EBG_ACTIONS) + list(EBG_MULTI),
                              "busy": BUSY["on"], "auth": bool(TOKEN), "jira": True, "cve": True, "source": True,
                              "design": True, "cert": True, "monitor": "baseline-compare", "managed": len(MANAGED),
-                             "zone": ZONE, "role": ZONE_ROLE.get(ZONE),
+                             "zone": ZONE, "role": ZONE_ROLE.get(ZONE), "role_en": ZONE_ROLE_EN.get(ZONE),
                              "caps": sorted(ZONE_CAPS.get(ZONE, [])), "periodic_cve_sec": CVE_INTERVAL, "a2a": True})
         elif self.path in ("/.well-known/agent-card.json", "/.well-known/agent.json"):
             self._send(200, wi_a2a.build_agent_card(ZONE, sorted(ZONE_CAPS.get(ZONE, [])), ZONE_ROLE.get(ZONE), PORT))   # A2A discovery (public)
@@ -2643,7 +2669,7 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/nuclei":   # worker-b nuclei 主動掃描最近結果
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
-            self._send(200, wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(schedule 或 POST /nuclei-scan 觸發)", "zone": ZONE})
+            self._send(200, wi_nuclei.LAST_NUCLEI or {"note": "尚未掃描(schedule 或 POST /nuclei-scan 觸發)", "note_en": "Not scanned yet (triggered by schedule or POST /nuclei-scan)", "zone": ZONE})
         elif self.path == "/flow":   # 最近的跨節點工作流事件(GUI Flow 視圖)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -2728,7 +2754,7 @@ class H(BaseHTTPRequestHandler):
         elif self.path == "/last":   # 最近一次修復結果(桌面顯示 / Hermes 追問用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
-            self._send(200, LAST or {"note": "尚無修復紀錄"})
+            self._send(200, LAST or {"note": "尚無修復紀錄", "note_en": "No remediation record yet"})
         else:
             self._send(404, {"error": "use POST /fix or GET /last|/jira|/cve|/monitor|/source-cve|/cert-scan"})
     def do_POST(self):
@@ -2768,7 +2794,9 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/backup":
                 return self._send(200, run_backup("api"))
             if self.path == "/firmware-apply":
-                return self._send(200, {"ok": False, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)", "approval_token": bool(b.get("approval_token"))})
+                return self._send(200, {"ok": False, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)",
+                                        "note_en": "Firmware apply needs an approval_token + firmware-source egress (see worker-c-spec §2/§7)",
+                                        "approval_token": bool(b.get("approval_token"))})
             if self.path == "/rollback":
                 return self._send(200, run_rollback(b.get("to", ""), b.get("approval_token", "")))
         if self.path == "/flow":   # flow 事件 ingest:team-lead 把「人→team-lead 收件 / 回報」記這(走既有 bridge,免新 egress)
@@ -2784,9 +2812,9 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             if not _zone_has("nuclei"):
-                return self._send(200, {"available": False, "note": "非資安節點"})
+                return self._send(200, {"available": False, "note": "非資安節點", "note_en": "Not a security node"})
             threading.Thread(target=lambda: (wi_flow.flow("team-lead", "nuclei-scan", "working"), wi_nuclei.run_nuclei_scan("api"), wi_flow.flow("team-lead", "nuclei-scan", "done")), daemon=True).start()
-            return self._send(200, {"accepted": True, "note": "nuclei 掃描已於背景啟動(讀 GET /nuclei 取結果)"})
+            return self._send(200, {"accepted": True, "note": "nuclei 掃描已於背景啟動(讀 GET /nuclei 取結果)", "note_en": "nuclei scan started in the background (read GET /nuclei for the result)"})
         if self.path == "/monitor-scan":   # 定期合規巡檢 + 對安全退化開 Jira(治理 egress);排程呼叫
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
@@ -2856,20 +2884,26 @@ class H(BaseHTTPRequestHandler):
             if g.get("verdict") == "block":
                 wi_flow.flow("human", "guardrail", "blocked", f"{g.get('category')}: {g.get('reason')} → 拒 {bug}", node="team-lead")
                 return self._send(403, {"accepted": False, "guardrail": g,
-                                        "error": f"守門攔截({g.get('category')}):{g.get('reason')} — 未執行 {bug}"})
+                                        "error": f"守門攔截({g.get('category')}):{g.get('reason')} — 未執行 {bug}",
+                                        "error_en": f"Blocked by guardrail ({g.get('category')}): {g.get('reason')} — {bug} not executed"})
         if BUSY["on"]:
-            return self._send(409, {"accepted": False, "error": "busy: 前一個修復還在跑,稍後再試或先 GET /last"})
+            return self._send(409, {"accepted": False, "error": "busy: 前一個修復還在跑,稍後再試或先 GET /last",
+                                    "error_en": "busy: a previous remediation is still running, try again shortly or GET /last"})
         # 真實 EBG19P 設定 remediation(device-aware;僅 zone A 有 cred)
         if bug in EBG_ACTIONS or bug in EBG_MULTI:
             if not _zone_has("fix"):
-                return self._send(400, {"accepted": False, "error": f"EBG19P remediation 屬運維節點 A 職責;本節點({ZONE})不做"})
+                return self._send(400, {"accepted": False, "error": f"EBG19P remediation 屬運維節點 A 職責;本節點({ZONE})不做",
+                                        "error_en": f"EBG19P remediation is the ops node (A)'s job; this node ({ZONE}) doesn't do it"})
             _desc = EBG_MULTI[bug]["desc"] if bug in EBG_MULTI else EBG_ACTIONS[bug][3]
+            _desc_en = EBG_MULTI[bug]["desc_en"] if bug in EBG_MULTI else EBG_ACTIONS[bug][4]
             wi_flow.flow("team-lead", bug, "working")
             threading.Thread(target=lambda b=bug: (run_ebg_remediate_bg(b), wi_flow.flow("team-lead", b, "done" if (LAST or {}).get("ok") else "fail")), daemon=True).start()
             return self._send(202, {"accepted": True, "bug": bug, "asset": "lab-asus-ebg19p-01",
-                                    "note": f"worker-a 已接手對 EBG19P 套用 {_desc}(約 30-60s)。完成後 GET /last。"})
+                                    "note": f"worker-a 已接手對 EBG19P 套用 {_desc}(約 30-60s)。完成後 GET /last。",
+                                    "note_en": f"worker-a has taken over applying {_desc_en} to EBG19P (~30-60s). GET /last when done."})
         # 只接受已知的真實 EBG19P remediation;未知一律拒絕(不對錯設備謊報成功)
-        return self._send(400, {"accepted": False, "error": f"未知修復類型 '{bug}'。支援:{list(EBG_ACTIONS) + list(EBG_MULTI)}"})
+        return self._send(400, {"accepted": False, "error": f"未知修復類型 '{bug}'。支援:{list(EBG_ACTIONS) + list(EBG_MULTI)}",
+                                "error_en": f"Unknown remediation type '{bug}'. Supported: {list(EBG_ACTIONS) + list(EBG_MULTI)}"})
     def log_message(self, *a):  # 安靜
         pass
 

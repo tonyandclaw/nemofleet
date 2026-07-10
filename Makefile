@@ -42,6 +42,9 @@ security-scan: ## scan THIS repo (not an upstream sync) with the same Semgrep ru
 	@bash scripts/fetch-semgrep-rules.sh
 	semgrep scan --config .cache/semgrep-rules --metrics=off .
 
+eval: ## run the fleet-competency eval harness (score + lessons sedimentation); needs a live boot
+	@bash eval/eval.sh
+
 clean: ## remove runtime junk (bus messages, logs, pycache) — keeps dirs
 	find data/bus -type f ! -name '.gitkeep' -delete 2>/dev/null || true
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true

@@ -14,7 +14,10 @@ def configure(zone):
 
 
 def flow(peer, task, status, detail="", node=None):
-    FLOW.append({"ts": time.strftime("%H:%M:%S"), "node": node or ("worker-" + _zone), "peer": peer,
+    # "sk" carries the date (unlike the display-only "ts") — the dashboard merges this ring with
+    # host-side events and sorts across day boundaries, where a bare HH:MM:SS wraps around badly.
+    FLOW.append({"ts": time.strftime("%H:%M:%S"), "sk": time.strftime("%Y%m%d%H%M%S"),
+                 "node": node or ("worker-" + _zone), "peer": peer,
                  "task": str(task)[:40], "status": status, "detail": str(detail)[:100]})
     del FLOW[:-60]
     return FLOW[-1]

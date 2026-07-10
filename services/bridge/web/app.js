@@ -506,6 +506,36 @@ const I18N = {
   '🛑 Freeze fleet': { en: '🛑 Freeze fleet', zh: '🛑 凍結全隊' },
   'Freezing': { en: 'Freezing', zh: '凍結中' },
   'Freeze the ENTIRE fleet? Every agent stops immediately. Reversible from here.': { en: 'Freeze the ENTIRE fleet? Every agent stops immediately. Reversible from here.', zh: '凍結整個艦隊?每個 agent 立即停止。可從此處恢復。' },
+  // ── nav labels missing an entry (always visible — high impact) ──
+  'Governance': { en: 'Governance', zh: '治理' },
+  'Audit': { en: 'Audit', zh: '稽核' },
+  'Fleet': { en: 'Fleet', zh: '機隊' },
+  'Flow': { en: 'Flow', zh: '工作流' },
+  'Admin': { en: 'Admin', zh: '系統管理' },
+  // ── Scorecard (AI self-scoring / competency trend) ──
+  'Scorecard': { en: 'Scorecard', zh: '計分板' },
+  'no runs yet': { en: 'no runs yet', zh: '尚無紀錄' },
+  'latest': { en: 'latest', zh: '最新一輪' },
+  'AI self-scoring · competency trend over time': { en: 'AI self-scoring · competency trend over time', zh: 'AI 自我評分 · 能力趨勢' },
+  'Competency trend': { en: 'Competency trend', zh: '能力趨勢' },
+  'pass rate per eval run · real tasks, rule-scored, no LLM judge': { en: 'pass rate per eval run · real tasks, rule-scored, no LLM judge', zh: '每輪 eval 的通過率 · 真實任務、規則評分、無 LLM 評審' },
+  'Run eval now': { en: 'Run eval now', zh: '立即跑 eval' },
+  'Latest run breakdown': { en: 'Latest run breakdown', zh: '最新一輪明細' },
+  'by role/category': { en: 'by role/category', zh: '依角色/類別' },
+  'No eval runs yet.': { en: 'No eval runs yet.', zh: '尚無 eval 紀錄。' },
+  'lessons still active': { en: 'lessons still active', zh: '仍待修正的教訓' },
+  'General': { en: 'General', zh: '一般' },
+  'Security': { en: 'Security', zh: '資安' },
+  'Ops': { en: 'Ops', zh: '維運' },
+  'Governance category': { en: 'Governance category', zh: '治理' },
+  'Run history': { en: 'Run history', zh: '執行歷史' },
+  'each row = one eval.py run (host-scheduled or manual)': { en: 'each row = one eval.py run (host-scheduled or manual)', zh: '每一列代表一次 eval.py 執行(排程或手動)' },
+  'No eval runs recorded yet.': { en: 'No eval runs recorded yet.', zh: '尚無 eval 執行紀錄。' },
+  'Time': { en: 'Time', zh: '時間' },
+  'Score': { en: 'Score', zh: '分數' },
+  'Recovered': { en: 'Recovered', zh: '已修復' },
+  'Lessons active': { en: 'Lessons active', zh: '待修正教訓' },
+  'No eval runs yet — trigger one to start the trend': { en: 'No eval runs yet — trigger one to start the trend', zh: '尚無 eval 紀錄 — 觸發一次以開始累積趨勢' },
 };
 function t(s) { if (s == null) return s; const e = I18N[s]; return e ? (e[LANG] || s) : s; }
 function setLang(l) { LANG = l; localStorage.setItem('nf-lang', l); dispatchEvent(new CustomEvent('nfui')); }
@@ -1385,6 +1415,68 @@ const ProactiveView = memo(function ProactiveView({ d }) {
     </div>
   </div>`;
 });
+const EvalChart = memo(function EvalChart({ history }) {
+  const ref = useRef(null), chart = useRef(null);
+  const data = history.map(r => r.n ? Math.round(100 * r.npass / r.n) : 0);
+  const empty = data.length === 0;
+  useEffect(() => {
+    if (empty) return;
+    const ctx = ref.current.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 190);
+    grad.addColorStop(0, 'rgba(57,135,229,0.34)'); grad.addColorStop(1, 'rgba(57,135,229,0.02)');
+    chart.current = new Chart(ctx, {
+      type: 'line',
+      data: { labels: history.map(r => (r.ts || '').split(' ')[0] || ''),
+        datasets: [{ label: 'Pass rate %', data, borderColor: SERIES.allowed, backgroundColor: grad, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 2, pointHoverRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, interaction: { mode: 'index', intersect: false },
+        scales: { x: { grid: { color: THEME === 'light' ? '#e4e8ee' : '#20242f', drawTicks: false }, ticks: { color: THEME === 'light' ? '#8b93a3' : '#5b6475', font: { family: 'ui-monospace', size: 10 }, maxRotation: 0, autoSkip: true } },
+          y: { min: 0, max: 100, grid: { color: THEME === 'light' ? '#e4e8ee' : '#20242f' }, ticks: { color: THEME === 'light' ? '#8b93a3' : '#5b6475', font: { family: 'ui-monospace', size: 10 }, maxTicksLimit: 4, callback: v => v + '%' } } },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'var(--inset)', borderColor: '#333949', borderWidth: 1, padding: 10, titleColor: '#9aa3b6', bodyColor: '#e7eaf2', displayColors: false } } },
+    });
+    return () => chart.current && chart.current.destroy();
+  }, [empty]);
+  useEffect(() => { if (chart.current) { chart.current.data.labels = history.map(r => (r.ts || '').split(' ')[0] || ''); chart.current.data.datasets[0].data = data; chart.current.update('none'); } }, [history]);
+  return html`<div class="chartbox">${empty ? html`<div class="chartempty">${t('No eval runs yet — trigger one to start the trend')}</div>` : null}<canvas ref=${ref} aria-label="Eval pass rate over time"></canvas></div>`;
+});
+const EVAL_CAT_LABEL = { general: 'General', security: 'Security', ops: 'Ops', governance: 'Governance category' };
+const EvalView = memo(function EvalView({ d }) {
+  const ev = d.eval || {}; const history = ev.history || []; const latest = ev.latest || {};
+  const rate = latest.n ? Math.round(100 * latest.npass / latest.n) : null;
+  const cats = Object.entries(latest.by_category || {});
+  const rows = history.slice().reverse();
+  return html`<div class="viewfade">
+    <div class="viewhd"><h2>${t('Scorecard')}</h2>
+      <span class=${'pill2 ' + (rate === null ? '' : rate === 100 ? 'g' : rate >= 70 ? 'w' : 'c')}>${rate === null ? t('no runs yet') : rate + '% ' + t('latest')}</span>
+      <span class="lbl">${t('AI self-scoring · competency trend over time')}</span></div>
+    <div class="grid">
+      <div class="col">
+        ${html`<${Panel} title="Competency trend" label="pass rate per eval run · real tasks, rule-scored, no LLM judge" right=${html`<${ActionBtn} act="run_eval" label="Run eval now" busyLabel="…" ghost=${true}/>`}>
+          <${EvalChart} history=${history}/>
+        </${Panel}>`}
+        ${html`<${Panel} title="Latest run breakdown" label="by role/category">
+          <div style=${{ display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
+            ${cats.length ? cats.map(([c, v]) => html`<div key=${c} style=${{ textAlign: 'center' }}>
+                <div style=${{ fontSize: '22px', fontWeight: 800, color: v.pass === v.n ? 'var(--ok)' : 'var(--crit)' }}>${v.pass}/${v.n}</div>
+                <div class="muted" style=${{ fontSize: '11px' }}>${t(EVAL_CAT_LABEL[c] || c)}</div></div>`)
+              : html`<div class="muted" style=${{ fontSize: '12px' }}>${t('No eval runs yet.')}</div>`}
+            ${latest.lessons_active != null ? html`<div style=${{ textAlign: 'center' }}><div style=${{ fontSize: '22px', fontWeight: 800, color: 'var(--ink2)' }}>${latest.lessons_active}</div><div class="muted" style=${{ fontSize: '11px' }}>${t('lessons still active')}</div></div>` : null}
+          </div>
+        </${Panel}>`}
+      </div>
+      <div class="col">
+        ${html`<${Panel} title="Run history" label="each row = one eval.py run (host-scheduled or manual)">
+          <${DataTable} rows=${rows} pageSize=${10} empty="No eval runs recorded yet."
+            cols=${[
+              { k: 'ts', label: 'Time', render: r => html`<span class="mono">${r.ts || ''}</span>` },
+              { k: 'score', label: 'Score', render: r => html`<span class="mono">${r.npass}/${r.n}</span>` },
+              { k: 'recovered', label: 'Recovered', align: 'right', render: r => r.recovered ? html`<span class="pill2 g">${r.recovered} 🔁</span>` : html`<span class="muted">–</span>` },
+              { k: 'lessons_active', label: 'Lessons active', align: 'right', render: r => html`<span class="mono">${r.lessons_active ?? 0}</span>` },
+            ]}/>
+        </${Panel}>`}
+      </div>
+    </div>
+  </div>`;
+});
 const FlowView = memo(function FlowView({ d }) {
   const flow = d.flow || [];
   const active = new Set(flow.filter(e => e.status === 'working').map(e => e.node));
@@ -1522,13 +1614,14 @@ const VIEWS = {
   proactive: { label: 'Proactive', comp: ProactiveView },
   changectrl: { label: 'Change ctrl', comp: ChangeCtrlView },
   audit: { label: 'Audit', comp: AuditView },
+  scorecard: { label: 'Scorecard', comp: EvalView },
   admin: { label: 'Admin', comp: AdminView },
   settings: { label: 'Settings', comp: SettingsView },
 };
 
 const NAV_GROUPS = [
   { key: 'monitor', items: ['overview', 'architecture', 'flow', 'fleet'] },
-  { key: 'govern', items: ['security', 'governance', 'changectrl', 'audit'] },
+  { key: 'govern', items: ['security', 'governance', 'changectrl', 'audit', 'scorecard'] },
   { key: 'system', items: ['proactive', 'admin', 'settings'] },
 ];
 const NAV_ICON = {
@@ -1541,6 +1634,7 @@ const NAV_ICON = {
   changectrl: '<circle cx="6.5" cy="6" r="2.3"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="17.5" cy="12" r="2.3"/><path d="M6.5 8.3v7.4M8.7 6H13a2.2 2.2 0 0 1 2.2 2.2v2"/>',
   proactive: '<circle cx="12" cy="12" r="1.8"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a10.5 10.5 0 0 0 0 13.2M18.6 5.4a10.5 10.5 0 0 1 0 13.2"/>',
   audit: '<rect x="4.5" y="3" width="15" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  scorecard: '<path d="M4 19V5M4 19h16M8 19v-6M12.5 19V8M17 19v-9"/>',
   admin: '<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20c0-3.5 3-5.8 6.5-5.8s6.5 2.3 6.5 5.8"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v3M12 17.5v3M4.5 12h3M16.5 12h3M6.2 6.2 8.3 8.3M15.7 15.7l2.1 2.1M17.8 6.2 15.7 8.3M8.3 15.7 6.2 17.8"/>',
 };

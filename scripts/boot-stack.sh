@@ -208,6 +208,12 @@ ensure_proactive() {  # team-lead 主動巡邏 loop(積極 agent:主動叫 worke
   setsid bash scripts/teamlead-proactive.sh >/tmp/teamlead-proactive.log 2>&1 </dev/null &
   ok "team-lead 主動巡邏已啟動(依 patrol_interval_sec 巡邏 + digest)"
 }
+ensure_eval_scheduler() {  # 定期跑 eval/eval.sh,累積 eval/ledgers/history.jsonl 給 dashboard 畫競爭力趨勢
+  [ -f scripts/eval-scheduler.sh ] || return 0
+  pgrep -f "scripts/eval-scheduler.sh" >/dev/null 2>&1 && { ok "eval 排程已在跑"; return 0; }
+  setsid bash scripts/eval-scheduler.sh >/tmp/eval-scheduler.log 2>&1 </dev/null &
+  ok "eval 排程已啟動(依 EVAL_INTERVAL_SEC 跑 eval + 沉澱教訓)"
+}
 dashboard_up() { curl -sk -m3 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$DASH_PORT/login" 2>/dev/null | grep -q 200 || curl -s -m3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DASH_PORT/login" 2>/dev/null | grep -q 200; }
 ensure_dashboard() {
   [ -f "$BRIDGE/agent-dashboard.py" ] || return 0
@@ -232,6 +238,7 @@ if port_up $GW_PORT && hermes_host; then
   ensure_dashboard
   ensure_ebg_stream
   ensure_proactive
+  ensure_eval_scheduler
   exit 0
 fi
 
@@ -327,6 +334,7 @@ ensure_xagent
 ensure_dashboard
 ensure_ebg_stream
 ensure_proactive
+ensure_eval_scheduler
 
 echo
 bash scripts/healthcheck.sh

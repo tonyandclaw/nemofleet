@@ -1,0 +1,5 @@
+{"ts": "2026-07-10 03:54:29", "npass": 8, "n": 11, "by_category": {"general": {"pass": 4, "n": 5}, "security": {"pass": 1, "n": 2}, "ops": {"pass": 1, "n": 2}, "governance": {"pass": 2, "n": 2}}, "recovered": 0, "lessons_active": 2}
+{"ts": "2026-07-10 04:24:17", "npass": 9, "n": 11, "by_category": {"general": {"pass": 4, "n": 5}, "security": {"pass": 1, "n": 2}, "ops": {"pass": 2, "n": 2}, "governance": {"pass": 2, "n": 2}}, "recovered": 2, "lessons_active": 1}
+{"ts": "2026-07-10 04:42:37", "npass": 10, "n": 11, "by_category": {"general": {"pass": 5, "n": 5}, "security": {"pass": 1, "n": 2}, "ops": {"pass": 2, "n": 2}, "governance": {"pass": 2, "n": 2}}, "recovered": 1, "lessons_active": 1}
+{"ts": "2026-07-10 09:54:28", "npass": 10, "n": 11, "by_category": {"general": {"pass": 4, "n": 5}, "security": {"pass": 2, "n": 2}, "ops": {"pass": 2, "n": 2}, "governance": {"pass": 2, "n": 2}}, "recovered": 1, "lessons_active": 1}
+{"ts": "2026-07-10 10:58:14", "npass": 10, "n": 11, "by_category": {"general": {"pass": 5, "n": 5}, "security": {"pass": 1, "n": 2}, "ops": {"pass": 2, "n": 2}, "governance": {"pass": 2, "n": 2}}, "recovered": 1, "lessons_active": 1}

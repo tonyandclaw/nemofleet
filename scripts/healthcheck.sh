@@ -52,5 +52,6 @@ if [ -n "${JIRA_URL:-}" ]; then
 else warn "JIRA_URL 未設定(.env;升級只在儀表板提醒)"; fi
 DC=$(curl -sk -o /dev/null -w '%{http_code}' -m5 "https://127.0.0.1:${DASHBOARD_PORT:-8899}/login" 2>/dev/null); [ "$DC" = 200 ] && ok "Agent Dashboard :${DASHBOARD_PORT:-8899}(https)" || warn "Agent Dashboard :${DASHBOARD_PORT:-8899} down(boot-stack 會拉起)"
 pgrep -f "scripts/teamlead-proactive.sh" >/dev/null 2>&1 && ok "team-lead 主動巡邏 loop(積極 agent)" || warn "team-lead 主動巡邏未跑(boot-stack 的 ensure_proactive 會拉起)"
+pgrep -f "scripts/eval-scheduler.sh" >/dev/null 2>&1 && ok "eval 自評排程 loop(競爭力趨勢)" || warn "eval 排程未跑(boot-stack 的 ensure_eval_scheduler 會拉起)"
 echo "  ﹒bus: inbox=$(ls "$BUS/inbox" 2>/dev/null|wc -l) outbox=$(ls "$BUS/outbox" 2>/dev/null|wc -l) xfer-leftovers=$(ls -d "$BUS"/skill-xfer-* 2>/dev/null|wc -l)"
 echo "  ﹒scripts=$(ls "$(dirname "$0")"/*.sh|wc -l) snapshots=$(nemoclaw team-lead snapshot list 2>/dev/null|grep -cE '^\s+v[0-9]')"

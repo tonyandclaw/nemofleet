@@ -8,6 +8,9 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 set -uo pipefail
 export PATH="${NEMOFLEET_NODE_BIN:-}:$PATH"
 DIR=$NEMOFLEET_ROOT
+# eval.py 呼叫 http://127.0.0.1:8642(team-lead 的 Hermes API),需要先有 host→sandbox 的 forward。
+# 冪等:已經 forward 過也能安全重跑(openshell 自己認得,不會重複開)。
+command -v openshell >/dev/null 2>&1 && openshell forward start --background 8642 team-lead >/dev/null 2>&1
 python3 "$DIR/eval/eval.py" "$@"; rc=$?
 if [ "${SEDIMENT:-1}" = "1" ]; then
   echo "---- 沉澱教訓進 Hermes + worker SKILL.md ----"

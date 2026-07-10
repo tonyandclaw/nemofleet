@@ -58,13 +58,16 @@ def run_nuclei_scan(trigger="api"):
     """worker-b 用 nuclei-templates 主動掃 EBG19P。高/嚴重命中 → 開真實 Jira(依 auto_escalate)。"""
     global LAST_NUCLEI
     if not _deps["zone_has"]("nuclei"):
-        return {"available": False, "note": "非資安節點(僅 zone B 跑 nuclei)", "zone": _deps["zone"]}
+        return {"available": False, "note": "非資安節點(僅 zone B 跑 nuclei)",
+                "note_en": "Not a security node (only zone B runs nuclei)", "zone": _deps["zone"]}
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     if not shutil.which("nuclei"):
-        LAST_NUCLEI = {"available": False, "note": "nuclei 未安裝於 worker-b 沙箱(OpenShell binaries policy 需允許 nuclei)", "ts": now}
+        LAST_NUCLEI = {"available": False, "note": "nuclei 未安裝於 worker-b 沙箱(OpenShell binaries policy 需允許 nuclei)",
+                       "note_en": "nuclei not installed in the worker-b sandbox (OpenShell binaries policy must allow nuclei)", "ts": now}
         return LAST_NUCLEI
     if not NUCLEI_TARGET:
-        LAST_NUCLEI = {"available": False, "note": "無掃描目標(boot 需 -e EBG19P_TARGET=<ip> 給 worker-b + 開 worker-b→裝置 egress)", "ts": now}
+        LAST_NUCLEI = {"available": False, "note": "無掃描目標(boot 需 -e EBG19P_TARGET=<ip> 給 worker-b + 開 worker-b→裝置 egress)",
+                       "note_en": "No scan target (boot needs -e EBG19P_TARGET=<ip> for worker-b + worker-b→device egress open)", "ts": now}
         return LAST_NUCLEI
     url = NUCLEI_TARGET if NUCLEI_TARGET.startswith("http") else "http://" + NUCLEI_TARGET
     settings = _deps["load_settings"]()
@@ -80,10 +83,11 @@ def run_nuclei_scan(trigger="api"):
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
     except subprocess.TimeoutExpired:
-        LAST_NUCLEI = {"available": True, "target": url, "note": "nuclei 逾時(600s)", "count": 0, "findings": [], "ts": now}
+        LAST_NUCLEI = {"available": True, "target": url, "note": "nuclei 逾時(600s)", "note_en": "nuclei timed out (600s)",
+                       "count": 0, "findings": [], "ts": now}
         return LAST_NUCLEI
     except Exception as e:
-        LAST_NUCLEI = {"available": False, "note": "nuclei 執行失敗:%s" % e, "ts": now}
+        LAST_NUCLEI = {"available": False, "note": "nuclei 執行失敗:%s" % e, "note_en": "nuclei execution failed: %s" % e, "ts": now}
         return LAST_NUCLEI
     findings = _parse_nuclei(p.stdout)
     counts = {}

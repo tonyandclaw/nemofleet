@@ -38,6 +38,10 @@ export const MOCK = {
   proactive_enabled: true, patrol: { enabled: true }, patrol_log: [],
   governance_c: { up: true, reviews: [], backups: [], backup_count: 0, firmware: {}, skills_count: 0, curations: [] },
   settings: {}, flow: [],
+  eval: { history: [
+      { ts: '2026-07-10 03:54:29', npass: 8, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 1, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 0, lessons_active: 2 },
+      { ts: '2026-07-10 04:24:17', npass: 9, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 2, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 2, lessons_active: 1 },
+    ], latest: { ts: '2026-07-10 04:24:17', npass: 9, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 2, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 2, lessons_active: 1 } },
 };
 
 // Boot a fresh App in jsdom at a given route + language; returns { window, root, text }.
@@ -61,7 +65,9 @@ export async function mount({ route = 'overview', lang = 'en', theme = 'dark', c
   window.Chart = function () { this.destroy = () => {}; this.update = () => {}; this.data = { datasets: [{}] }; };
 
   const apiSrc = read('api.js');
-  const normalize = apiSrc.slice(apiSrc.indexOf('function normalize'));
+  // normalize() calls the module-scoped _localize() (hoisted out so /api/action's {msg} can reuse
+  // it too) — slice from _localize, not normalize, or this silently drops it and every view blanks.
+  const normalize = apiSrc.slice(apiSrc.indexOf('function _localize'));
   const nf = `var NF = { status:()=>Promise.resolve(${JSON.stringify(MOCK)}),
     subscribe:(onData,onErr,iv)=>{ onData(${JSON.stringify(MOCK)}); return ()=>{}; },
     section:(n,p,s)=>Promise.resolve({rows:[],total:0,page:0,size:s||20}),
@@ -88,4 +94,9 @@ export async function mount({ route = 'overview', lang = 'en', theme = 'dark', c
   return { text: () => textStr, html: htmlStr };
 }
 
-export const VIEWS = ['overview', 'architecture', 'flow', 'fleet', 'security', 'governance', 'changectrl', 'audit', 'proactive', 'admin', 'settings'];
+// Derived from app.js's own `const VIEWS = { key: {...}, ... }` rather than hand-maintained here —
+// a hardcoded duplicate list is exactly how the 'scorecard' view shipped invisible to every i18n/
+// render check in this suite (added to app.js, never added to a second list nobody remembered).
+const _appSrc = read('app.js');
+const _viewsBlock = _appSrc.slice(_appSrc.indexOf('const VIEWS = {'), _appSrc.indexOf('const NAV_GROUPS'));
+export const VIEWS = [..._viewsBlock.matchAll(/^\s*(\w+):\s*\{ label:/gm)].map((m) => m[1]);

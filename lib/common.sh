@@ -19,6 +19,14 @@ export NEMOFLEET_ROOT DIR   # so child services (e.g. the dashboard) inherit the
 # ── load local overrides (untracked) ─────────────────────────────────────────
 [ -f "$NEMOFLEET_ROOT/.env" ] && . "$NEMOFLEET_ROOT/.env"
 
+# ── notify secrets (Telegram/SMTP/TEAMLEAD_EMAIL), kept outside the repo entirely ──
+# Same idea as the EBG19P_CRED convention below: real credentials never sit inside
+# the nemofleet checkout (even git-ignored), only under $HOME so a repo copy/backup/
+# reclone never carries them. Sourced last, so it overrides blank .env defaults.
+# See .env.example for the exact key names to put in this file.
+NOTIFY_ENV="${NOTIFY_ENV:-$HOME/.config/nemoclaw/nemofleet-notify.env}"
+[ -f "$NOTIFY_ENV" ] && . "$NOTIFY_ENV"
+
 # ensure HOME is set (autostart / systemd / cron contexts may not export it)
 [ -n "${HOME:-}" ] || HOME="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
 export HOME

@@ -5,14 +5,21 @@ async function _get(path) {
   const r = await fetch(path, { credentials: 'same-origin', headers: _J });
   if (r.status === 401) { location.href = '/login'; throw new Error('auth required'); }
   if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  // _localize (defined below, hoisted): one-off GET endpoints (audit, policy-get, policy-ro) never
+  // flow through normalize() the way /api/status does, so without this they'd show raw Chinese
+  // forever in English mode. Safe to double-localize /api/status too — _localize is idempotent
+  // (a second pass finds no _en siblings left and is a no-op).
+  return _localize(await r.json());
 }
 async function _post(path, body) {
   const opt = { method: 'POST', credentials: 'same-origin', headers: { ..._J } };
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   const r = await fetch(path, opt);
   if (r.status === 401) { location.href = '/login'; throw new Error('auth required'); }
-  try { return await r.json(); } catch { return { ok: r.ok }; }
+  // _localize (defined below, hoisted) swaps in `msg_en`/etc. siblings when present — action-style
+  // responses never flow through normalize(), so without this every action toast showed Chinese
+  // forever in English mode regardless of what the backend sent.
+  try { return _localize(await r.json()); } catch { return { ok: r.ok }; }
 }
 const qs = o => Object.entries(o).filter(([, v]) => v != null && v !== '').map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
 
@@ -56,26 +63,29 @@ const NF = {
 
 // normalize(raw) — map the raw /api/status payload into the view model. Defensive: every field
 // falls back so the console renders on partial/empty data. Adjust the reads here on backend drift.
-function normalize(d) {
-  // The backend prepares bilingual text as sibling fields (title/title_en, msg/msg_en, detail/detail_en,
-  // desc/desc_en, summary/summary_en, fix/fix_en, risk/risk_en, evidence/evidence_en, b/b_en, …) rather
-  // than localizing itself — walk the whole payload once and swap in the `_en` sibling when LANG is
-  // 'en', so every panel picks up the language switch instead of always showing the Chinese base field.
-  // Builds a fresh clone rather than mutating `v` in place — `d` is the cached poll payload, reused
-  // across renders, and a toggle back to 'zh' must still see the original Chinese, not a baked-in 'en'.
-  function _localize(v) {
-    if (Array.isArray(v)) return v.map(_localize);
-    if (v && typeof v === 'object') {
-      const out = {};
-      for (const k of Object.keys(v)) {
-        if (k.endsWith('_en')) continue;
-        const ek = k + '_en';
-        out[k] = _localize((LANG === 'en' && v[ek]) ? v[ek] : v[k]);
-      }
-      return out;
+// The backend prepares bilingual text as sibling fields (title/title_en, msg/msg_en, detail/detail_en,
+// desc/desc_en, summary/summary_en, fix/fix_en, risk/risk_en, evidence/evidence_en, b/b_en, …) rather
+// than localizing itself — walk the whole payload once and swap in the `_en` sibling when LANG is
+// 'en', so every panel picks up the language switch instead of always showing the Chinese base field.
+// Builds a fresh clone rather than mutating `v` in place — a cached poll payload is reused across
+// renders, and a toggle back to 'zh' must still see the original Chinese, not a baked-in 'en'.
+// Module-scoped (not just normalize()'s helper) so one-off responses like /api/action's `{msg}` —
+// which never flow through normalize() — can be localized the same way instead of showing raw
+// Chinese forever in English mode.
+function _localize(v) {
+  if (Array.isArray(v)) return v.map(_localize);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const k of Object.keys(v)) {
+      if (k.endsWith('_en')) continue;
+      const ek = k + '_en';
+      out[k] = _localize((LANG === 'en' && v[ek]) ? v[ek] : v[k]);
     }
-    return v;
+    return out;
   }
+  return v;
+}
+function normalize(d) {
   d = _localize(d || {});
   const gov = d.governance || d.gov || {};
   const num = (...xs) => { for (const x of xs) if (typeof x === 'number') return x; return 0; };
@@ -101,7 +111,7 @@ function normalize(d) {
       allowed: num(gov.allowed, d.allowed), denied: num(gov.denied, d.denied),
       benign: num(gov.benign, d.benign, gov.denied_benign, d.denied_benign),
       series_allowed: arr(gov.series_allowed, d.gov_series_allowed),
-      coverage: num(gov.coverage, d.coverage) || 99.8, events: arr(gov.events, d.timeline, d.events),
+      coverage: num(gov.coverage, d.coverage) || 99.8, events: arr(gov.events, d.events, d.timeline),
     },
     alerts: arr(d.alerts_list, d.alerts).map(a => (typeof a === 'string' ? { msg: a } : a)),
     devices: devices.length ? devices : [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', firmware: null, online: false, cpu: null, mem: null, temp: null }],   // 無設備資料 → 誠實顯示離線(不捏造 online telemetry)
@@ -122,5 +132,6 @@ function normalize(d) {
     flow: arr(d.flow),
     governance_c: d.governance_c || null,
     frozen: d.frozen || { frozen: false },
+    eval: d.eval || null,
   };
 }

@@ -18,7 +18,7 @@ SNAP="$DATA_DIR/proactive-snapshot.json"
 DIGEST_STAMP="$DATA_DIR/proactive-last-digest"
 TOKEN_FILE="$BRIDGE_TOKEN_FILE"
 NOTIFY_SENDER="${NOTIFY_SENDER:-tony@demo.local}"   # authorized sender that wakes team-lead's email turn
-log(){ printf '[proactive %s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
+log(){ printf '[proactive %s] %s\n' "$(date '+%H:%M:%S')" "$*" >&2; }  # stderr — patrol()'s stdout is captured as JSON by OUT=$(patrol)
 
 wk(){ # $1 = worker fragment, $2 = endpoint path → raw JSON (empty on failure)
   local c; c=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 "openshell-$1-") || true
@@ -30,25 +30,27 @@ wk(){ # $1 = worker fragment, $2 = endpoint path → raw JSON (empty on failure)
 # one patrol: gather → (hybrid) confirm-scan → diff snapshot → emit critical/routine/summary + new snapshot.
 # Python does the JSON diff and prints a single JSON control object on stdout.
 patrol(){
-  local MON JIRA LAST CVE CERT
+  local MON JIRA LAST CVE CERT FIRM REV
   MON=$(wk "$WORKERA_CT_NAME" /monitor)          # device status + regressions (worker-a self-scheduled)
   JIRA=$(wk "$WORKERA_CT_NAME" /jira)             # open escalation queue
   LAST=$(wk "$WORKERA_CT_NAME" /last)             # last remediation result
   CVE=$(wk "$WORKERB_CT_NAME" /cve)               # fleet CVE (worker-b self-scheduled)
   CERT=$(wk "$WORKERA_CT_NAME" /cert-scan 2>/dev/null || echo "")  # cert posture
+  FIRM=$(wk "$WORKERC_CT_NAME" /firmware 2>/dev/null || echo "")   # governance: firmware urgency
+  REV=$(wk "$WORKERC_CT_NAME" /reviews 2>/dev/null || echo "")     # governance: QA verdict log
   # hybrid: if worker-a is unreachable OR /monitor shows an offline/alert device, force a fresh scan once
   if [ -z "$MON" ] || printf '%s' "$MON" | grep -q '"status": *"\(ALERT\|offline\)"'; then
     log "anomaly/stale → forcing worker-a /monitor-scan (hybrid confirm)"
     wk "$WORKERA_CT_NAME" /monitor-scan >/dev/null 2>&1
     MON=$(wk "$WORKERA_CT_NAME" /monitor)
   fi
-  MON="$MON" JIRA="$JIRA" LAST="$LAST" CVE="$CVE" CERT="$CERT" SNAP="$SNAP" \
+  MON="$MON" JIRA="$JIRA" LAST="$LAST" CVE="$CVE" CERT="$CERT" FIRM="$FIRM" REV="$REV" SNAP="$SNAP" \
   DIGEST_STAMP="$DIGEST_STAMP" DIGEST_IV="$DIGEST_IV" python3 - <<'PY'
 import os, json, time
 def load(env):
     try: return json.loads(os.environ.get(env) or "{}")
     except Exception: return {}
-mon, jira, last, cve, cert = load("MON"), load("JIRA"), load("LAST"), load("CVE"), load("CERT")
+mon, jira, last, cve, cert, firm, rev = load("MON"), load("JIRA"), load("LAST"), load("CVE"), load("CERT"), load("FIRM"), load("REV")
 snap_path = os.environ["SNAP"]
 try: old = json.load(open(snap_path))
 except Exception: old = {}
@@ -60,16 +62,19 @@ for d in (mon.get("devices") or []):
         "status": d.get("status"), "regressions": sorted(d.get("regressions") or []),
         "cpu": d.get("cpu"), "offline": bool(d.get("offline")),
     }
+reviews = rev.get("reviews") or []
 cur = {
     "devices": devices,
     "jira_open": sorted([t.get("id") for t in (jira.get("tickets") or []) if t.get("id")]),
     "cve_affected": (cve.get("counts") or {}).get("affected", cve.get("affected")),
     "cert_high": (cert.get("counts") or {}).get("high"),
     "last_fix": {"bug": last.get("bug"), "ok": last.get("ok"), "asset": last.get("asset"), "ts": last.get("ts")},
-    "worker_a_up": bool(mon), "worker_b_up": bool(cve),
+    "worker_a_up": bool(mon), "worker_b_up": bool(cve), "worker_c_up": bool(firm) or bool(rev),
+    "firmware_urgency": firm.get("urgency"),
+    "review_ts": [r.get("ts") for r in reviews if r.get("ts")],
 }
 
-crit, routine = [], []
+crit, warn, routine = [], [], []
 od = old.get("devices") or {}
 for a, dv in devices.items():
     ov = od.get(a) or {}
@@ -92,16 +97,32 @@ if lf.get("ts") and lf.get("ts") != olf.get("ts"):
 new_tix = set(cur["jira_open"]) - set(old.get("jira_open") or [])
 for t in sorted(new_tix):
     crit.append(f"新開 Jira 工單 {t}")
-# CVE / cert deltas
-if cur["cve_affected"] is not None and cur["cve_affected"] != old.get("cve_affected"):
-    routine.append(f"CVE affected 數變化 {old.get('cve_affected')} → {cur['cve_affected']}")
-if cur["cert_high"] is not None and cur["cert_high"] != old.get("cert_high"):
-    routine.append(f"憑證高風險數變化 {old.get('cert_high')} → {cur['cert_high']}")
+# CVE / cert deltas — a worsening count is a warning (immediate), an improving count is routine (digest)
+old_cve, old_cert = old.get("cve_affected"), old.get("cert_high")
+if cur["cve_affected"] is not None and cur["cve_affected"] != old_cve:
+    msg = f"CVE affected 數變化 {old_cve} → {cur['cve_affected']}"
+    (warn if old_cve is not None and cur["cve_affected"] > old_cve else routine).append(msg)
+if cur["cert_high"] is not None and cur["cert_high"] != old_cert:
+    msg = f"憑證高風險數變化 {old_cert} → {cur['cert_high']}"
+    (warn if old_cert is not None and cur["cert_high"] > old_cert else routine).append(msg)
 # worker/endpoint down
-for w, up in (("worker-a", cur["worker_a_up"]), ("worker-b", cur["worker_b_up"])):
+for w, up in (("worker-a", cur["worker_a_up"]), ("worker-b", cur["worker_b_up"]), ("worker-c", cur["worker_c_up"])):
     was = old.get(w.replace("-", "_") + "_up", True)
     if was and not up:
         crit.append(f"{w} IT-ops 端點沒回應")
+# worker-c governance: firmware urgency escalation, new reject verdicts
+old_urgency, new_urgency = old.get("firmware_urgency"), cur["firmware_urgency"]
+_urg_rank = {"normal": 0, "low": 0, "medium": 1, "high": 2, "urgent": 3, "critical": 3}
+if new_urgency is not None and new_urgency != old_urgency:
+    msg = f"韌體緊急度變化 {old_urgency} → {new_urgency}"
+    (warn if _urg_rank.get(str(new_urgency).lower(), 0) > _urg_rank.get(str(old_urgency).lower(), 0) else routine).append(msg)
+new_review_ts = set(cur["review_ts"]) - set(old.get("review_ts") or [])
+if new_review_ts:
+    rejects = [r for r in reviews if r.get("ts") in new_review_ts and r.get("verdict") == "reject"]
+    if rejects:
+        warn.append(f"worker-c 覆核擋下 {len(rejects)} 筆(kind: {', '.join(sorted(set(r.get('kind','?') for r in rejects)))})")
+    if len(rejects) < len(new_review_ts):
+        routine.append(f"worker-c 新覆核 {len(new_review_ts) - len(rejects)} 筆通過")
 
 # digest cadence
 stampf = os.environ["DIGEST_STAMP"]; iv = int(os.environ.get("DIGEST_IV") or "3600")
@@ -116,7 +137,7 @@ for a, dv in devices.items():
 summary = ("機隊 %d 台;開單 %d;CVE affected %s;憑證高風險 %s\n" % (
     len(devices), len(cur["jira_open"]), cur["cve_affected"], cur["cert_high"])) + "\n".join(summary_lines)
 
-print(json.dumps({"critical": crit, "routine": routine, "digest_due": digest_due,
+print(json.dumps({"critical": crit, "warning": warn, "routine": routine, "digest_due": digest_due,
                   "summary": summary, "snapshot": cur}, ensure_ascii=False))
 PY
 }
@@ -173,24 +194,48 @@ run_cycle(){
   fi
   PATROL_INTERVAL=$PATROL_IV
 
-  local OUT; OUT=$(patrol) || { log "patrol 失敗"; return 0; }
-  local NCRIT NROUT DUE
+  local OUT; OUT=$(patrol) || {
+    log "patrol 失敗"
+    local now last_alert; now=$(date +%s)
+    last_alert=$(cat "$DATA_DIR/proactive-fail-last-alert" 2>/dev/null || echo 0)
+    if [ $((now - last_alert)) -ge 3600 ]; then
+      deterministic_alert "⚠️ NemoFleet patrol error" "巡邏排程本身執行失敗(worker 端點無回應或掃描腳本錯誤)。請檢查 team-lead 主機的 scripts/teamlead-proactive.sh 日誌;此告警每小時最多發一次,直到巡邏恢復正常。"
+      echo "$now" > "$DATA_DIR/proactive-fail-last-alert"
+    fi
+    return 0
+  }
+  rm -f "$DATA_DIR/proactive-fail-last-alert" 2>/dev/null || true
+  local NCRIT NWARN NROUT DUE
   NCRIT=$(printf '%s' "$OUT" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["critical"]))' 2>/dev/null || echo 0)
+  NWARN=$(printf '%s' "$OUT" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["warning"]))' 2>/dev/null || echo 0)
   NROUT=$(printf '%s' "$OUT" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["routine"]))' 2>/dev/null || echo 0)
   DUE=$(printf '%s' "$OUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["digest_due"])' 2>/dev/null || echo False)
-  log "patrol: critical=$NCRIT routine=$NROUT digest_due=$DUE"
+  log "patrol: critical=$NCRIT warning=$NWARN routine=$NROUT digest_due=$DUE"
 
   # persist snapshot for next diff
   printf '%s' "$OUT" | python3 -c 'import sys,json;json.dump(json.load(sys.stdin)["snapshot"],open(sys.argv[1],"w"),ensure_ascii=False)' "$SNAP" 2>/dev/null || true
 
-  # ① critical → immediate agentic alert
+  local IN_QUIET=0
+  [ "${SNOOZE_UNTIL:-0}" -gt "$(date +%s)" ] && IN_QUIET=1
+
+  # ① critical → immediate agentic alert + deterministic safety net
   if [ "${NCRIT:-0}" -gt 0 ]; then
     local BODY; BODY=$(printf '%s' "$OUT" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("關鍵變化:\n- "+"\n- ".join(d["critical"])+"\n\n現況:\n"+d["summary"])')
-    if [ "${SNOOZE_UNTIL:-0}" -gt "$(date +%s)" ]; then
+    if [ "$IN_QUIET" = 1 ]; then
       log "critical $NCRIT 筆,但在維護靜音期 → 不打斷(仍巡邏+記錄)"
     else
       [ "${SAFETY_NET:-True}" = "True" ] && deterministic_alert "⚠️ NemoFleet critical" "$BODY"   # 保證送達(不依賴 team-lead)
       wake_teamlead "即時告警" "$BODY"   # 加值:team-lead 自然語言
+    fi
+  fi
+  # ①b warning → same immediate treatment as critical, distinct label, no need to wait for the hourly digest
+  if [ "${NWARN:-0}" -gt 0 ]; then
+    local WBODY; WBODY=$(printf '%s' "$OUT" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("需留意的變化:\n- "+"\n- ".join(d["warning"])+"\n\n現況:\n"+d["summary"])')
+    if [ "$IN_QUIET" = 1 ]; then
+      log "warning $NWARN 筆,但在維護靜音期 → 不打斷(仍巡邏+記錄)"
+    else
+      [ "${SAFETY_NET:-True}" = "True" ] && deterministic_alert "🔔 NemoFleet warning" "$WBODY"   # 保證送達,不等 team-lead 的 LLM turn
+      wake_teamlead "警告" "$WBODY"
     fi
   fi
   # ② digest cadence → agentic status report (even if all-green: proactive "我巡過了,沒事")
@@ -201,21 +246,21 @@ run_cycle(){
   fi
 
   # record status + rolling log for dashboard visibility (/api/status → proactive)
-  OUT="$OUT" NCRIT="$NCRIT" NROUT="$NROUT" DUE="$DUE" SAFETY_NET="${SAFETY_NET:-True}" \
+  OUT="$OUT" NCRIT="$NCRIT" NWARN="$NWARN" NROUT="$NROUT" DUE="$DUE" SAFETY_NET="${SAFETY_NET:-True}" \
   PATROL_IV="$PATROL_IV" DIGEST_IV="$DIGEST_IV" SNOOZE_UNTIL="${SNOOZE_UNTIL:-0}" STATUS="$DATA_DIR/proactive-status.json" \
   PLOG="$DATA_DIR/proactive-log.jsonl" python3 - <<'PYREC' 2>/dev/null || true
 import os, json, time
 try: out = json.loads(os.environ["OUT"])
-except Exception: out = {"critical": [], "routine": [], "summary": ""}
-now = time.strftime("%Y-%m-%d %H:%M:%S"); nc = int(os.environ.get("NCRIT") or 0)
+except Exception: out = {"critical": [], "warning": [], "routine": [], "summary": ""}
+now = time.strftime("%Y-%m-%d %H:%M:%S"); nc = int(os.environ.get("NCRIT") or 0); nw = int(os.environ.get("NWARN") or 0)
 json.dump({"enabled": True, "patrol_interval_sec": int(os.environ.get("PATROL_IV") or 1200),
            "digest_interval_sec": int(os.environ.get("DIGEST_IV") or 3600),
            "safety_net": os.environ.get("SAFETY_NET") == "True", "last_patrol": now,
-           "last_critical": nc, "last_routine": int(os.environ.get("NROUT") or 0), "snooze_until": int(os.environ.get("SNOOZE_UNTIL") or 0),
+           "last_critical": nc, "last_warning": nw, "last_routine": int(os.environ.get("NROUT") or 0), "snooze_until": int(os.environ.get("SNOOZE_UNTIL") or 0),
            "summary": out.get("summary", "")}, open(os.environ["STATUS"], "w"), ensure_ascii=False)
-rec = {"ts": now, "critical": out.get("critical", []), "routine": out.get("routine", []),
+rec = {"ts": now, "critical": out.get("critical", []), "warning": out.get("warning", []), "routine": out.get("routine", []),
        "digest_sent": os.environ.get("DUE") == "True",
-       "safety_net_fired": nc > 0 and os.environ.get("SAFETY_NET") == "True"}
+       "safety_net_fired": (nc > 0 or nw > 0) and os.environ.get("SAFETY_NET") == "True"}
 try: lines = [l for l in open(os.environ["PLOG"]) if l.strip()][-49:]
 except Exception: lines = []
 lines.append(json.dumps(rec, ensure_ascii=False))
