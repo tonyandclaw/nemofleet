@@ -624,7 +624,9 @@ def _collect_impl():
     if _ps.get("last_patrol"):
         _t = _ps["last_patrol"].split(" ")[-1] if " " in _ps["last_patrol"] else _ps["last_patrol"]
         _flow.append({"ts": _t, "sk": _sk(_ps["last_patrol"]), "node": "team-lead", "peer": "human", "task": "patrol",
-                      "status": "done", "detail": "%s crit / %s routine" % (_ps.get("last_critical", 0), _ps.get("last_routine", 0))})
+                      "status": "done", "detail": "%s crit / %s routine%s" % (
+                          _ps.get("last_critical", 0), _ps.get("last_routine", 0),
+                          " (+look-around)" if _ps.get("last_lookaround") else "")})
     try:
         _eh = [json.loads(l) for l in open(f"{DIR}/eval/ledgers/history.jsonl", encoding="utf-8") if l.strip()]
         if _eh:

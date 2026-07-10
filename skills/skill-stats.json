@@ -1,16 +1,16 @@
 {
   "it-delegate-worker": {
-    "uses": 1,
-    "passes": 1,
-    "last_ts": "2026-07-10 18:17:32",
-    "success_rate": 1.0,
-    "sample_ok": false
+    "uses": 4,
+    "passes": 3,
+    "last_ts": "2026-07-10 19:11:30",
+    "success_rate": 0.75,
+    "sample_ok": true
   },
   "review-gate": {
-    "uses": 1,
-    "passes": 1,
-    "last_ts": "2026-07-10 18:17:32",
+    "uses": 4,
+    "passes": 4,
+    "last_ts": "2026-07-10 19:11:30",
     "success_rate": 1.0,
-    "sample_ok": false
+    "sample_ok": true
   }
 }

@@ -8,8 +8,19 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 #     ① drive worker scans (hybrid: read self-scheduled results; force a rescan on staleness/anomaly)
 #     ② detect fleet status / error DELTAS vs the last snapshot (device up↔down, remediation ok/fail,
 #        new Jira, new CVE / cert findings, worker endpoint down)
-#     ③ ALL-AGENTIC push: wake team-lead via its email channel so *it* composes + sends the report in
-#        its own voice (that turn has the send_message tool). Critical → immediate; routine → hourly digest.
+#     ③ ALL-AGENTIC push: call team-lead's own Hermes chat API (:8642, gateway-token auth — same
+#        mechanism as team-lead-console.sh's `chat` mode / eval.py) so *it* reasons over the state and
+#        composes the report in its own voice; the host then delivers that text via the already-verified
+#        Telegram Bot API. (2026-07-10: previously tried to "wake" team-lead through an email inbox it
+#        never actually polled — TEAMLEAD_EMAIL was unset and no email adapter exists in its Hermes
+#        config, so every wake silently failed and only the deterministic safety-net ever reached you.
+#        Delivery no longer depends on team-lead successfully invoking a tool — just on it returning text.)
+#        Critical → immediate; routine → hourly digest.
+#     ④ 自主巡查(look-around, 2026-07-10 新增):若這輪沒有 critical/warning/digest 觸發,team-lead 仍然
+#        每個 patrol_interval_sec 被喚醒一次 —— 但這次給的是完整現況 + 連續未解決問題(streak)+ 近期趨勢,
+#        且**非強制發送**:由 team-lead 自己判斷值不值得留意/查證/通知。沒有這一輪的話,patrol_interval_sec
+#        只等於「host script 又 diff 了一次」,team-lead 本身完全不會被叫醒 —— 這正是先前「設 5 分鐘卻像
+#        在發呆」的根因(舊版只在 critical/warning/hourly digest 才喚醒 team-lead)。
 #   Respects settings: proactive_enabled / patrol_interval_sec / digest_interval_sec / quiet hours /
 #   recipients / notify_channels (all live in the worker settings, editable from the dashboard).
 set -uo pipefail
@@ -17,7 +28,6 @@ DIR=$NEMOFLEET_ROOT
 SNAP="$DATA_DIR/proactive-snapshot.json"
 DIGEST_STAMP="$DATA_DIR/proactive-last-digest"
 TOKEN_FILE="$BRIDGE_TOKEN_FILE"
-NOTIFY_SENDER="${NOTIFY_SENDER:-tony@demo.local}"   # authorized sender that wakes team-lead's email turn
 log(){ printf '[proactive %s] %s\n' "$(date '+%H:%M:%S')" "$*" >&2; }  # stderr — patrol()'s stdout is captured as JSON by OUT=$(patrol)
 
 wk(){ # $1 = worker fragment, $2 = endpoint path → raw JSON (empty on failure)
@@ -73,6 +83,14 @@ cur = {
     "firmware_urgency": firm.get("urgency"),
     "review_ts": [r.get("ts") for r in reviews if r.get("ts")],
 }
+# streak: 連續幾輪巡邏這台設備都還是離線的(上面的 delta 只在 online→offline 那一瞬間觸發一次 crit;
+# 如果卡著離線好幾小時,舊版邏輯完全沒有新訊號 —— 這正是「看起來主動、其實在發呆」的另一個根因)。
+offline_streak = {}
+for a, dv in devices.items():
+    prev = (old.get("offline_streak") or {}).get(a, 0)
+    offline_streak[a] = (prev + 1) if dv["offline"] else 0
+cur["offline_streak"] = offline_streak
+stale = [f"{a} 已連續 {n} 輪巡邏仍離線,尚未解決" for a, n in offline_streak.items() if n >= 2]
 
 crit, warn, routine = [], [], []
 od = old.get("devices") or {}
@@ -141,21 +159,69 @@ summary_en = ("Fleet: %d device(s); open tickets %d; CVE affected %s; cert high-
     len(devices), len(cur["jira_open"]), cur["cve_affected"], cur["cert_high"])) + "\n".join(summary_lines_en)
 
 print(json.dumps({"critical": crit, "warning": warn, "routine": routine, "digest_due": digest_due,
+                  "stale": stale,
                   "summary": summary, "summary_en": summary_en, "snapshot": cur}, ensure_ascii=False))
 PY
 }
 
-# wake team-lead's email turn so IT composes + sends the report in its own voice (all-agentic).
-wake_teamlead(){ # $1 = kind (即時告警|巡邏日報), $2 = body context
-  local to="${TEAMLEAD_EMAIL:-}"
-  [ -n "$to" ] || { log "TEAMLEAD_EMAIL 未設,無法喚醒 team-lead(見 .env)"; return 1; }
-  local chat="${TELEGRAM_CHAT_ID:-<你的 chat id>}"
-  local prompt="你是主動巡邏的 team-lead。以下是我(巡邏排程)剛替你收集的機隊狀態與變化。請**務必實際呼叫你的 send_message 工具**,主動發 Telegram 給網管 chat id ${chat},用你自己的口吻總結:設備狀態、發生的錯誤、你叫 worker 掃到的結果、需不需要人動作;並回一封 email 摘要。不要只在回信說明,要真的呼叫工具發送。
+# 喚醒 team-lead:直接打它自己的 Hermes chat API 取得推理/文字(同 team-lead-console.sh 的 chat 模式 /
+# eval.py 用的機制:gateway-token 認證),host 再用已驗證可用的 Telegram Bot API 送出 —— 送達不依賴
+# team-lead 是否真的成功呼叫工具,只依賴它有沒有回文字。
+wake_teamlead(){ # $1 = kind (即時告警|警告|巡邏日報|自主巡查), $2 = body context
+  local chat="${TELEGRAM_CHAT_ID:-}"
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "$chat" ]; then
+    log "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID 未設,無法喚醒 team-lead(見 ~/.config/nemoclaw/nemofleet-notify.env)"
+    return 1
+  fi
+  command -v openshell >/dev/null 2>&1 && openshell forward start --background 8642 team-lead >/dev/null 2>&1
+  local gtok; gtok=$(nemoclaw team-lead gateway-token --quiet 2>/dev/null)
+  if [ -z "$gtok" ]; then log "拿不到 team-lead gateway token,無法喚醒(${1})"; return 1; fi
+
+  local instr
+  if [ "$1" = "自主巡查" ]; then
+    # 非強制發送:給 team-lead 真正的自主判斷回合,不是又一個門檻觸發的罐頭訊息。
+    instr="你是主動巡邏的 team-lead,這是你自己的自主巡查回合(不是被 critical/warning 門檻觸發,是每輪
+patrol_interval_sec 都給你的「看一眼」機會)。以下是目前機隊完整現況、連續未解決的問題、和近期巡邏趨勢。
+
+像真的在值班的人一樣自己判斷:如果有什麼值得留意(例如某個問題卡了好幾輪都沒解決、有異常趨勢、該主動跟催),
+就直接回覆要發給網管的 Telegram 訊息內容本身(純文字,不要加引號或任何額外說明,你的回覆會被原封不動發出去)。
+如果看過之後一切正常、沒有新資訊,不用勉強發送——只回覆英文單字 NOTHING(整個回覆只有這個字),不要輸出其他任何文字。"
+  else
+    instr="你是主動巡邏的 team-lead。以下是我(巡邏排程)剛替你收集的機隊狀態與變化。請用你自己的口吻總結:
+設備狀態、發生的錯誤、你叫 worker 掃到的結果、需不需要人動作。直接回覆要發給網管的 Telegram 訊息內容本身
+(純文字,不要加引號或任何額外說明、不要重複這段指示——你的回覆會被原封不動發出去給網管)。"
+  fi
+  local prompt="${instr}
 
 【${1}】
 ${2}"
-  bash "$MAIL_DIR/send-mail-as.sh" "$NOTIFY_SENDER" "NemoFleet 主動巡邏 · ${1}" "$prompt" >/dev/null 2>&1 \
-    && log "已喚醒 team-lead 發送(${1})" || log "喚醒 team-lead 失敗(mail?)"
+
+  local content; content=$(GTOK="$gtok" PROMPT="$prompt" python3 -c '
+import os, json, urllib.request
+token = os.environ["GTOK"]; prompt = os.environ["PROMPT"]
+body = json.dumps({"model": "nemotron-super", "stream": False, "max_tokens": 500,
+                   "messages": [{"role": "user", "content": prompt}]}).encode()
+req = urllib.request.Request("http://127.0.0.1:8642/v1/chat/completions", data=body,
+                             headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
+try:
+    with urllib.request.urlopen(req, timeout=240) as r:
+        d = json.loads(r.read())
+    print((d["choices"][0]["message"].get("content") or "").strip())
+except Exception as e:
+    print("__ERR__ " + str(e))
+' 2>/dev/null)
+
+  if [ -z "$content" ]; then log "喚醒 team-lead 失敗(Hermes 無回應,${1})"; return 1; fi
+  case "$content" in
+    __ERR__*) log "喚醒 team-lead 失敗(${content#__ERR__ },${1})"; return 1 ;;
+  esac
+  if [ "$1" = "自主巡查" ] && printf '%s' "$content" | grep -qix 'NOTHING'; then
+    log "自主巡查:team-lead 判斷無需通知(靜默)"
+    return 0
+  fi
+  curl -s -m10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=$chat" --data-urlencode "text=$content" >/dev/null 2>&1 \
+    && log "team-lead 已回覆並送出 Telegram(${1})" || log "team-lead 已回覆但 Telegram 送出失敗(${1})"
 }
 
 # 確定性安全網:critical 保證送達 recipients,不依賴 team-lead / agentic 路徑。
@@ -220,6 +286,7 @@ run_cycle(){
 
   local IN_QUIET=0
   [ "${SNOOZE_UNTIL:-0}" -gt "$(date +%s)" ] && IN_QUIET=1
+  local ANY_WAKE=0
 
   # ① critical → immediate agentic alert + deterministic safety net
   if [ "${NCRIT:-0}" -gt 0 ]; then
@@ -229,6 +296,7 @@ run_cycle(){
     else
       [ "${SAFETY_NET:-True}" = "True" ] && deterministic_alert "⚠️ NemoFleet critical" "$BODY"   # 保證送達(不依賴 team-lead)
       wake_teamlead "即時告警" "$BODY"   # 加值:team-lead 自然語言
+      ANY_WAKE=1
     fi
   fi
   # ①b warning → same immediate treatment as critical, distinct label, no need to wait for the hourly digest
@@ -239,6 +307,7 @@ run_cycle(){
     else
       [ "${SAFETY_NET:-True}" = "True" ] && deterministic_alert "🔔 NemoFleet warning" "$WBODY"   # 保證送達,不等 team-lead 的 LLM turn
       wake_teamlead "警告" "$WBODY"
+      ANY_WAKE=1
     fi
   fi
   # ② digest cadence → agentic status report (even if all-green: proactive "我巡過了,沒事")
@@ -246,23 +315,55 @@ run_cycle(){
     local BODY; BODY=$(printf '%s' "$OUT" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["summary"]+("\n\n本輪變化:\n- "+"\n- ".join(d["routine"]) if d["routine"] else "\n\n本輪無新變化,一切正常。"))')
     wake_teamlead "巡邏日報" "$BODY"
     date +%s > "$DIGEST_STAMP"
+    ANY_WAKE=1
+  fi
+  # ④ 自主巡查:這輪沒有 critical/warning/digest → team-lead 仍然真的被叫醒一次,拿到完整現況 + 連續未
+  # 解決問題(stale)+ 近期趨勢,自己判斷值不值得動作。這是讓 patrol_interval_sec 對應到「team-lead 真的
+  # 想了一次」,不只是「host script 又 diff 了一次」。
+  local LOOKAROUND_SENT=0
+  if [ "$ANY_WAKE" -eq 0 ] && [ "$IN_QUIET" -eq 0 ]; then
+    local TREND; TREND=$(tail -n 5 "$DATA_DIR/proactive-log.jsonl" 2>/dev/null | python3 -c 'import sys,json
+for l in sys.stdin:
+    l = l.strip()
+    if not l: continue
+    try: r = json.loads(l)
+    except Exception: continue
+    print(f"- {r.get(\"ts\")}: critical {len(r.get(\"critical\") or [])}、warning {len(r.get(\"warning\") or [])}、routine {len(r.get(\"routine\") or [])}")' 2>/dev/null)
+    [ -n "$TREND" ] || TREND="(無歷史紀錄,可能是第一輪)"
+    local LBODY; LBODY=$(printf '%s' "$OUT" | STALE_TREND="$TREND" python3 -c 'import sys,json,os
+d=json.load(sys.stdin)
+stale = d.get("stale") or []
+parts = [d["summary"]]
+if stale:
+    parts.append("連續未解決:\n- " + "\n- ".join(stale))
+else:
+    parts.append("目前沒有連續未解決的項目。")
+parts.append("近期巡邏趨勢(最近 5 輪):\n" + os.environ.get("STALE_TREND",""))
+print("\n\n".join(parts))')
+    wake_teamlead "自主巡查" "$LBODY"
+    LOOKAROUND_SENT=1
+  elif [ "$ANY_WAKE" -eq 0 ] && [ "$IN_QUIET" -eq 1 ]; then
+    log "無 critical/warning/digest,但在維護靜音期 → 自主巡查也不打斷"
   fi
 
   # record status + rolling log for dashboard visibility (/api/status → proactive)
   OUT="$OUT" NCRIT="$NCRIT" NWARN="$NWARN" NROUT="$NROUT" DUE="$DUE" SAFETY_NET="${SAFETY_NET:-True}" \
   PATROL_IV="$PATROL_IV" DIGEST_IV="$DIGEST_IV" SNOOZE_UNTIL="${SNOOZE_UNTIL:-0}" STATUS="$DATA_DIR/proactive-status.json" \
-  PLOG="$DATA_DIR/proactive-log.jsonl" python3 - <<'PYREC' 2>/dev/null || true
+  LOOKAROUND_SENT="$LOOKAROUND_SENT" PLOG="$DATA_DIR/proactive-log.jsonl" python3 - <<'PYREC' 2>/dev/null || true
 import os, json, time
 try: out = json.loads(os.environ["OUT"])
-except Exception: out = {"critical": [], "warning": [], "routine": [], "summary": "", "summary_en": ""}
+except Exception: out = {"critical": [], "warning": [], "routine": [], "stale": [], "summary": "", "summary_en": ""}
 now = time.strftime("%Y-%m-%d %H:%M:%S"); nc = int(os.environ.get("NCRIT") or 0); nw = int(os.environ.get("NWARN") or 0)
+lookaround = os.environ.get("LOOKAROUND_SENT") == "1"
 json.dump({"enabled": True, "patrol_interval_sec": int(os.environ.get("PATROL_IV") or 1200),
            "digest_interval_sec": int(os.environ.get("DIGEST_IV") or 3600),
            "safety_net": os.environ.get("SAFETY_NET") == "True", "last_patrol": now,
            "last_critical": nc, "last_warning": nw, "last_routine": int(os.environ.get("NROUT") or 0), "snooze_until": int(os.environ.get("SNOOZE_UNTIL") or 0),
+           "last_lookaround": lookaround, "stale": out.get("stale", []),
            "summary": out.get("summary", ""), "summary_en": out.get("summary_en", "")}, open(os.environ["STATUS"], "w"), ensure_ascii=False)
 rec = {"ts": now, "critical": out.get("critical", []), "warning": out.get("warning", []), "routine": out.get("routine", []),
-       "digest_sent": os.environ.get("DUE") == "True",
+       "stale": out.get("stale", []),
+       "digest_sent": os.environ.get("DUE") == "True", "lookaround_sent": lookaround,
        "safety_net_fired": (nc > 0 or nw > 0) and os.environ.get("SAFETY_NET") == "True"}
 try: lines = [l for l in open(os.environ["PLOG"]) if l.strip()][-49:]
 except Exception: lines = []
