@@ -4,6 +4,28 @@ A policy-governed **team-lead + workers** fleet for ASUS network-device IT opera
 All nodes run the **Hermes** harness on **local NVIDIA NIM — Nemotron 3 Super 120B**. Governance is
 **code, not prompts**: every cross-node and egress action passes OPA / L7 policy.
 
+## 架構 (architecture)
+
+```
+  人 ──需求(Telegram/Email)──►  team-lead(對人前台·協調·自我進化·主動巡邏)
+       ◄────────結果回報────────    │  scoped worker_bridge policy(/32 + token)· :9099 IT-ops(+ A2A)
+                                      ├─► worker-a · 運維  ──唯讀巡檢 / nvram apply──► [ASUS EBG19P]
+                                      │     monitor / drift / cert          修不了·需人審 ──► 真實 Jira
+                                      ├─► worker-b · 資安
+                                      │     CVE / SBOM / SAST / syslog
+                                      └─► worker-c · 治理  ──backup / rollback──► [ASUS EBG19P]
+                                            review(QA 閘,a/b reject→重做)/ SkillOS curation
+  四節點都是 Hermes harness · 都在本地 NIM(Nemotron 3 Super 120B)推理 · 各自獨立 OpenShell 沙箱
+  拓撲為 hub-and-spoke —— worker 之間不互通,監督/委派一律經 team-lead 仲裁
+  ┌── harness 治理 ──┐  OpenShell policy.yaml(egress / binaries / host)
+  │  誰能做什麼 / 去哪 │  + nemoclaw strategy(model / route / policy tier) → log ALLOWED/DENIED(code, not prompt)
+  └────────────────────┘
+```
+
+四節點角色一句話:**team-lead** 對人前台 + 協調;**worker-a** 運維(drift/cert/remediation);
+**worker-b** 資安(CVE/SBOM/SAST/syslog);**worker-c** 治理(backup/rollback + QA 審查閘 + SkillOS curation)。
+完整 mermaid 圖 + 各節點細節見 [`docs/design/architecture.md`](docs/design/architecture.md)。
+
 ## 四節點分工 (the fleet)
 
 | Node | Role |
@@ -63,13 +85,14 @@ Web status board: <http://127.0.0.1:8899> (auto-started by boot-stack, 5 s refre
 
 ## 推理:本地 NIM (inference)
 
-All three nodes route inference to a **local NVIDIA NIM** OpenAI-compatible endpoint.
+All four nodes route inference to a **local NVIDIA NIM** OpenAI-compatible endpoint.
 Point `.env` at your NIM (`INFER_ENDPOINT`, `INFER_MODEL`), then set it into each sandbox:
 
 ```bash
 nemoclaw inference set --provider nim --model "$INFER_MODEL" --sandbox team-lead
 nemoclaw inference set --provider nim --model "$INFER_MODEL" --sandbox worker-a
 nemoclaw inference set --provider nim --model "$INFER_MODEL" --sandbox worker-b
+nemoclaw inference set --provider nim --model "$INFER_MODEL" --sandbox worker-c
 ```
 
 > A NIM container needs a GPU. On CPU-only hosts nemotron is impractically slow
