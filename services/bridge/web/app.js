@@ -1659,7 +1659,7 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
   const nim = { cx, y: 880, w: 460, h: 88 };
   const WORKERS = [['ops', wa, 'var(--s-aqua)', wUp('ops')], ['sec', wb, 'var(--s-violet)', wUp('sec')], ['gov', wc, 'var(--s-yellow)', wUp('gov')]];
 
-  const busY = 650, nimTapY = 800;
+  const busY = 650;
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Architecture')}</h2><span class="lbl">${t('Nemoclaw × OpenShell × Hermes · governed 4-node fleet')}</span></div>
     <${Panel} title=${t('Topology')} label=${t('human at the apex · hub-and-spoke')}>
       <div class="diagram-scroll">
@@ -1684,10 +1684,9 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
           ${[dev, ext, jira].map((w, i) => html`<${Wire} key=${'be-' + i} d=${`M ${w.cx} ${busY} L ${w.cx} ${w.y}`} color="var(--ink3)" w=${1.6} opacity=${.7}/>`)}
           <${Badge} x=${cx} y=${busY - 14} text=${t('scoped egress · L7 deny-by-default')}/>
 
-          <${Wire} d=${elbow(lead.cx + lead.w / 2 + 4, lead.y + lead.h / 2, nim.cx - 2, nimTapY, (lead.y + lead.h / 2 + nimTapY) / 2, 14)} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85}/>
-          ${WORKERS.map(([tag, w]) => html`<${Wire} key=${'wn-' + tag} d=${elbow(w.cx, w.y + w.h, w === wb ? nim.cx + 2 : nim.cx, nimTapY, (w.y + w.h + nimTapY) / 2, 14)} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85}/>`)}
-          <${Wire} d=${`M ${nim.cx} ${nimTapY} L ${nim.cx} ${nim.y}`} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85} arrow=${false}/>
-          <${Badge} x=${cx + 170} y=${nimTapY - 12} text=${t('all nodes route here')}/>
+          ${[['wa', wa.cx, wa.y + wa.h, 350], ['wb', wb.cx, wb.y + wb.h, 460], ['lead', lead.cx + lead.w / 2 + 4, lead.y + lead.h / 2, 620], ['wc', wc.cx, wc.y + wc.h, 730]]
+            .map(([k, x1, y1, laneX]) => html`<${Wire} key=${'nim-' + k} d=${elbow(x1, y1, laneX, nim.y, (y1 + nim.y) / 2)} color="var(--s-yellow)" w=${1.6} dash="3 5" opacity=${.85}/>`)}
+          <${Badge} x=${cx + 170} y=${nim.y - 40} text=${t('all nodes route here')}/>
 
           <${TopoTile} x=${human.cx} y=${human.y} w=${human.w} h=${human.h} cls="human" icon="human" label=${t('Human')} sub="Telegram · Email"/>
           <${TopoTile} x=${guard.cx} y=${guard.y} w=${guard.w} h=${guard.h} cls="guardrail" icon="shield" label=${t('Guardrail')} sub=${t('screens every request')}/>
