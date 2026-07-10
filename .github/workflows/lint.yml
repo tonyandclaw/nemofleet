@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # jsdom (tests/ui) requires Node ^20.19 || ^22.13 || >=24 — pin explicitly rather than trust
+      # whatever the runner image's ambient default happens to be (that's what broke the first run).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - run: make lint
       - run: make test
       - run: make itest
