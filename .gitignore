@@ -8,6 +8,9 @@
 *.p12
 *.cred
 **/.bridge-token
+**/.bridge-token.prev
+**/.approval-token
+**/.approval-token.prev
 **/.nvd-api-key
 services/bridge/dash-users.json
 services/bridge/dash-auth.json

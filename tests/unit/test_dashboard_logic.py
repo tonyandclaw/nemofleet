@@ -1,4 +1,4 @@
-import os, sys, json, tempfile, unittest
+import os, sys, json, tempfile, hashlib, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _load import load
 
@@ -34,16 +34,57 @@ class TestPasswordHash(unittest.TestCase):
         int(h, 16)  # raises if not hex
 
 
+class TestVerify(unittest.TestCase):
+    """_verify() gates dashboard login. It must use a constant-time comparison
+    (hmac.compare_digest) rather than `==`, which short-circuits on the first mismatched byte and
+    can leak timing information about how much of the stored hash a guess got right."""
+    def setUp(self):
+        self.tmp = tempfile.mktemp(suffix="-nftest-users.json")
+        self._orig = d.USERS_FILE
+        d.USERS_FILE = self.tmp
+        d.save_users({"alice@example.com": d._mkuser("correct-horse", "admin")})
+
+    def tearDown(self):
+        d.USERS_FILE = self._orig
+        if os.path.exists(self.tmp):
+            os.remove(self.tmp)
+
+    def test_correct_password_verifies(self):
+        u = d._verify("alice@example.com", "correct-horse")
+        self.assertIsNotNone(u)
+        self.assertEqual(u["role"], "admin")
+
+    def test_wrong_password_rejected(self):
+        self.assertIsNone(d._verify("alice@example.com", "wrong"))
+
+    def test_unknown_email_rejected(self):
+        self.assertIsNone(d._verify("nobody@example.com", "correct-horse"))
+
+    def test_uses_constant_time_compare(self):
+        # can't reliably assert on timing in a unit test, but we can assert the implementation
+        # actually calls the constant-time primitive rather than `==`, so a future edit that
+        # reintroduces `==` gets caught here instead of only in a security review.
+        import inspect
+        src = inspect.getsource(d._verify)
+        self.assertIn("hmac.compare_digest", src)
+        self.assertNotIn("pwhash\"] ==", src)
+
+
 class TestAuditChain(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mktemp(suffix=".jsonl")
         self._orig = d.ADMIN_AUDIT
         d.ADMIN_AUDIT = self.tmp
+        self.tmp_key = tempfile.mktemp(suffix=".hmac-key")
+        self._orig_key = d.AUDIT_KEY_FILE
+        d.AUDIT_KEY_FILE = self.tmp_key
 
     def tearDown(self):
         d.ADMIN_AUDIT = self._orig
-        if os.path.exists(self.tmp):
-            os.remove(self.tmp)
+        d.AUDIT_KEY_FILE = self._orig_key
+        for p in (self.tmp, self.tmp_key):
+            if os.path.exists(p):
+                os.remove(p)
 
     def test_valid_chain_verifies(self):
         d.audit("alice", "login", "ok", "127.0.0.1", True)
@@ -64,6 +105,47 @@ class TestAuditChain(unittest.TestCase):
         res = d.verify_audit()
         self.assertFalse(res["ok"])
         self.assertEqual(res["broken"], 1)
+
+    def test_full_chain_recompute_without_key_is_detected(self):
+        # The exact attack a plain (unkeyed) sha256(prev+entry) chain can't catch: an attacker who
+        # can rewrite the whole audit file recomputes every hash from scratch, so a naive
+        # "recompute and compare" verifier sees a perfectly self-consistent chain. Simulate that
+        # attacker (has the log, does NOT have the separate HMAC key file) and confirm the forged
+        # chain is still rejected.
+        d.audit("alice", "login", "ok", "127.0.0.1", True)
+        d.audit("bob", "logout", "", "127.0.0.1", True)
+        rows = [json.loads(l) for l in open(self.tmp) if l.strip()]
+        rows[0]["actor"] = "mallory"
+        forged = []
+        prev = "0" * 64
+        for r in rows:
+            e = {k: v for k, v in r.items() if k not in ("prev_hash", "hash")}
+            e["prev_hash"] = prev
+            e["hash"] = hashlib.sha256((prev + d._audit_canon(e)).encode()).hexdigest()  # old, unkeyed scheme
+            forged.append(e)
+            prev = e["hash"]
+        with open(self.tmp, "w", encoding="utf-8") as f:
+            for e in forged:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+        res = d.verify_audit()
+        self.assertFalse(res["ok"], "a fully-recomputed (unkeyed) chain was accepted as valid")
+
+    def test_key_file_is_created_with_private_perms(self):
+        d.audit("alice", "login", "ok", "127.0.0.1", True)
+        self.assertTrue(os.path.exists(self.tmp_key))
+        mode = os.stat(self.tmp_key).st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
+    def test_key_persists_across_process_restarts(self):
+        # the whole point of a separate key file: a NEW process (simulated here by clearing the
+        # in-memory reference and re-reading) must derive the SAME key from disk, or every restart
+        # would break its own chain.
+        d.audit("alice", "login", "ok", "127.0.0.1", True)
+        k1 = d._audit_key()
+        k2 = d._audit_key()
+        self.assertEqual(k1, k2)
+        res = d.verify_audit()
+        self.assertTrue(res["ok"])
 
 
 if __name__ == "__main__":

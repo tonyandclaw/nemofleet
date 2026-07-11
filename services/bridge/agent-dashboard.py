@@ -3,7 +3,7 @@
 # http://127.0.0.1:8899 → 整個 agent stack 活狀態 + 可操作控制 + 即時事件流/趨勢/告警/巡檢歷史。
 # 渲染:側欄 menu + hash 路由分頁;分區 memo(內容沒變不重繪→無閃爍)。唯讀為主、每 call timeout、整體快取 ~8s、單項失敗降級。
 # X-Bridge-Token 只 server 端用,不入 HTML/JSON。POST /api/action?do=cve|source|refresh(localhost only)。
-import json, os, re, shlex, subprocess, threading, time, hashlib, secrets
+import json, os, re, shlex, subprocess, threading, time, hashlib, hmac, secrets
 from http.cookies import SimpleCookie
 try:
     import ipaddress
@@ -107,7 +107,7 @@ def _ip_ok(ip):
     return False
 def _verify(email, pw):
     u = load_users().get((email or "").strip().lower())
-    return u if (u and _pwhash(pw, u["salt"]) == u["pwhash"]) else None
+    return u if (u and hmac.compare_digest(_pwhash(pw, u["salt"]), u["pwhash"])) else None
 def _gc_sessions():
     to = load_auth().get("timeout_min", 30) * 60; now = time.time()
     if to <= 0: return   # 0 = 無限制(不逾時)
@@ -1441,11 +1441,46 @@ def do_device_action(do):
 
 
 ADMIN_AUDIT = os.environ.get("DASH_AUDIT_FILE") or os.path.expanduser("~/.config/nemoclaw/admin-audit.jsonl")
+# HMAC key for the audit chain, kept in its OWN file (not the audit log itself, not derivable from
+# it) — a plain sha256(prev+entry) chain (the old scheme) only proves "nobody tampered with a
+# single entry in place"; anyone who can rewrite admin-audit.jsonl can also just recompute the
+# whole chain from scratch and verify_audit() would never notice. Keying the hash with a secret
+# the attacker doesn't get "for free" alongside the log (e.g. via a separate arbitrary-file-write
+# bug that only targets ADMIN_AUDIT) closes that gap — it can't defend against a full same-user
+# shell/root compromise (nothing file-permission-based can), but that's a materially different,
+# much higher bar than "can overwrite this one file's bytes".
+AUDIT_KEY_FILE = os.environ.get("DASH_AUDIT_KEY_FILE") or os.path.expanduser("~/.config/nemoclaw/admin-audit.hmac-key")
 _AUDIT_LOCK = threading.Lock()
+def _audit_key():
+    try:
+        with open(AUDIT_KEY_FILE, "rb") as f:
+            k = f.read().strip()
+        if k:
+            return k
+    except Exception:
+        pass
+    k = secrets.token_bytes(32)
+    try:
+        os.makedirs(os.path.dirname(AUDIT_KEY_FILE), exist_ok=True)
+        fd = os.open(AUDIT_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(k)
+    except FileExistsError:
+        try:
+            with open(AUDIT_KEY_FILE, "rb") as f:
+                k = f.read().strip() or k
+        except Exception:
+            pass
+    except Exception as ex:
+        print("[audit] could not persist hmac key (chain will not survive a restart):", ex, flush=True)
+    return k
 def _audit_canon(e):
     return json.dumps([e["seq"], e["ts"], e["actor"], e["action"], e["detail"], e["ip"], e["ok"]], ensure_ascii=False)
+def _audit_hash(prev, e):
+    return hmac.new(_audit_key(), (prev + _audit_canon(e)).encode(), hashlib.sha256).hexdigest()
 def audit(actor, action, detail, ip, ok=True, detail_en=None):
-    # 防竄改:每筆 hash = sha256(prev_hash + canonical(entry)),串成鏈,改任一筆都會斷鏈。
+    # 防竄改:每筆 hash = HMAC(key, prev_hash + canonical(entry)),串成鏈,改任一筆都會斷鏈 —— 且
+    # key 不在這份 log 裡,單純改寫/重算整個檔案(不知道 key)沒辦法產生會通過 verify_audit() 的鏈。
     # detail_en 是純顯示欄位,_audit_canon() 不讀它,不影響雜湊鏈。
     try:
         with _AUDIT_LOCK:
@@ -1462,7 +1497,7 @@ def audit(actor, action, detail, ip, ok=True, detail_en=None):
             if detail_en:
                 e["detail_en"] = detail_en[:300]
             e["prev_hash"] = prev
-            e["hash"] = hashlib.sha256((prev + _audit_canon(e)).encode()).hexdigest()
+            e["hash"] = _audit_hash(prev, e)
             with open(ADMIN_AUDIT, "a", encoding="utf-8") as fp:
                 fp.write(json.dumps(e, ensure_ascii=False) + "\n")
     except Exception as ex:
@@ -1480,8 +1515,8 @@ def verify_audit():
         return {"ok": True, "count": 0, "broken": None}
     prev = "0" * 64
     for e in rows:
-        h = hashlib.sha256((prev + _audit_canon(e)).encode()).hexdigest()
-        if e.get("prev_hash") != prev or e.get("hash") != h:
+        h = _audit_hash(prev, e)
+        if e.get("prev_hash") != prev or not hmac.compare_digest(e.get("hash") or "", h):
             return {"ok": False, "count": len(rows), "broken": e.get("seq")}
         prev = e["hash"]
     return {"ok": True, "count": len(rows), "broken": None}

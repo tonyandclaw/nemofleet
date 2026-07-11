@@ -5,7 +5,7 @@
 # 這是唯一讓 Hermes 能驅動 worker 的入口(白名單意圖、scoped policy);非此即兩沙箱隔離。
 # 認證:環境變數 BRIDGE_TOKEN 有值時,POST /fix 與 GET /last 需帶 X-Bridge-Token(boot-stack 注入並同步渲染進 Hermes SKILL)。
 # 持久化:最近一次修復結果落盤 WD/last-fix.json,容器重啟後 GET /last 仍有東西。
-import json, os, re, subprocess, threading, time, difflib, hmac, shutil
+import json, os, re, shlex, subprocess, threading, time, difflib, hmac, shutil
 import urllib.request as _urlreq
 import socket as _socket
 from concurrent.futures import ThreadPoolExecutor
@@ -38,6 +38,12 @@ _socket.getaddrinfo = _gai_v4
 WD = os.environ.get("WORKER_WD", "/sandbox/.hermes/workspace/it-task")
 PORT = int(os.environ.get("ITOPS_PORT", "9099"))
 TOKEN = os.environ.get("BRIDGE_TOKEN", "")
+APPROVAL_TOKEN = os.environ.get("APPROVAL_TOKEN", "")   # human-approval secret for zone C high-risk actions (rollback/firmware-apply)
+
+def _approved(token):
+    # fail-closed:APPROVAL_TOKEN 沒設 → 一律拒絕(不能被「隨便給個非空字串」繞過);
+    # 常數時間比對,理由同 _authed() 的 X-Bridge-Token 檢查。
+    return bool(APPROVAL_TOKEN) and hmac.compare_digest(str(token or ""), APPROVAL_TOKEN)
 LAST_FILE = f"{WD}/last-fix.json"
 FIX_HISTORY = f"{WD}/fix-history.jsonl"
 LAST = {}          # 最近一次完成的修復結果(供 GET /last 與桌面顯示;啟動時自 LAST_FILE 還原)
@@ -580,10 +586,14 @@ def _cert_state(asset, c):
             days = max(1, (datetime.strptime(c.get("not_after"), "%Y-%m-%d").date() - datetime.now().date()).days)
         except Exception:
             days = 365
-        cn = c.get("cn") or asset
-        sh(f"openssl req -x509 -newkey rsa:{bits} -{dig} -nodes -keyout {key} -out {crt} -days {days} -subj '/CN={cn}' >/dev/null 2>&1", timeout=25)
-        sh(f"chown 998:998 {crt} {key} 2>/dev/null")
-    txt = sh(f"openssl x509 -in {crt} -noout -enddate -subject -issuer -text 2>/dev/null", timeout=8).stdout or ""
+        # cn can come from a live device's certificate content (not fully trusted input) — quote it
+        # rather than interpolating into the shell=True string's -subj '...' quotes, which a CN
+        # containing a single quote could break out of.
+        cn = str(c.get("cn") or asset).replace("/", "_")
+        subj = shlex.quote(f"/CN={cn}")
+        sh(f"openssl req -x509 -newkey rsa:{bits} -{dig} -nodes -keyout {shlex.quote(key)} -out {shlex.quote(crt)} -days {days} -subj {subj} >/dev/null 2>&1", timeout=25)
+        sh(f"chown 998:998 {shlex.quote(crt)} {shlex.quote(key)} 2>/dev/null")
+    txt = sh(f"openssl x509 -in {shlex.quote(crt)} -noout -enddate -subject -issuer -text 2>/dev/null", timeout=8).stdout or ""
     st = {"parsed_by": "openssl"}
     m = re.search(r"notAfter=(.+)", txt); st["not_after"] = (m.group(1).strip() if m else None)
     m = re.search(r"Public-Key:\s*\((\d+) bit\)", txt); st["key_bits"] = (int(m.group(1)) if m else None)
@@ -2492,9 +2502,13 @@ def run_rollback(to, approval_token=""):
     """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。需真機驗證。"""
     if not _zone_has("rollback"):
         return {"ok": False, "note": "rollback 屬 zone C 職責", "note_en": "rollback is zone C's job", "zone": ZONE}
-    if not approval_token:
-        return {"ok": False, "error": "高風險動作需 approval_token(人核准);見 worker-c-spec §5",
-                "error_en": "High-risk action needs an approval_token (human-approved); see worker-c-spec §5"}
+    if not _approved(approval_token):
+        return {"ok": False, "error": "approval_token 缺失或不正確(需人核准的真實密鑰);見 worker-c-spec §5",
+                "error_en": "approval_token missing or incorrect (needs the real human-approval secret); see worker-c-spec §5"}
+    # `to` 必須是 run_backup() 產生的確切格式(bk-YYYYMMDD-HHMMSS) — 拒絕其他一切輸入,防止
+    # path traversal(例如 to="../../../etc/passwd")讀取 BACKUP_DIR 以外的檔案並套用到真實設備。
+    if not re.match(r"^bk-\d{8}-\d{6}$", to or ""):
+        return {"ok": False, "error": "備份 id 格式不正確 %s" % to, "error_en": "Invalid backup id format: %s" % to}
     p = f"{BACKUP_DIR}/{to}.json"
     if not os.path.exists(p):
         return {"ok": False, "error": "找不到備份 %s" % to, "error_en": "Backup not found: %s" % to}
@@ -2812,7 +2826,7 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/firmware-apply":
                 return self._send(200, {"ok": False, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)",
                                         "note_en": "Firmware apply needs an approval_token + firmware-source egress (see worker-c-spec §2/§7)",
-                                        "approval_token": bool(b.get("approval_token"))})
+                                        "approval_token": _approved(b.get("approval_token"))})
             if self.path == "/rollback":
                 return self._send(200, run_rollback(b.get("to", ""), b.get("approval_token", "")))
         if self.path == "/flow":   # flow 事件 ingest:team-lead 把「人→team-lead 收件 / 回報」記這(走既有 bridge,免新 egress)

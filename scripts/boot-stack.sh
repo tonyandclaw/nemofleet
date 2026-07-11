@@ -87,7 +87,10 @@ deploy_oc_endpoint() {
     local EBGT=""; [ "$zone" = "B" ] && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGT="$(cut -d'|' -f1 "$HOME/.config/nemoclaw/ebg19p.cred" 2>/dev/null | tr -d ' \n\r')"
     # worker-c(zone C)當 SkillOS curator → 給它整個技能庫來治理
     local SKR=""; [ "$zone" = "C" ] && { docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-skills' >>"$LOG" 2>&1; docker cp "$NEMOFLEET_ROOT/skills" "$ct:/usr/local/share/nemofleet-skills" >>"$LOG" 2>&1; SKR=/usr/local/share/nemofleet-skills; }
-    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
+    # 高風險動作(rollback/firmware-apply)的人核准密鑰:僅注入 zone C。這是真的共享密鑰(跟 BRIDGE_TOKEN
+    # 同一套模型),不是「有給值就算核准」——沒有這把鑰匙,approval_token 檢查一律拒絕(fail-closed)。
+    local APPT=""; [ "$zone" = "C" ] && { [ -s "$APPROVAL_TOKEN_FILE" ] || { (openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n') > "$APPROVAL_TOKEN_FILE"; chmod 600 "$APPROVAL_TOKEN_FILE"; }; APPT=$(cat "$APPROVAL_TOKEN_FILE"); }
+    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e APPROVAL_TOKEN="$APPT" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
     sleep 2
     docker exec "$ct" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
       && ok "worker 端點 :9099 已部署(zone $zone @ ${ct##*openshell-})" || bad "端點未起($ct;cat /tmp/worker-itops.log)"

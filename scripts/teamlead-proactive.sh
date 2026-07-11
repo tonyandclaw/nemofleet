@@ -30,6 +30,23 @@ DIGEST_STAMP="$DATA_DIR/proactive-last-digest"
 TOKEN_FILE="$BRIDGE_TOKEN_FILE"
 log(){ printf '[proactive %s] %s\n' "$(date '+%H:%M:%S')" "$*" >&2; }  # stderr — patrol()'s stdout is captured as JSON by OUT=$(patrol)
 
+# 出站 DLP:送出前遮蔽憑證/長密鑰/卡號(同 agent-dashboard.py 的 _dlp() 同一套規則)。這裡是
+# team-lead 自己 LLM 產生的自由文字(wake_teamlead 的 content),跟 dashboard 那條路徑不同,
+# 沒有這層的話 team-lead 若把 context 裡夾帶的 secret 複述出來,會原文送進 Telegram。
+dlp(){
+  python3 -c '
+import re, sys
+t = sys.stdin.read()
+for rx, lbl in [
+    (re.compile(r"(?i)\b(password|passwd|secret|api[_-]?key|token|bearer|authorization)\b\s*[:=]\s*\S+"), "CREDENTIAL"),
+    (re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b"), "LONG-SECRET"),
+    (re.compile(r"\b(?:\d[ -]?){13,16}\b"), "CARD"),
+]:
+    t = rx.sub(f"[REDACTED:{lbl}]", t)
+sys.stdout.write(t)
+'
+}
+
 wk(){ # $1 = worker fragment, $2 = endpoint path → raw JSON (empty on failure)
   local c; c=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 "openshell-$1-") || true
   [ -n "$c" ] || { echo ""; return 0; }
@@ -219,6 +236,7 @@ except Exception as e:
     log "自主巡查:team-lead 判斷無需通知(靜默)"
     return 0
   fi
+  content=$(printf '%s' "$content" | dlp)
   curl -s -m10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     --data-urlencode "chat_id=$chat" --data-urlencode "text=$content" >/dev/null 2>&1 \
     && log "team-lead 已回覆並送出 Telegram(${1})" || log "team-lead 已回覆但 Telegram 送出失敗(${1})"
@@ -227,7 +245,8 @@ except Exception as e:
 # 確定性安全網:critical 保證送達 recipients,不依賴 team-lead / agentic 路徑。
 #   Email 走真實 SMTP(send-to.sh);Telegram 若 .env 設了 TELEGRAM_BOT_TOKEN 就走 Bot API 直送(host-side break-glass)。
 deterministic_alert(){ # $1=subject $2=body ; 讀 $RECIPIENTS_JSON
-  local subj="$1" body="$2" sent=0
+  local subj="$1" body sent=0
+  body=$(printf '%s' "$2" | dlp)
   while IFS=$'\t' read -r email tg; do
     [ -n "$email" ] && { bash "$MAIL_DIR/send-to.sh" "$email" "$subj" "$body" >/dev/null 2>&1 && sent=$((sent+1)); }
     if [ -n "$tg" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then

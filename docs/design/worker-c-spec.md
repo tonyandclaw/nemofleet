@@ -14,7 +14,7 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 |---|---|---|---|
 | `backup` | 設定快照 / 版本歷史 | 確定性 | ☑ 對真機可動(需 `EBG19P_CRED`),排程預設每 24h(`BRIDGE_BACKUP_INTERVAL`) |
 | `firmware` | 韌體版本查詢 | 確定性(唯讀) | ◐ `GET /firmware` 只回目前版本,`urgency`/`available`/`cve_driven` 都是寫死的空值/`"normal"`,並未真的接 worker-b 的 CVE 結果 |
-| `rollback` | 還原已知良好設定 | 確定性 · **需 approval_token** | ◐ 對真機可動,但**沒有還原後讀回驗證**;`approval_token` 只做「非空字串」檢查,不是真的核准機制(見第 7 節) |
+| `rollback` | 還原已知良好設定 | 確定性 · **需 approval_token** | ◐ 對真機可動,但**沒有還原後讀回驗證**;`approval_token` 現在對到真的共享密鑰(fail-closed + 常數時間比對),但仍是粗粒度、不綁定特定動作的單一密鑰模型(見第 7 節) |
 | `review` | 審查 a/b 產出 → 綁定判決(approve/reject) | 確定性閘 | ☑ 完整實作,見第 3 節 |
 | `curate` | SkillOS 技能庫策展(insert/update/delete 的品質 + 防重複閘) | 確定性閘 | ☑ 完整實作,見第 9 節(**原規格未提及此能力**) |
 
@@ -40,11 +40,11 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 - Dashboard 上看到的「CVE 驅動的 urgency」其實是**前端自己算的**(`app.js` 用 `d.cve.findings` 交叉比對顯示紅點),不是這支端點回的資料本身有這個邏輯。
 
 ### `POST /firmware-apply`
-- 回:`{"ok": false, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)", "note_en": "...", "approval_token": bool(...)}`
-- **這是純殼**。永遠 `ok: false`,不管有沒有帶 `approval_token`;不檢查 zone、不讀裝置憑證、不下載、不驗簽、不套用、不驗證。程式碼裡沒有任何一條路徑真的把韌體寫進裝置。
+- 回:`{"ok": false, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)", "note_en": "...", "approval_token": _approved(...)}`
+- **這是純殼**。永遠 `ok: false`,不管 `approval_token` 是否正確;不檢查 zone、不讀裝置憑證、不下載、不驗簽、不套用、不驗證。程式碼裡沒有任何一條路徑真的把韌體寫進裝置。`approval_token` 欄位現在回真的驗證結果(而非單純 `bool(收到的值)`),但因為整支是殼,這個欄位目前只有展示意義。
 
 ### `POST /rollback`
-- 入:`{"to": "bk-<id>", "approval_token": "<非空字串>"}`
+- 入:`{"to": "bk-<id>", "approval_token": "<真的共享密鑰,對 services/bridge/.approval-token>"}`
 - 讀該備份的存檔設定,呼叫真機 `c.apply("restart_all", ..., wait=15)`。
 - 回:`{"ok": true, "restored_to": to, "keys": N, "ts": ...}`,或失敗時 `{"ok": false, "error": "...", "error_en": "..."}`。
 - **沒有 `verify` 欄位** —— 套用後不會重讀裝置設定去確認真的回到目標狀態,只要 `.apply()` 沒丟例外就回報成功。
@@ -135,23 +135,31 @@ sequenceDiagram
 |---|---|---|
 | **重做上限** | 第 3 次仍不過 → 升級真人(不無限迴圈) | ☑ |
 | **判決可稽核** | 每個 verdict 進既有 tamper-evident audit chain | ◐ `/review`/`/skill-review` 的判決有記進 in-memory 的 `REVIEWS`/`CURATIONS` ring(供 console 顯示),**但沒有寫進 `agent-dashboard.py` 的 tamper-evident audit chain**(那條鏈目前只收 admin 操作,不收 worker-c 判決) |
-| **c 的高風險動作要人核准** | `firmware-apply` / `rollback` 需 `approval_token` | ◐ 兩者都「檢查有沒有帶這個欄位」,但**沒有任何驗證機制**(不驗簽名、不查發放紀錄、不綁定人的身分、不設過期)——目前任何呼叫端傳一個非空字串就能通過。沒有真人核准的實際橋接(見第 7 節) |
-| **人可覆寫** | 品質層級:人 > c > a/b | ☑(架構上成立,但 approval_token 沒有真的鎖住這個層級) |
+| **c 的高風險動作要人核准** | `firmware-apply` / `rollback` 需 `approval_token` | ◐ 現在對到真的共享密鑰(fail-closed、常數時間比對、只注入 zone C),不再是「帶個非空字串就過」——但**還不驗簽名、不查發放紀錄、不綁定特定動作、不設過期**,是粗粒度的共享密鑰而非細粒度核准工作流。沒有真人核准的實際橋接(見第 7 節) |
+| **人可覆寫** | 品質層級:人 > c > a/b | ☑(架構上成立;approval_token 現在是真的技術控制,但只到「host 上有沒有那把密鑰」的粒度) |
 
-階層:**人 = 最終權威**;**team-lead = 協調 + 執行 c 的判決**;**worker-c = 品質/變更權威**;**a/b = 執行**。這個階層目前主要靠**人類自律 + 文件約定**維持,而不是靠 `approval_token` 這層技術控制。
+階層:**人 = 最終權威**;**team-lead = 協調 + 執行 c 的判決**;**worker-c = 品質/變更權威**;**a/b = 執行**。這個階層現在有一層真的技術控制(`approval_token` 對真密鑰),但完整的「每次核准各自簽發、綁定動作、可追溯」仍主要靠**人類自律 + 文件約定**維持(見第 7 節)。
 
 ---
 
-## 7. `approval_token` ——目前只是個字串,不是核准機制
+## 7. `approval_token` —— 現在是真的共享密鑰,但還不是完整核准機制(2026-07-11 更新)
 
-完整驗證邏輯就是這樣(`worker-itops.py` `run_rollback`):
+**已修**(原本是純字串真值檢查,任何非空值都算「核准」——安全審查 finding #2):
+
 ```python
-if not approval_token:
-    return {"ok": False, "error": "高風險動作需 approval_token(人核准);見 worker-c-spec §5", ...}
+APPROVAL_TOKEN = os.environ.get("APPROVAL_TOKEN", "")   # 只注入 zone C(boot-stack.sh 產生、chmod 600)
+def _approved(token):
+    return bool(APPROVAL_TOKEN) and hmac.compare_digest(str(token or ""), APPROVAL_TOKEN)
 ```
-任何呼叫端(包含 team-lead 自己)傳 `{"approval_token": "x"}` 就能通過這個檢查 —— 沒有簽章、沒有對照「誰在什麼時候核發了這個 token」的紀錄、沒有過期、沒有綁定特定的動作內容。`/firmware-apply` 甚至不會走到這條檢查,因為它整支是殼(見第 2 節)。
 
-**沒有真人核准橋接技能**:`find skills -iname "*firmware*" -o -iname "*approval*"` 查無任何 `firmware-approval` 或類似的 SKILL.md。目前唯一提到「要先問人」的地方,是 `skills/hermes/review-gate/SKILL.md` 裡的一行提示文字,叫 team-lead 在套用高風險動作前「先問人核准」——這是**靠 LLM 照著指示做**,不是系統層級強制的控制點。要把這裡做成真的核准機制,至少需要:一支會真的產生/核發 token 的橋接技能(例如透過 Telegram 按鈕回覆核發、記錄核發人與時效)+ worker-c 端對 token 做真實驗證(而不是只看有沒有帶欄位)。
+`run_rollback`(以及 `/firmware-apply` 的顯示欄位,雖然那支還是純殼)現在都呼叫 `_approved()`,而不是 `if not approval_token`。差異:
+- 需要對到一把**真的共享密鑰**(`services/bridge/.approval-token`,跟 `.bridge-token` 同一套模型:host 產生、chmod 600、git-ignore、只注入 zone C 容器),不是「有給值就算過」。
+- **Fail-closed**:`APPROVAL_TOKEN` 沒設(例如 zone A/B,或 zone C 還沒被 `boot-stack.sh` 佈建過)→ `_approved()` 對任何輸入都回 False,包括呼叫端也傳空字串的情況。
+- 常數時間比對(`hmac.compare_digest`),理由同 `X-Bridge-Token` 的認證檢查。
+
+**仍然誠實地說,這還不是完整的人核准工作流**——跟 `X-Bridge-Token` 一樣是「單一共享密鑰」模型,不是「每次核准各自簽發、綁定特定動作內容、有時效、可追溯核發人」的 token。也就是說:任何拿得到 `.approval-token` 檔案內容的人(host 存取權),對**任何一次** rollback 呼叫都能核准,不區分是核准「還原到這個特定備份」還是別的。要做到後者,至少需要:一支會真的產生/核發**單次、有時效、綁定動作內容**的 token 的橋接技能(例如透過 Telegram 按鈕回覆核發、記錄核發人與時效、HMAC 簽入動作參數),而不是現在這種「host 上有沒有那份密鑰檔案」的粗粒度共享密鑰。
+
+**沒有真人核准橋接技能**(這部分未變):`find skills -iname "*firmware*" -o -iname "*approval*"` 查無任何 `firmware-approval` 或類似的 SKILL.md。目前唯一提到「要先問人」的地方,是 `skills/hermes/review-gate/SKILL.md` 裡的一行提示文字,叫 team-lead 在套用高風險動作前「先問人核准」——這仍是**靠 LLM 照著指示做**,不是系統層級強制的控制點;`_approved()` 只保證「沒有正確密鑰就一定被擋」,不保證 team-lead 真的會先去問人。
 
 ---
 
@@ -163,7 +171,7 @@ if not approval_token:
 - 先前版本把 review 拆成兩個 skill id(`review-remediation`/`review-cve`)——實際上**只有一個統一的 `review` skill**,`kind`(`remediation`/`cve`/`source`)是呼叫時放進 body/metadata 的參數,不是兩個獨立的 A2A capability。
 - 先前版本完全沒列 `curate` —— 這是真實存在、team-lead 也會用到的第 5 個能力(見第 9 節),不是筆誤,是規格漏了整個能力。
 
-team-lead 用 `message/send` 委派;高風險 skill(`rollback`)在 metadata 帶 `approval_token`,worker-c 端做第 7 節那樣的(弱)驗證。
+team-lead 用 `message/send` 委派;高風險 skill(`rollback`)在 metadata 帶 `approval_token`,worker-c 端做第 7 節那樣的共享密鑰驗證(fail-closed,但不綁定特定動作)。
 
 ---
 
@@ -236,7 +244,7 @@ sequenceDiagram
   L->>C: /firmware 有修復嗎?
   C-->>L: (目前永遠回 urgency=normal、available=[] —— 不會真的告訴你有沒有修復)
   L->>H: 「韌體更新可修 CVE-XXXX,核准?」
-  Note over L,H: 沒有真的核准橋接技能,approval_token 只是個字串
+  Note over L,H: 沒有真的核准橋接技能——approval_token 現在對真密鑰,但誰核發/核准哪個動作仍未綁定
   H-->>L: 核准(approval_token)
   L->>C: /firmware-apply(帶 token)
   Note over C: /firmware-apply 是純殼,永遠回 ok:false,不會真的套用
@@ -248,6 +256,8 @@ sequenceDiagram
 2. 寫 `scripts/worker-c-allow-firmware.sh`,做真的韌體來源 egress。
 3. 實作 `/firmware-stage`(下載 + 驗簽)與真的 `/firmware-apply`(套用 + 讀回驗證 + 失敗自動 `/rollback`)。
 4. 幫 `rollback` 加讀回驗證(`verify` 欄位)。
-5. 做一支真的 `firmware-approval` 橋接技能 + 讓 `approval_token` 變成真的可驗證核准機制(簽章、核發紀錄、過期)。
+5. `approval_token` 已從「非空字串」升級成真的共享密鑰(見第 7 節,2026-07-11)。下一步是做一支真的
+   `firmware-approval` 橋接技能,把它從「host 上有沒有那把密鑰」升級成細粒度核准(單次簽發、綁定特定
+   動作內容、有時效、可追溯核發人)。
 
 在那之前,「discover → review → fix+stage → 人核准 → apply → verify → rollback」這條完整故事,**只有 discover 和 review 兩段可以在真機上展示**,其餘是設計目標,不要當成已出貨的能力來 demo 或承諾。
