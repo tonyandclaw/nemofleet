@@ -1,4 +1,4 @@
-import os, sys, tempfile, shutil, unittest
+import os, sys, json, tempfile, shutil, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _load import load
 
@@ -60,37 +60,66 @@ class TestCertStateCNInjection(unittest.TestCase):
         self.assertNotIn("O = Not A Real CA", (st.get("issuer") or ""))
 
 
-class TestApproved(unittest.TestCase):
-    """_approved(token) gates worker-c's high-risk actions (rollback/firmware-apply). It used to be
-    a plain truthiness check (any non-empty string "approved" the action) — now it's a real shared
-    secret (APPROVAL_TOKEN, injected only into worker-c's container) compared in constant time,
-    and fails CLOSED (rejects everything) if that secret was never configured."""
+class TestApprovalVerifyAndRecord(unittest.TestCase):
+    """_approval_verify_and_record(token, action, params) gates worker-c's high-risk actions
+    (rollback/firmware-apply). It used to be a plain truthiness check (any non-empty string
+    "approved" the action), then a flat shared-secret compare (any correct-secret string approved
+    ANY action). Now a token is minted (wi_approval.issue) for one specific action+params, expires,
+    and is single-use — so it fails CLOSED if APPROVAL_KEY is unset, and rejects a
+    correctly-signed token that's expired, reused, or bound to a different action/params."""
     def setUp(self):
-        self._orig = w.APPROVAL_TOKEN
+        self._orig_key = w.APPROVAL_KEY; w.APPROVAL_KEY = "test-hmac-key"
+        self._orig_hist = w.APPROVAL_HISTORY
+        w.APPROVAL_HISTORY = tempfile.mktemp(suffix="-nftest-approval-history.jsonl")
 
     def tearDown(self):
-        w.APPROVAL_TOKEN = self._orig
+        w.APPROVAL_KEY = self._orig_key
+        if os.path.exists(w.APPROVAL_HISTORY):
+            os.remove(w.APPROVAL_HISTORY)
+        w.APPROVAL_HISTORY = self._orig_hist
 
-    def test_correct_secret_approves(self):
-        w.APPROVAL_TOKEN = "real-secret"
-        self.assertTrue(w._approved("real-secret"))
+    def _tok(self, action="rollback", params=None, **kw):
+        return w.wi_approval.issue(action, params or {}, "alice@telegram", w.APPROVAL_KEY, **kw)
 
-    def test_wrong_value_rejected(self):
-        w.APPROVAL_TOKEN = "real-secret"
-        self.assertFalse(w._approved("close-but-wrong"))
-        self.assertFalse(w._approved("x"))   # the old bug: any non-empty string used to pass
+    def test_correct_token_approves(self):
+        tok = self._tok(params={"to": "bk-1"})
+        r = w._approval_verify_and_record(tok, "rollback", {"to": "bk-1"})
+        self.assertTrue(r["ok"])
+
+    def test_wrong_action_rejected(self):
+        tok = self._tok("rollback", {"to": "bk-1"})
+        r = w._approval_verify_and_record(tok, "firmware-apply", {"to": "bk-1"})
+        self.assertFalse(r["ok"])
+
+    def test_plain_non_empty_string_rejected(self):
+        # the original bug: any non-empty string used to pass
+        r = w._approval_verify_and_record("x", "rollback", {"to": "bk-1"})
+        self.assertFalse(r["ok"])
 
     def test_empty_rejected(self):
-        w.APPROVAL_TOKEN = "real-secret"
-        self.assertFalse(w._approved(""))
-        self.assertFalse(w._approved(None))
+        r = w._approval_verify_and_record("", "rollback", {"to": "bk-1"})
+        self.assertFalse(r["ok"])
 
-    def test_fails_closed_when_secret_unset(self):
-        # not configured (e.g. zone A/B, or zone C before boot-stack.sh provisions it) → nothing
-        # approves anything, not even a caller who happens to send an empty APPROVAL_TOKEN too.
-        w.APPROVAL_TOKEN = ""
-        self.assertFalse(w._approved(""))
-        self.assertFalse(w._approved("anything"))
+    def test_fails_closed_when_key_unset(self):
+        w.APPROVAL_KEY = ""
+        tok = w.wi_approval.issue("rollback", {"to": "bk-1"}, "alice", "test-hmac-key")
+        r = w._approval_verify_and_record(tok, "rollback", {"to": "bk-1"})
+        self.assertFalse(r["ok"])
+
+    def test_reused_token_rejected_second_time(self):
+        tok = self._tok(params={"to": "bk-1"})
+        first = w._approval_verify_and_record(tok, "rollback", {"to": "bk-1"})
+        second = w._approval_verify_and_record(tok, "rollback", {"to": "bk-1"})
+        self.assertTrue(first["ok"])
+        self.assertFalse(second["ok"])
+
+    def test_records_issuer_for_traceability(self):
+        tok = self._tok(params={"to": "bk-1"})
+        w._approval_verify_and_record(tok, "rollback", {"to": "bk-1"})
+        rows = [json.loads(l) for l in open(w.APPROVAL_HISTORY, encoding="utf-8") if l.strip()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["issuer"], "alice@telegram")
+        self.assertEqual(rows[0]["act"], "rollback")
 
 
 class TestRunRollbackValidation(unittest.TestCase):
@@ -98,43 +127,64 @@ class TestRunRollbackValidation(unittest.TestCase):
     must be exactly a run_backup()-issued id (bk-YYYYMMDD-HHMMSS), or a caller with a valid bridge
     token could read/apply an arbitrary .json path (e.g. to="../../../etc/passwd") instead of a
     real backup. zone C is required for rollback at all, so force it for this test regardless of
-    the process's real BRIDGE_ZONE. APPROVAL_TOKEN is set to a known test secret so the `to`
-    validation can be tested on its own, independent of the approval-token check."""
+    the process's real BRIDGE_ZONE. A real approval_token, freshly minted and bound to the exact
+    `to` under test, is used for every "should pass approval" case so the `to` validation can be
+    tested on its own, independent of the approval-token check itself."""
     def setUp(self):
         self._orig_zone = w.ZONE; w.ZONE = "C"
-        self._orig_token = w.APPROVAL_TOKEN; w.APPROVAL_TOKEN = "test-approval-secret"
+        self._orig_key = w.APPROVAL_KEY; w.APPROVAL_KEY = "test-hmac-key"
+        self._orig_hist = w.APPROVAL_HISTORY
+        w.APPROVAL_HISTORY = tempfile.mktemp(suffix="-nftest-approval-history.jsonl")
 
     def tearDown(self):
         w.ZONE = self._orig_zone
-        w.APPROVAL_TOKEN = self._orig_token
+        w.APPROVAL_KEY = self._orig_key
+        if os.path.exists(w.APPROVAL_HISTORY):
+            os.remove(w.APPROVAL_HISTORY)
+        w.APPROVAL_HISTORY = self._orig_hist
+
+    def _tok(self, to):
+        return w.wi_approval.issue("rollback", {"to": to}, "alice@telegram", w.APPROVAL_KEY)
 
     def test_rejects_path_traversal(self):
-        r = w.run_rollback("../../../etc/passwd", approval_token="test-approval-secret")
+        to = "../../../etc/passwd"
+        r = w.run_rollback(to, approval_token=self._tok(to))
         self.assertFalse(r["ok"])
         self.assertIn("格式", r["error"])
 
     def test_rejects_absolute_path(self):
-        r = w.run_rollback("/etc/passwd", approval_token="test-approval-secret")
+        to = "/etc/passwd"
+        r = w.run_rollback(to, approval_token=self._tok(to))
         self.assertFalse(r["ok"])
 
     def test_rejects_non_matching_format(self):
-        r = w.run_rollback("not-a-backup-id", approval_token="test-approval-secret")
+        to = "not-a-backup-id"
+        r = w.run_rollback(to, approval_token=self._tok(to))
         self.assertFalse(r["ok"])
 
     def test_accepts_valid_format_but_missing_file(self):
         # correct shape, just doesn't exist on disk — should reach the "not found" branch, not the
         # format-rejection branch, proving the regex isn't overly strict for real backup ids.
-        r = w.run_rollback("bk-20260101-000000", approval_token="test-approval-secret")
+        to = "bk-20260101-000000"
+        r = w.run_rollback(to, approval_token=self._tok(to))
         self.assertFalse(r["ok"])
         self.assertIn("找不到備份", r["error"])
 
     def test_rejects_wrong_approval_token(self):
-        r = w.run_rollback("bk-20260101-000000", approval_token="not-the-real-secret")
+        r = w.run_rollback("bk-20260101-000000", approval_token="not-a-real-token")
         self.assertFalse(r["ok"])
         self.assertIn("approval_token", r["error"])
 
     def test_still_requires_approval_token(self):
         r = w.run_rollback("bk-20260101-000000", approval_token="")
+        self.assertFalse(r["ok"])
+        self.assertIn("approval_token", r["error"])
+
+    def test_token_approved_for_a_different_backup_id_is_rejected(self):
+        # the exact replay this design exists to stop: a human approved rollback to bk-A, the
+        # token must not also work for rollback to bk-B.
+        tok = self._tok("bk-20260101-000000")
+        r = w.run_rollback("bk-20260202-000000", approval_token=tok)
         self.assertFalse(r["ok"])
         self.assertIn("approval_token", r["error"])
 

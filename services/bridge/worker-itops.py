@@ -24,6 +24,7 @@ import wi_nuclei  # worker-b active nuclei scan subsystem (configured once deps 
 import wi_review  # worker-c QA-review gates (pure)
 import wi_skills  # SkillOS-style skill-repository curation (arXiv 2605.06614)
 import wi_flow  # cross-node work-flow event ring (GUI Flow view)
+import wi_approval  # real per-action human-approval tokens (issue/verify; pure) — see wi_approval.py
 from urllib.parse import parse_qs as _pq2
 import hashlib
 
@@ -38,12 +39,46 @@ _socket.getaddrinfo = _gai_v4
 WD = os.environ.get("WORKER_WD", "/sandbox/.hermes/workspace/it-task")
 PORT = int(os.environ.get("ITOPS_PORT", "9099"))
 TOKEN = os.environ.get("BRIDGE_TOKEN", "")
-APPROVAL_TOKEN = os.environ.get("APPROVAL_TOKEN", "")   # human-approval secret for zone C high-risk actions (rollback/firmware-apply)
+APPROVAL_KEY = os.environ.get("APPROVAL_KEY", "")   # HMAC signing key for zone C high-risk actions (rollback/firmware-apply); shared with team-lead's approval_issue.py only — see wi_approval.py
+APPROVAL_HISTORY = f"{WD}/approval-history.jsonl"   # used-nonce set + issuer/action/params audit trail (traceability) — pruned to a window well past any realistic token ttl
+_APPROVAL_LOCK = threading.Lock()
 
-def _approved(token):
-    # fail-closed:APPROVAL_TOKEN 沒設 → 一律拒絕(不能被「隨便給個非空字串」繞過);
-    # 常數時間比對,理由同 _authed() 的 X-Bridge-Token 檢查。
-    return bool(APPROVAL_TOKEN) and hmac.compare_digest(str(token or ""), APPROVAL_TOKEN)
+def _load_approval_nonces():
+    # 順便清掉早就不可能再被重放的舊紀錄(token 的 ttl 通常遠短於 1 小時),檔案不會無限長大。
+    try:
+        rows = [json.loads(l) for l in open(APPROVAL_HISTORY, encoding="utf-8") if l.strip()]
+    except Exception:
+        rows = []
+    cutoff = time.time() - 3600
+    rows = [r for r in rows if r.get("ts_epoch", 0) >= cutoff]
+    try:
+        os.makedirs(WD, exist_ok=True)
+        with open(APPROVAL_HISTORY, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    return {r["nonce"] for r in rows if r.get("nonce")}
+
+def _approval_verify_and_record(token, action, params):
+    """驗證 approval_token(見 wi_approval.py):簽章、動作/參數綁定、時效、單次使用 —— 都不對就
+    fail-closed 拒絕。通過後把核發人(issuer,應為真人身分而非節點名)、動作、參數、nonce 記入
+    APPROVAL_HISTORY:worker-c 這端的可追溯稽核紀錄,也讓 nonce 之後不能被重放。"""
+    if not APPROVAL_KEY:
+        return {"ok": False, "error": "APPROVAL_KEY 未設定(fail-closed);見 worker-c-spec §7"}
+    with _APPROVAL_LOCK:
+        used = _load_approval_nonces()
+        r = wi_approval.verify(token, action, params, APPROVAL_KEY, lambda n: n in used)
+        if r.get("ok"):
+            claims = r["claims"]
+            try:
+                with open(APPROVAL_HISTORY, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "ts_epoch": time.time(),
+                                        "nonce": claims["nonce"], "act": action, "params": params,
+                                        "issuer": claims.get("iss", "")}, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+        return r
 LAST_FILE = f"{WD}/last-fix.json"
 FIX_HISTORY = f"{WD}/fix-history.jsonl"
 LAST = {}          # 最近一次完成的修復結果(供 GET /last 與桌面顯示;啟動時自 LAST_FILE 還原)
@@ -2502,9 +2537,10 @@ def run_rollback(to, approval_token=""):
     """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。需真機驗證。"""
     if not _zone_has("rollback"):
         return {"ok": False, "note": "rollback 屬 zone C 職責", "note_en": "rollback is zone C's job", "zone": ZONE}
-    if not _approved(approval_token):
-        return {"ok": False, "error": "approval_token 缺失或不正確(需人核准的真實密鑰);見 worker-c-spec §5",
-                "error_en": "approval_token missing or incorrect (needs the real human-approval secret); see worker-c-spec §5"}
+    av = _approval_verify_and_record(approval_token, "rollback", {"to": to})
+    if not av.get("ok"):
+        return {"ok": False, "error": "approval_token 驗證失敗:%s;見 worker-c-spec §7" % av.get("error"),
+                "error_en": "approval_token verification failed: %s; see worker-c-spec §7" % av.get("error")}
     # `to` 必須是 run_backup() 產生的確切格式(bk-YYYYMMDD-HHMMSS) — 拒絕其他一切輸入,防止
     # path traversal(例如 to="../../../etc/passwd")讀取 BACKUP_DIR 以外的檔案並套用到真實設備。
     if not re.match(r"^bk-\d{8}-\d{6}$", to or ""):
@@ -2824,9 +2860,11 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/backup":
                 return self._send(200, run_backup("api"))
             if self.path == "/firmware-apply":
+                _fw_params = {k: v for k, v in b.items() if k != "approval_token"}
+                _fw_av = _approval_verify_and_record(b.get("approval_token"), "firmware-apply", _fw_params)
                 return self._send(200, {"ok": False, "note": "韌體套用需 approval_token + 韌體來源 egress(見 worker-c-spec §2/§7)",
                                         "note_en": "Firmware apply needs an approval_token + firmware-source egress (see worker-c-spec §2/§7)",
-                                        "approval_token": _approved(b.get("approval_token"))})
+                                        "approval_token": _fw_av.get("ok", False)})
             if self.path == "/rollback":
                 return self._send(200, run_rollback(b.get("to", ""), b.get("approval_token", "")))
         if self.path == "/flow":   # flow 事件 ingest:team-lead 把「人→team-lead 收件 / 回報」記這(走既有 bridge,免新 egress)

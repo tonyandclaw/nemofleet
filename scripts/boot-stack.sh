@@ -62,7 +62,7 @@ deploy_oc_endpoint() {
   h=$(docker exec "$ct" sh -c 'curl -s -m3 http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null)
   # 「當前版」= 端點健康(對的 zone + a2a marker)且部署的每個模組都與本地逐位元一致。
   # 逐檔 cmp 取代舊的 marker 偵測 → 任何程式碼變更(含新模組缺檔)都會觸發重部署,不再靜默跑舊碼。
-  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills wi_flow; do
+  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills wi_flow wi_approval; do
     docker exec "$ct" sh -c "cat /usr/local/bin/$m.py 2>/dev/null" | cmp -s - "$BRIDGE/$m.py" || same=0
   done
   if [ "$same" = 1 ] && echo "$h" | grep -q "\"zone\": \"$zone\"" && echo "$h" | grep -q '"a2a": true'; then
@@ -87,10 +87,13 @@ deploy_oc_endpoint() {
     local EBGT=""; [ "$zone" = "B" ] && [ -s "$HOME/.config/nemoclaw/ebg19p.cred" ] && EBGT="$(cut -d'|' -f1 "$HOME/.config/nemoclaw/ebg19p.cred" 2>/dev/null | tr -d ' \n\r')"
     # worker-c(zone C)當 SkillOS curator → 給它整個技能庫來治理
     local SKR=""; [ "$zone" = "C" ] && { docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-skills' >>"$LOG" 2>&1; docker cp "$NEMOFLEET_ROOT/skills" "$ct:/usr/local/share/nemofleet-skills" >>"$LOG" 2>&1; SKR=/usr/local/share/nemofleet-skills; }
-    # 高風險動作(rollback/firmware-apply)的人核准密鑰:僅注入 zone C。這是真的共享密鑰(跟 BRIDGE_TOKEN
-    # 同一套模型),不是「有給值就算核准」——沒有這把鑰匙,approval_token 檢查一律拒絕(fail-closed)。
-    local APPT=""; [ "$zone" = "C" ] && { [ -s "$APPROVAL_TOKEN_FILE" ] || { (openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n') > "$APPROVAL_TOKEN_FILE"; chmod 600 "$APPROVAL_TOKEN_FILE"; }; APPT=$(cat "$APPROVAL_TOKEN_FILE"); }
-    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e APPROVAL_TOKEN="$APPT" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
+    docker cp "$BRIDGE/wi_approval.py" "$ct:/usr/local/bin/wi_approval.py" >>"$LOG" 2>&1   # per-action approval token issue/verify (import wi_approval)
+    # 高風險動作(rollback/firmware-apply)的人核准 HMAC 簽名金鑰:僅注入 zone C。跟 team-lead 側
+    # approval_issue.py 共用同一把鑰匙(見下方 team-lead 部署段落)——這把鑰匙本身不是「核准」,
+    # 只是讓 worker-c 能驗證 team-lead 簽發的 token 真的沒被竄改;team-lead 是否真的先問過人,
+    # 是 firmware-approval SKILL 這層的責任,不是這把鑰匙能保證的(見 worker-c-spec §7 誠實記載)。
+    local APPT=""; [ "$zone" = "C" ] && { [ -s "$APPROVAL_KEY_FILE" ] || { (openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n') > "$APPROVAL_KEY_FILE"; chmod 600 "$APPROVAL_KEY_FILE"; }; APPT=$(cat "$APPROVAL_KEY_FILE"); }
+    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e APPROVAL_KEY="$APPT" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
     sleep 2
     docker exec "$ct" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
       && ok "worker 端點 :9099 已部署(zone $zone @ ${ct##*openshell-})" || bad "端點未起($ct;cat /tmp/worker-itops.log)"
@@ -154,7 +157,7 @@ ensure_xagent() {
   fi
   # Hermes 端 SKILL(it-delegate-worker + review-gate):渲染 IP+token,內容變了才重裝
   local skn
-  for skn in it-delegate-worker review-gate; do
+  for skn in it-delegate-worker review-gate firmware-approval; do
     [ -n "$CT_LEAD" ] && [ -f "$SKILLS_DIR/hermes/$skn/SKILL.md" ] || continue
     local SK=/sandbox/.hermes/skills/devops/$skn/SKILL.md
     sed -e "s/%%WA_IP%%/$OCIP/g" -e "s/%%WB_IP%%/${OC2IP:-$OCIP}/g" -e "s/%%WC_IP%%/${OC3IP:-$OCIP}/g" -e "s/BRIDGETOKEN/$TOKEN/g" \
@@ -169,6 +172,24 @@ ensure_xagent() {
     fi
     rm -f "/tmp/$skn-rendered.md"
   done
+  # team-lead 端出核准 token 的工具:human 在 Telegram 明確核准某個特定動作後,firmware-approval
+  # SKILL 才會叫這支腳本(嵌入 APPROVAL_KEY,跟 zone C 共用同一把鑰匙)——它本身不驗證「人是否真的
+  # 核准了」,那是 SKILL 對話流程的責任,見 skills/hermes/firmware-approval/SKILL.md。
+  if [ -n "$CT_LEAD" ] && [ -f "$BRIDGE/approval_issue.py" ]; then
+    [ -s "$APPROVAL_KEY_FILE" ] || { (openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n') > "$APPROVAL_KEY_FILE"; chmod 600 "$APPROVAL_KEY_FILE"; }
+    local AK AID; AK=$(cat "$APPROVAL_KEY_FILE"); AID=/sandbox/.hermes/workspace/it-task/approval_issue.py
+    sed "s/APPROVALKEY/$AK/" "$BRIDGE/approval_issue.py" > /tmp/approval_issue-rendered.py
+    if docker exec "$CT_LEAD" sh -c "cat $AID 2>/dev/null" | cmp -s - /tmp/approval_issue-rendered.py; then
+      ok "approval_issue.py 已是當前密鑰"
+    else
+      docker exec -u 0 "$CT_LEAD" sh -c "mkdir -p $(dirname $AID)" >>"$LOG" 2>&1
+      docker cp /tmp/approval_issue-rendered.py "$CT_LEAD:$AID" >>"$LOG" 2>&1
+      docker cp "$BRIDGE/wi_approval.py" "$CT_LEAD:$(dirname "$AID")/wi_approval.py" >>"$LOG" 2>&1
+      docker exec -u 0 "$CT_LEAD" sh -c "chown -R 998:998 $(dirname $AID); chmod 644 $AID $(dirname "$AID")/wi_approval.py" >>"$LOG" 2>&1 \
+        && ok "approval_issue.py 已渲染部署(APPROVAL_KEY)" || bad "approval_issue.py 部署失敗(看 $LOG)"
+    fi
+    rm -f /tmp/approval_issue-rendered.py
+  fi
   ensure_jira "$OCIP"
 }
 
