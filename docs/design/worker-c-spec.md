@@ -12,7 +12,7 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 
 | cap | 職責 | 型態 | 實作狀態 |
 |---|---|---|---|
-| `backup` | 設定快照 / 版本歷史 | 確定性 | ☑ 對真機可動(需 `EBG19P_CRED`),排程預設每 24h(`BRIDGE_BACKUP_INTERVAL`) |
+| `backup` | 設定快照 / 版本歷史 | 確定性 | ☑ 對真機可動(需 `EBG19P_CRED`),排程預設每 24h(`BRIDGE_BACKUP_INTERVAL`),自動保留最新 15 筆(`backup_retain_count`,超過砍最舊) |
 | `firmware` | 韌體版本查詢 | 確定性(唯讀) | ◐ `GET /firmware` 只回目前版本,`urgency`/`available`/`cve_driven` 都是寫死的空值/`"normal"`,並未真的接 worker-b 的 CVE 結果 |
 | `rollback` | 還原已知良好設定 | 確定性 · **需 approval_token** | ◐ 對真機可動,但**沒有還原後讀回驗證**;`approval_token` 現在是每次核發、綁定 `{"to": ...}` 參數、有時效、單次使用、可追溯核發人的真 token(見第 7 節) |
 | `review` | 審查 a/b 產出 → 綁定判決(approve/reject) | 確定性閘 | ☑ 完整實作,見第 3 節 |
@@ -33,6 +33,7 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 - 回:`{"available": true, "latest": "bk-<ts>", "ts": ..., "keys": N, "sha256": "..."}`;無裝置憑證時優雅降級 `{"available": false, "note": "...", "ts": ...}`。
 - **沒有 `diff_from_prev`**(無 diff 邏輯)、**沒有 `size`**、**沒有 `asset`**、**沒有把 `trigger` 回傳給呼叫端**(只存在寫入磁碟的那份 JSON 裡)。
 - **沒有「每次 remediation 前後自動各拍一張」的掛鉤** —— 目前唯一的自動觸發是背景排程迴圈(`_backup_schedule_loop`,預設 86400s),`run_ebg_remediate`(worker-a 的修復路徑)完全沒有呼叫這裡的備份邏輯。
+- **自動保留數量上限**(2026-07-12 新增):每次成功寫入新快照後,`_prune_backups()` 會依 `backup_retain_count`(預設 15,`BRIDGE_BACKUP_RETAIN`;`0` = 不砍、無上限)砍掉最舊的檔案——檔名 `bk-YYYYMMDD-HHMMSS.json` 本身可字串排序,不需要另外讀取每筆的時間戳。不論是排程觸發還是 API 觸發都會跑這段,不是只有排程備份才砍。
 
 ### `GET /firmware`
 - 回:`{"current": "<目前版本或 unknown>", "available": [], "urgency": "normal", "cve_driven": [], "note": "ASUS 韌體來源未設定...", "note_en": "..."}`

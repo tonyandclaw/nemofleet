@@ -261,6 +261,7 @@ SETTINGS_DEFAULTS = {
   "patrol_interval_sec": int(os.environ.get("BRIDGE_PATROL_INTERVAL", "1200")),  # 主動巡邏頻率(積極=20 分)
   "digest_interval_sec": int(os.environ.get("BRIDGE_DIGEST_INTERVAL", "3600")),  # 主動 digest 頻率(每小時)
   "backup_interval_sec": int(os.environ.get("BRIDGE_BACKUP_INTERVAL", "86400")),  # worker-c 設定備份頻率
+  "backup_retain_count": int(os.environ.get("BRIDGE_BACKUP_RETAIN", "15")),  # 最多保留幾份快照,超過自動砍最舊的(0=不砍,無上限)
   "proactive_safety_net": True,  # critical 確定性告警(不依賴 team-lead;Email 直送 + Telegram Bot API 保底)
   "proactive_snooze_until": 0,   # epoch;now < 此值時暫停 critical 主動告警(維護靜音;仍巡邏+記錄)
 }
@@ -274,6 +275,7 @@ _SET_RANGE = {
   "quiet_start": set(range(24)), "quiet_end": set(range(24)),
   "dev_cpu_hi": {70, 75, 80, 85, 90, 95}, "dev_ram_hi": {70, 75, 80, 85, 90, 95}, "dev_temp_hi": {70, 75, 80, 85, 90},
   "patrol_interval_sec": {300, 600, 1200, 1800, 3600}, "digest_interval_sec": {3600, 21600, 86400},
+  "backup_retain_count": {0, 5, 10, 15, 20, 30, 50},
 }
 _NOTIFY_OK = {"jira", "email", "telegram", "dashboard"}
 def load_settings():
@@ -2488,6 +2490,21 @@ def run_ebg_remediate_bg(bug):
 # 生命週期(備份/韌體/rollback)對真機操作 → 無 EBG19P_CRED 則優雅降級。審查(review)為純函式閘,可測。
 BACKUP_DIR = f"{WD}/backups"
 BACKUP_INTERVAL = int(os.environ.get("BRIDGE_BACKUP_INTERVAL", "86400"))
+BACKUP_RETAIN = int(os.environ.get("BRIDGE_BACKUP_RETAIN", "15"))
+def _prune_backups():
+    # 檔名 bk-YYYYMMDD-HHMMSS.json 本身就是可排序的時間戳,字串排序即時間排序,不必個別讀檔取 ts。
+    retain = load_settings().get("backup_retain_count", BACKUP_RETAIN)
+    if retain <= 0:   # 0 = 不砍,無上限(跟其他 *_interval_sec 設定的 0=關 是同一套慣例)
+        return
+    try:
+        ids = sorted(x for x in os.listdir(BACKUP_DIR) if x.endswith(".json"))
+    except Exception:
+        return
+    for stale in ids[:-retain]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, stale))
+        except Exception as e:
+            print("[BACKUP prune]", e, flush=True)
 def _ebg_client():
     ip, user, pw = ebg19p.parse_cred(EBG_CRED)      # 無 cred → EBG19PError
     c = ebg19p.EBG19PClient(ip, user, pw); c.login(); return c
@@ -2513,6 +2530,7 @@ def run_backup(trigger="api"):
             "sha256": hashlib.sha256(json.dumps(snap, sort_keys=True).encode()).hexdigest()[:16]}
     with open(f"{BACKUP_DIR}/{bid}.json", "w", encoding="utf-8") as fp:
         json.dump(body, fp, ensure_ascii=False, indent=2)
+    _prune_backups()
     sh(f"chown -R 998:998 {BACKUP_DIR}")
     print("[BACKUP] %s (%d keys)" % (bid, len(snap)), flush=True)
     return {"available": True, "latest": bid, "ts": now, "keys": len(snap), "sha256": body["sha256"]}

@@ -189,5 +189,61 @@ class TestRunRollbackValidation(unittest.TestCase):
         self.assertIn("approval_token", r["error"])
 
 
+class TestPruneBackups(unittest.TestCase):
+    """_prune_backups() runs after every run_backup() (schedule or api-triggered) and deletes the
+    oldest snapshot files once the count exceeds backup_retain_count, keeping storage bounded
+    without a human ever having to clean it up."""
+    def setUp(self):
+        self._orig_dir = w.BACKUP_DIR
+        self.tmp_dir = tempfile.mkdtemp()
+        w.BACKUP_DIR = self.tmp_dir
+        self._orig_settings_file = w.SETTINGS_FILE
+        w.SETTINGS_FILE = tempfile.mktemp(suffix="-nftest-settings.json")
+
+    def tearDown(self):
+        w.BACKUP_DIR = self._orig_dir
+        if os.path.exists(w.SETTINGS_FILE):
+            os.remove(w.SETTINGS_FILE)
+        w.SETTINGS_FILE = self._orig_settings_file
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def _make_backups(self, n):
+        ids = []
+        for i in range(n):
+            bid = "bk-20260101-%06d" % i   # zero-padded → filename sort order == creation order
+            open(os.path.join(self.tmp_dir, bid + ".json"), "w").close()
+            ids.append(bid)
+        return ids
+
+    def test_default_retains_15_most_recent(self):
+        ids = self._make_backups(20)
+        w._prune_backups()
+        remaining = sorted(x[:-5] for x in os.listdir(self.tmp_dir))
+        self.assertEqual(len(remaining), 15)
+        self.assertEqual(remaining, ids[-15:])   # kept the newest 15, deleted the oldest 5
+
+    def test_fewer_than_limit_is_untouched(self):
+        ids = self._make_backups(5)
+        w._prune_backups()
+        remaining = sorted(x[:-5] for x in os.listdir(self.tmp_dir))
+        self.assertEqual(remaining, ids)
+
+    def test_custom_retain_count_from_settings(self):
+        with open(w.SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"backup_retain_count": 3}, f)
+        ids = self._make_backups(10)
+        w._prune_backups()
+        remaining = sorted(x[:-5] for x in os.listdir(self.tmp_dir))
+        self.assertEqual(remaining, ids[-3:])
+
+    def test_zero_means_unlimited(self):
+        with open(w.SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"backup_retain_count": 0}, f)
+        ids = self._make_backups(30)
+        w._prune_backups()
+        remaining = sorted(x[:-5] for x in os.listdir(self.tmp_dir))
+        self.assertEqual(remaining, ids)
+
+
 if __name__ == "__main__":
     unittest.main()
