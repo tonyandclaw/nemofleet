@@ -99,13 +99,21 @@ function normalize(d) {
   const _nuc = d.nuclei || secNode.nuclei || null;
   return {
     me: d._me || {},
+    // fallback only fires when the backend couldn't report anything at all (not a normal state) —
+    // default to `up: false` (fail-closed): claiming a node is up when we have no data was exactly
+    // the bug that made the NIM indicator lie about being reachable.
     nodes: nodes.length ? nodes : [
-      { name: 'team-lead', role: 'Front desk · Telegram / Email intake', tag: 'lead', port: 8642, up: true, zone: '' },
-      { name: 'worker-a', role: 'Monitor · drift · cert · remediation', tag: 'ops', port: 18789, up: true, zone: 'zone A' },
-      { name: 'worker-b', role: 'CVE · SBOM / SAST · syslog', tag: 'sec', port: 18790, up: true, zone: 'zone B' },
-      { name: 'worker-c', role: 'backup · firmware · rollback · QA review', tag: 'gov', port: 18791, up: true, zone: 'zone C' },
+      { name: 'team-lead', role: 'Front desk · Telegram / Email intake', tag: 'lead', port: 8642, up: false, zone: '' },
+      { name: 'worker-a', role: 'Monitor · drift · cert · remediation', tag: 'ops', port: 18789, up: false, zone: 'zone A' },
+      { name: 'worker-b', role: 'CVE · SBOM / SAST · syslog', tag: 'sec', port: 18790, up: false, zone: 'zone B' },
+      { name: 'worker-c', role: 'backup · firmware · rollback · QA review', tag: 'gov', port: 18791, up: false, zone: 'zone C' },
     ],
-    inference: d.inference || { provider: 'nim', model: 'nemotron-3-super-120b', reachable: true },
+    // real data lives at d.sysinfo.inference (agent-dashboard.py's _sysinfo()) — the fallback below
+    // only covers the case where sysinfo itself is entirely missing, and defaults to
+    // reachable:false (fail-closed), not true: this was the actual bug (this field read the wrong
+    // path — d.inference, which never existed — so it silently used this fallback 100% of the
+    // time, and the fallback claimed reachable:true unconditionally).
+    inference: (d.sysinfo && d.sysinfo.inference) || { provider: 'nim', model: 'nemotron-3-super-120b', reachable: false },
     containers: arr(d.containers, d.stack && d.stack.containers),
     governance: {
       allowed: num(gov.allowed, d.allowed), denied: num(gov.denied, d.denied),

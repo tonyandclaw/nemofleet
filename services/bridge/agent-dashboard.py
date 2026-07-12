@@ -1157,7 +1157,8 @@ def _sysinfo():
         j = json.loads(sh("nemoclaw inference get --json 2>/dev/null", 15) or "{}")
     except Exception:
         j = {}
-    cth = ct("hermes"); code = ""
+    cth = ct("team-lead"); code = ""   # Hermes 跑在 team-lead 容器裡;容器名稱從來不含 "hermes"(見 openshell-team-lead-*),
+    # 舊的 ct("hermes") 永遠抓不到容器 → code 永遠是空字串 → reachable 永遠誤判 False,不管 NIM 真實狀態如何。
     if cth:
         code = sh(f"docker exec {cth} sh -c \"curl -s -k -m4 -o /dev/null -w '%{{http_code}}' https://inference.local/v1/models\" 2>/dev/null", 10).strip()
     info["inference"] = {"provider": j.get("provider"), "model": j.get("model"),
