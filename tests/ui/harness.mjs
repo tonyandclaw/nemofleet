@@ -56,6 +56,29 @@ export const MOCK = {
     ], latest: { ts: '2026-07-10 04:24:17', npass: 9, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 2, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 2, lessons_active: 1 } },
 };
 
+// Wait for React's async render (effects + the NF.status()/subscribe() promise) to actually
+// settle, instead of guessing a fixed delay. A fixed setTimeout(80) here used to be the source of
+// this suite's flakiness: under load (parallel test workers, a loaded CI runner) 80ms isn't always
+// enough, and WHICH view is still mid-render when the snapshot is taken varies run to run — that's
+// exactly why a different test failed each time rather than the same one every time. Poll instead:
+// keep checking rootEl's rendered text, and only stop once it's read back identical on two
+// consecutive polls (i.e. nothing changed the DOM between them) — fast when the app settles
+// quickly (most views: 1-2 polls, ~20-40ms), with real headroom (up to maxWait) when it doesn't.
+async function settle(rootEl, { maxWait = 2000, interval = 20, stableChecks = 2 } = {}) {
+  let prev = null, stable = 0;
+  const start = Date.now();
+  while (Date.now() - start < maxWait) {
+    await new Promise((r) => setTimeout(r, interval));
+    const cur = rootEl.textContent || '';
+    if (cur.length > 0 && cur === prev) {
+      if (++stable >= stableChecks) return;
+    } else {
+      stable = 0;
+    }
+    prev = cur;
+  }
+}
+
 // Boot a fresh App in jsdom at a given route + language; returns { window, root, text }.
 export async function mount({ route = 'overview', lang = 'en', theme = 'dark', close = true } = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>',
@@ -94,8 +117,8 @@ export async function mount({ route = 'overview', lang = 'en', theme = 'dark', c
   run(read('app.js'));
 
   // Let effects + the status promise flush, then snapshot and tear down (jsdom timers must not keep node alive).
-  await new Promise((r) => setTimeout(r, 80));
   const rootEl = window.document.getElementById('root');
+  await settle(rootEl);
   if (!close) {
     // live mode: caller drives interaction (e.g. click a row → drawer) then calls cleanup()
     return { window, root: rootEl, text: () => rootEl.textContent || '', cleanup: () => { try { window.close(); } catch { /* ignore */ } } };
