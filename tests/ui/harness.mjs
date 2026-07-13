@@ -54,7 +54,12 @@ export const MOCK = {
     summary: '機隊 1 台;開單 0;CVE affected 84;憑證高風險 0\n- lab-asus-ebg19p-01: offline',
     summary_en: 'Fleet: 1 device(s); open tickets 0; CVE affected 84; cert high-risk 0\n- lab-asus-ebg19p-01: offline',
     log: [] },
-  governance_c: { up: true, reviews: [], backups: [], backup_count: 0, firmware: {}, skills_count: 0, curations: [] },
+  // firmware.urgency / cve_driven mirror the REAL backend shape: the dashboard's _firmware_urgency()
+  // computes them host-side from worker-b's affected device CVEs (worker-c only reports `current`).
+  governance_c: { up: true, reviews: [], backups: [], backup_count: 0,
+    firmware: { current: '3.0.0.6.102_45537', urgency: 'critical', driven_count: 1, urgency_source: 'worker-b CVE cross-reference (host-aggregated)',
+      cve_driven: [{ cve: 'CVE-2024-6119', component: 'openssl', severity: 'critical', our_version: '3.0.12', fixed_in: '3.0.13' }] },
+    skills_count: 0, curations: [] },
   settings: {}, flow: [],
   eval: { history: [
       { ts: '2026-07-10 03:54:29', npass: 8, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 1, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 0, lessons_active: 2 },

@@ -265,6 +265,29 @@ def parse_policy(out, sandbox="team-lead"):
     p["networks"] = items
     return p
 
+def _firmware_urgency(affected):
+    """Authoritative firmware urgency, computed host-side from worker-b's currently-affected DEVICE
+    CVEs (+ their severity). It's computed HERE, not in worker-c's /firmware endpoint, because
+    worker-c (zone C) can't reach worker-b (zone B) under hub-and-spoke isolation — the dashboard is
+    the only place that sees both the device firmware version and worker-b's CVE verdicts. Honest
+    scope: this says "given N CVEs of severity S affect components in the running firmware, how urgent
+    is an update", NOT "firmware version X fixes them" (that mapping needs the ASUS firmware source,
+    still not wired — worker-c-spec §12 #3). Pure function → unit-tested (see test_dashboard_logic)."""
+    rank = {"critical": 3, "high": 2, "serious": 2, "medium": 1, "moderate": 1, "low": 0}
+    driven, top = [], 0
+    for f in affected or []:
+        s = str(f.get("severity") or "").strip().lower()
+        r = rank.get(s, 0)
+        top = max(top, r)
+        driven.append({"cve": f.get("cve"), "component": f.get("component"),
+                       "severity": f.get("severity") or "unknown",
+                       "our_version": f.get("our_version"), "fixed_in": f.get("fixed_in"), "_r": r})
+    driven.sort(key=lambda x: x["_r"], reverse=True)
+    for x in driven:
+        del x["_r"]
+    urgency = "normal" if not driven else "critical" if top >= 3 else "high" if top >= 2 else "elevated"
+    return {"urgency": urgency, "cve_driven": driven, "driven_count": len(driven)}
+
 _CLOCK = threading.Lock()
 def collect():
     # stale-while-revalidate:有資料就立刻回(過期則背景刷新),請求永不被冷收集阻塞
@@ -643,16 +666,25 @@ def _collect_impl():
     # this fix have no "sk" at all — treat them as unknown/oldest ("") rather than deriving a fake key
     # from their bare time, which can misread e.g. "23:37" as numerically larger than a real "sk".
     d["flow"] = sorted(_flow, key=lambda e: e.get("sk") or "", reverse=True)[:30]
-    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": {}, "skills_count": 0, "curations": []}
+    # authoritative firmware urgency = worker-c's real version (below) + worker-b's affected device
+    # CVEs (already in `nodes`), cross-referenced here where the host sees both. Computed even if
+    # worker-c is down, so the CVE-driven urgency still shows (just without the current version).
+    _fw_aff = next((n["cve"]["affected_list"] for n in nodes
+                    if isinstance(n.get("cve"), dict) and n["cve"].get("affected_list")), [])
+    _fwu = _firmware_urgency(_fw_aff)
+    _fwu["urgency_source"] = "worker-b CVE cross-reference (host-aggregated)"
+    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": dict(_fwu), "skills_count": 0, "curations": []}
     try:
         _rv = json.loads(_worker_get("worker-c", "/reviews", timeout=6) or "{}")
         _bk = json.loads(_worker_get("worker-c", "/backup", timeout=6) or "{}")
         _fw = json.loads(_worker_get("worker-c", "/firmware", timeout=6) or "{}")
         _sk = json.loads(_worker_get("worker-c", "/skills", timeout=6) or "{}")
         _cu = json.loads(_worker_get("worker-c", "/curations", timeout=6) or "{}")
+        # worker-c reports `current` (real version) + a note; _fwu overrides its placeholder
+        # urgency/cve_driven with the host-computed, CVE-driven values.
         _gc = {"up": bool(_rv or _bk or _fw or _sk), "reviews": _rv.get("reviews", []),
-               "backups": _bk.get("backups", []), "backup_count": _bk.get("count", 0), "firmware": _fw,
-               "skills_count": _sk.get("count", 0), "curations": _cu.get("curations", [])}
+               "backups": _bk.get("backups", []), "backup_count": _bk.get("count", 0),
+               "firmware": {**_fw, **_fwu}, "skills_count": _sk.get("count", 0), "curations": _cu.get("curations", [])}
     except Exception:
         pass
     d["governance_c"] = _gc

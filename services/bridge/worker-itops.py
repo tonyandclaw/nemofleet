@@ -2552,9 +2552,14 @@ def firmware_status():
         cur = _ebg_client().nvget("firmver") or cur
     except Exception:
         pass
-    return {"current": cur, "available": [], "urgency": "normal", "cve_driven": [],
-            "note": "ASUS 韌體來源未設定(需 worker-c-allow-firmware egress);urgency 由 worker-b CVE 驅動",
-            "note_en": "ASUS firmware source not configured (needs worker-c-allow-firmware egress); urgency is driven by worker-b's CVE findings"}
+    return {"current": cur, "available": [],
+            # urgency/cve_driven are intentionally omitted here: worker-c (zone C) can't read worker-b's
+            # (zone B) CVE results under hub-and-spoke isolation, so it can't honestly compute a
+            # CVE-driven urgency. The dashboard aggregation layer (which sees both) computes it; this
+            # endpoint only reports the real current version. (Old code returned a hardcoded
+            # urgency="normal" that looked measured but never was.)
+            "note": "此端點只回目前韌體版本;CVE 驅動的 urgency 由 dashboard 聚合層計算(worker-c 依 hub-and-spoke 隔離讀不到 worker-b 的 CVE)。ASUS 韌體來源未接(仍需 worker-c-allow-firmware egress)。",
+            "note_en": "This endpoint only reports the current firmware version; CVE-driven urgency is computed at the dashboard aggregation layer (worker-c can't read worker-b's CVE results under hub-and-spoke isolation). ASUS firmware source not wired (still needs worker-c-allow-firmware egress)."}
 def run_rollback(to, approval_token=""):
     """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。需真機驗證。"""
     if not _zone_has("rollback"):

@@ -148,5 +148,37 @@ class TestAuditChain(unittest.TestCase):
         self.assertTrue(res["ok"])
 
 
+class TestFirmwareUrgency(unittest.TestCase):
+    """_firmware_urgency() computes the Governance-view firmware urgency host-side from worker-b's
+    affected DEVICE CVEs (worker-c can't see worker-b under hub-and-spoke, so it can't do this
+    itself). Severity-weighted — the old frontend logic was "any CVE finding at all = update urgent",
+    which ignored severity entirely."""
+    def test_none_affected_is_normal(self):
+        r = d._firmware_urgency([])
+        self.assertEqual(r["urgency"], "normal")
+        self.assertEqual(r["cve_driven"], [])
+        self.assertEqual(r["driven_count"], 0)
+
+    def test_critical_wins(self):
+        r = d._firmware_urgency([{"cve": "C1", "severity": "medium"}, {"cve": "C2", "severity": "critical"}])
+        self.assertEqual(r["urgency"], "critical")
+
+    def test_high_without_critical(self):
+        self.assertEqual(d._firmware_urgency([{"cve": "C1", "severity": "high"}])["urgency"], "high")
+        # worker-b sometimes labels "serious" instead of "high" — treated equivalently
+        self.assertEqual(d._firmware_urgency([{"cve": "C1", "severity": "serious"}])["urgency"], "high")
+
+    def test_only_medium_or_unknown_is_elevated_not_normal(self):
+        # affected-but-low-severity must NOT read as "normal/up-to-date" (that would hide a real hit)
+        self.assertEqual(d._firmware_urgency([{"cve": "C1", "severity": "medium"}])["urgency"], "elevated")
+        self.assertEqual(d._firmware_urgency([{"cve": "C1", "severity": None}])["urgency"], "elevated")
+
+    def test_cve_driven_sorted_severity_first_and_no_internal_rank_leaks(self):
+        r = d._firmware_urgency([{"cve": "LOW", "severity": "low"}, {"cve": "CRIT", "severity": "critical"}])
+        self.assertEqual([x["cve"] for x in r["cve_driven"]], ["CRIT", "LOW"])
+        self.assertTrue(all("_r" not in x for x in r["cve_driven"]), "internal _r rank leaked into the payload")
+        self.assertEqual(r["driven_count"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

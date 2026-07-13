@@ -339,6 +339,11 @@ const I18N = {
   'worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.': { en: 'worker-c reviews worker-a remediations + worker-b CVE decisions against the approved baseline. reject → team-lead re-dispatches with required_fixes; 2 fails → escalate to human. human > worker-c > a/b.', zh: 'worker-c 審 worker-a remediation + worker-b CVE 決策,錨定核准 baseline。reject → team-lead 帶 required_fixes 退回重做,2 次不過升級人。人 > worker-c > a/b。' },
   'CVE-driven: worker-b flags': { en: 'CVE-driven: worker-b flags', zh: 'CVE-driven:worker-b 判' },
   '(firmware update can fix)': { en: '(firmware update can fix)', zh: '(韌體更新可修)' },
+  'update urgent': { en: 'update urgent', zh: '需儘速更新' },
+  'review': { en: 'review', zh: '待檢視' },
+  'affected': { en: 'affected', zh: '受影響' },
+  'up to date': { en: 'up to date', zh: '為最新' },
+  'No affected CVEs — firmware not CVE-urgent': { en: 'No affected CVEs — firmware not CVE-urgent', zh: '無受影響 CVE — 韌體無 CVE 急迫性' },
   'Set a new password': { en: 'Set a new password', zh: '設定新密碼' },
   'First sign-in — please replace the temporary password before continuing.': { en: 'First sign-in — please replace the temporary password before continuing.', zh: '首次登入 — 請先更換臨時密碼再繼續。' },
   'New password': { en: 'New password', zh: '新密碼' },
@@ -1528,8 +1533,13 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
   const g = d.governance_c || {};
   const reviews = g.reviews || [];
   const rejects = reviews.filter(r => r.verdict === 'reject').length;
-  const affCves = ((d.cve && d.cve.findings) || []).map(f => f.cve).filter(Boolean);
-  const fwUrgent = affCves.length > 0 || (g.firmware && g.firmware.urgency === 'high');
+  // authoritative firmware urgency: computed host-side (agent-dashboard _firmware_urgency) from
+  // worker-b's affected DEVICE CVEs weighted by severity, not the old "any CVE finding = urgent".
+  const fw = g.firmware || {};
+  const driven = fw.cve_driven || [];
+  const urgency = fw.urgency || 'normal';
+  const fwUrgent = urgency === 'critical' || urgency === 'high';
+  const fwElevated = urgency === 'elevated';
   const vPill = v => html`<span class=${'pill2 ' + (v === 'approve' ? 'g' : v === 'reject' ? 'c' : 'w')}>${v || '—'}</span>`;
   return html`<div class="viewfade">
     <div class="viewhd"><h2>Change control</h2>
@@ -1558,8 +1568,8 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
           cols=${[{ k: 'id', label: 'Backup snapshot', render: r => html`<span class="mono">${r.id}</span>` }]}/></${Panel}>`}
       ${html`<${Panel} title="Firmware" label="lifecycle · urgency driven by CVEs">
         <div style=${{ fontSize: '13px' }}>
-          <div style=${{ marginBottom: '5px' }}>${t('current')} <b class="mono ink2">${(() => { const c = g.firmware && g.firmware.current; return (!c || /unknown|未知/i.test(c)) ? t('not available') : c; })()}</b> ${fwUrgent ? html`<span class="pill2 c">update urgent</span>` : html`<span class="pill2 g">current</span>`}</div>
-          ${affCves.length ? html`<div class="muted" style=${{ fontSize: '12px' }}>${t('CVE-driven: worker-b flags')} ${affCves.length} affected → <span class="mono">${affCves.slice(0, 3).join(', ')}${affCves.length > 3 ? '…' : ''}</span> ${t('(firmware update can fix)')}</div>` : html`<div class="muted" style=${{ fontSize: '12px' }}>${(g.firmware && g.firmware.note) || t('worker-c not deployed')}</div>`}
+          <div style=${{ marginBottom: '5px' }}>${t('current')} <b class="mono ink2">${(() => { const c = fw.current; return (!c || /unknown|未知/i.test(c)) ? t('not available') : c; })()}</b> ${fwUrgent ? html`<span class="pill2 c">${t('update urgent')} · ${urgency}</span>` : fwElevated ? html`<span class="pill2 w">${t('review')}</span>` : html`<span class="pill2 g">${t('up to date')}</span>`}</div>
+          ${driven.length ? html`<div class="muted" style=${{ fontSize: '12px' }}>${t('CVE-driven: worker-b flags')} ${driven.length} ${t('affected')} → <span class="mono">${driven.slice(0, 3).map(c => c.cve + (c.severity && c.severity !== 'unknown' ? '(' + c.severity + ')' : '')).join(', ')}${driven.length > 3 ? '…' : ''}</span></div>` : html`<div class="muted" style=${{ fontSize: '12px' }}>${t('No affected CVEs — firmware not CVE-urgent')}</div>`}
         </div></${Panel}>`}
       ${html`<${Panel} title="Skills · curator (SkillOS)" label="skill-repo governance · arXiv 2605.06614" right=${html`<span class="lbl">${g.skills_count || 0} skills</span>`}>
         <${DataTable} rows=${g.curations || []} pageSize=${6} empty="No skill-curation verdicts yet (worker-c not deployed)."
