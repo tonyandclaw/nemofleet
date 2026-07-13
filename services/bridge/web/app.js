@@ -792,6 +792,19 @@ const OverviewView = memo(function OverviewView({ d }) {
   </div>`;
 });
 
+// Spark — compact inline-SVG sparkline (no Chart.js) for the device-health metric cells. Renders
+// the real rolling series (d.devices[].history, from agent-dashboard DEV_HIST); nothing until ≥2
+// real points exist, so an offline/just-started device shows a number with no fabricated trend.
+const Spark = memo(function Spark({ values, w = 62, h = 16, color = 'var(--accent)' }) {
+  const vals = (values || []).filter(v => typeof v === 'number');
+  if (vals.length < 2) return html`<div style=${{ height: h + 'px' }}></div>`;
+  const min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1;
+  const pts = vals.map((v, i) => ((i / (vals.length - 1)) * w).toFixed(1) + ',' + (h - 1.5 - ((v - min) / rng) * (h - 3)).toFixed(1)).join(' ');
+  return html`<svg width=${w} height=${h} viewBox=${'0 0 ' + w + ' ' + h} preserveAspectRatio="none" style=${{ display: 'block', marginTop: '3px' }} aria-hidden="true">
+    <polyline points=${pts} fill="none" stroke=${color} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+});
+
 const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
   const dev = devices[0] || {};
   return html`<${Panel} title="Agent fleet" label=${t('Hermes harness') + ' ×' + nodes.length}>
@@ -807,8 +820,8 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
     <div class="device clickcard" onClick=${() => openDrawer({ title: t('Device detail'), sub: dev.model || 'EBG19P', rows: [
         { k: t('asset'), v: dev.asset || 'lab-asus-ebg19p-01', mono: true }, { k: t('model'), v: dev.model || 'EBG19P' }, { k: t('firmware'), v: dev.firmware || '—', mono: true },
         { k: t('CPU'), v: dev.cpu == null ? '—' : dev.cpu + ' %' }, { k: t('MEM'), v: dev.mem == null ? '—' : dev.mem + ' %' }, { k: t('TEMP'), v: dev.temp == null ? '—' : dev.temp + ' °C' }, { k: t('online'), v: statusBullet(dev.online === true, t('online'), t('offline')) } ] })}><div class="metrics">
-      ${[['CPU', dev.cpu, '%'], ['MEM', dev.mem, '%'], ['TEMP', dev.temp, '°C']].map(([k, v, u]) =>
-    html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div></div>`)}
+      ${[['CPU', dev.cpu, '%', 'cpu', 'var(--s-blue)'], ['MEM', dev.mem, '%', 'mem', 'var(--accent)'], ['TEMP', dev.temp, '°C', 'temp', 'var(--warn)']].map(([k, v, u, key, col]) =>
+    html`<div key=${k} class="metric"><div class="num">${v ?? '—'}<span style=${{ fontSize: '11px', color: 'var(--ink3)' }}>${u}</span></div><div class="lbl">${k}</div><${Spark} values=${(dev.history || []).map(p => p[key])} color=${col}/></div>`)}
     </div></div>
     <div style=${{ fontSize: '12px', color: 'var(--ink2)', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
       <${Dot} s=${dev.online === true ? 'on' : 'off'}/> ASUS ExpertWiFi <b style=${{ color: 'var(--ink)' }}>${dev.model || 'EBG19P'}</b>

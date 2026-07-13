@@ -31,7 +31,11 @@ export const MOCK = {
     { name: 'worker-b', role: '資安 / 原始碼分析', role_en: 'security / source analysis', tag: 'sec', port: 18792, up: true, zone: 'zone B', caps: ['cve', 'nuclei'] },
     { name: 'worker-c', role: '變更治理 / QA 監督', role_en: 'change governance / QA oversight', tag: 'gov', port: 18793, up: true, zone: 'zone C', caps: ['review', 'backup', 'curate'] },
   ],
-  devices: [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', online: false, cpu: null, mem: null, temp: null, firmware: null }],
+  // history = the rolling device-health series (agent-dashboard DEV_HIST) the Fleet sparklines read.
+  // Offline device still carries its last-known series (real past data, not fabricated) — matches the
+  // backend, which keeps attaching history after a device drops but stops appending new points.
+  devices: [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', online: false, cpu: null, mem: null, temp: null, firmware: null,
+    history: [{ ts: '13:59', cpu: 22, mem: 61, temp: 58 }, { ts: '14:00', cpu: 28, mem: 62, temp: 59 }, { ts: '14:01', cpu: 19, mem: 60, temp: 58 }, { ts: '14:02', cpu: 34, mem: 63, temp: 61 }] }],
   containers: [{ name: 'openshell-worker-a-2b91', state: 'up 6d', image: 'openshell/sandbox:2026.4' }],
   // mirrors the REAL backend shape (agent-dashboard.py): governance has NO `coverage` and NO
   // `series_allowed` — the allowed-over-time series lives at top-level `history.allowed` (one point

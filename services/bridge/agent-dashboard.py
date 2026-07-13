@@ -42,6 +42,7 @@ WD = "/sandbox/.hermes/workspace/it-task"
 _CACHE = {"ts": 0, "data": None}
 _COLLECT_TTL = int(os.environ.get("DASH_COLLECT_TTL", "5"))   # SWR 背景刷新間隔(秒);搭配 streamer 5s + 前端 5s 輪詢
 HISTORY = []
+DEV_HIST = {}   # asset -> rolling [{ts, cpu, mem, temp}] device-health series (last ~40) for the Fleet sparklines; same in-memory-per-collect pattern as HISTORY
 try:                                                  # 真 NemoClaw/worker 家族品牌圖(🦞 Claw logo)
     BRAND_SVG = open(f"{BRIDGE}/assets/brand.svg", encoding="utf-8").read()
 except Exception:
@@ -443,6 +444,16 @@ def _collect_impl():
                          "cpu": _h.get("cpu_pct"), "mem": _h.get("ram_pct"), "temp": _h.get("temp_c"),
                          "firmware": _h.get("firmver")}
     d["devices"] = list(_devs.values())
+    # rolling device-health series for the Fleet sparklines. Append a point only while online with at
+    # least one real metric (offline → don't advance the trend, but still attach the last-known series
+    # so the card shows the history up to when it dropped — honest, not fabricated).
+    for _dev in d["devices"]:
+        _a = _dev["asset"]
+        if _dev.get("online") and any(_dev.get(k) is not None for k in ("cpu", "mem", "temp")):
+            _ser = DEV_HIST.setdefault(_a, [])
+            _ser.append({"ts": time.strftime("%H:%M:%S"), "cpu": _dev.get("cpu"), "mem": _dev.get("mem"), "temp": _dev.get("temp")})
+            del _ser[:-40]
+        _dev["history"] = DEV_HIST.get(_a, [])
     d["settings"] = (ep(cto, "/settings") if cto else {}) or {}   # 管理設定(讀 node A;兩台同步)
     d["mttr_n"] = 0   # 動態 MTTR:讀 node A 的 fix-history 近 N 次成功修復取平均(無紀錄→保留 44 秒基準)
     try:
