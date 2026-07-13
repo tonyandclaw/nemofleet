@@ -684,18 +684,20 @@ def _collect_impl():
                     if isinstance(n.get("cve"), dict) and n["cve"].get("affected_list")), [])
     _fwu = _firmware_urgency(_fw_aff)
     _fwu["urgency_source"] = "worker-b CVE cross-reference (host-aggregated)"
-    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": dict(_fwu), "skills_count": 0, "curations": []}
+    _gc = {"up": False, "reviews": [], "backups": [], "backup_count": 0, "firmware": dict(_fwu), "skills_count": 0, "curations": [], "rollbacks": []}
     try:
         _rv = json.loads(_worker_get("worker-c", "/reviews", timeout=6) or "{}")
         _bk = json.loads(_worker_get("worker-c", "/backup", timeout=6) or "{}")
         _fw = json.loads(_worker_get("worker-c", "/firmware", timeout=6) or "{}")
         _sk = json.loads(_worker_get("worker-c", "/skills", timeout=6) or "{}")
         _cu = json.loads(_worker_get("worker-c", "/curations", timeout=6) or "{}")
+        _ro = json.loads(_worker_get("worker-c", "/rollbacks", timeout=6) or "{}")
         # worker-c reports `current` (real version) + a note; _fwu overrides its placeholder
         # urgency/cve_driven with the host-computed, CVE-driven values.
         _gc = {"up": bool(_rv or _bk or _fw or _sk), "reviews": _rv.get("reviews", []),
                "backups": _bk.get("backups", []), "backup_count": _bk.get("count", 0),
-               "firmware": {**_fw, **_fwu}, "skills_count": _sk.get("count", 0), "curations": _cu.get("curations", [])}
+               "firmware": {**_fw, **_fwu}, "skills_count": _sk.get("count", 0),
+               "curations": _cu.get("curations", []), "rollbacks": _ro.get("rollbacks", [])}
     except Exception:
         pass
     d["governance_c"] = _gc

@@ -98,6 +98,16 @@ test('fleet shows connected clients with the unauthorized flag', async () => {
   assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
 });
 
+// ── rollback read-back verification surfaces in Change control (verified vs mismatch) ──
+test('change control shows rollback read-back verification', async () => {
+  const { text } = await mount({ route: 'changectrl', lang: 'en' });
+  const t = text();
+  assert.ok(t.includes('Rollbacks'), 'rollbacks panel missing');
+  assert.ok(t.includes('bk-20260712-143000'), 'a rollback row did not render');
+  assert.ok(/verified/i.test(t), 'verified read-back not shown');
+  assert.ok(t.includes('mismatch'), 'a mismatched rollback is not flagged');
+});
+
 // ── governance + admin wire in their editor sub-panels (POLSB-undefined regression) ──
 // (static: the deep async panels don't flush in jsdom's tick; render is verified by screenshots)
 test('GovernanceView wires PolicyEditor + GovActionsPanel', () => {

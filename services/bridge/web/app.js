@@ -357,6 +357,8 @@ const I18N = {
   'Set password': { en: 'Set password', zh: '設定密碼' },
   'Saving…': { en: 'Saving…', zh: '儲存中…' },
   'Failed': { en: 'Failed', zh: '失敗' },
+  'mismatch': { en: 'mismatch', zh: '不符' },
+  'unconfirmed': { en: 'unconfirmed', zh: '未確認' },
   'clean': { en: 'clean', zh: '無警示' },
   'weak certificate / crypto warning(s)': { en: 'weak certificate / crypto warning(s)', zh: '個憑證 / 加密弱點警示' },
   'weak cipher / expiring / untrusted — worker-a flags these against the crypto baseline': { en: 'weak cipher / expiring / untrusted — worker-a flags these against the crypto baseline', zh: '弱加密 / 即將到期 / 不受信任 — worker-a 依加密基準標記' },
@@ -1592,6 +1594,19 @@ const ChangeCtrlView = memo(function ChangeCtrlView({ d }) {
         </div>
         <${DataTable} rows=${(g.backups || []).map(b => ({ id: b }))} pageSize=${6} empty="No backups yet (needs device + EBG19P_CRED)."
           cols=${[{ k: 'id', label: 'Backup snapshot', render: r => html`<span class="mono">${r.id}</span>` }]}/></${Panel}>`}
+      ${html`<${Panel} title="Rollbacks" label="restore + read-back verification (worker-c-spec §12 #4)">
+        <${DataTable} rows=${g.rollbacks || []} pageSize=${6} empty="No rollbacks yet (human-approved, high-risk)."
+          cols=${[
+            { k: 'ts', label: 'Time', render: r => html`<span class="mono">${(r.ts || '').replace('T', ' ')}</span>` },
+            { k: 'restored_to', label: 'Backup', render: r => html`<span class="mono">${r.restored_to || '—'}</span>` },
+            { k: 'verified', label: 'Read-back', align: 'right', render: r => {
+                if (!r.ok) return html`<span class="pill2 c">${t('Failed')}</span>`;
+                const v = r.verify || {};
+                if (r.verified) return html`<span class="pill2 g">${t('✓ verified')} ${v.match ?? ''}/${v.checked ?? ''}</span>`;
+                if (v.mismatch && v.mismatch.length) return html`<span class="pill2 c">${v.mismatch.length} ${t('mismatch')}</span>`;
+                return html`<span class="pill2 w">${t('unconfirmed')} ${(v.inconclusive && v.inconclusive.length) || 0}</span>`;
+              } },
+          ]}/></${Panel}>`}
       ${html`<${Panel} title="Firmware" label="lifecycle · urgency driven by CVEs">
         <div style=${{ fontSize: '13px' }}>
           <div style=${{ marginBottom: '5px' }}>${t('current')} <b class="mono ink2">${(() => { const c = fw.current; return (!c || /unknown|未知/i.test(c)) ? t('not available') : c; })()}</b> ${fwUrgent ? html`<span class="pill2 c">${t('update urgent')} · ${urgency}</span>` : fwElevated ? html`<span class="pill2 w">${t('review')}</span>` : html`<span class="pill2 g">${t('up to date')}</span>`}</div>

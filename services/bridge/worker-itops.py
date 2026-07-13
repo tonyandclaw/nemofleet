@@ -2560,8 +2560,70 @@ def firmware_status():
             # urgency="normal" that looked measured but never was.)
             "note": "此端點只回目前韌體版本;CVE 驅動的 urgency 由 dashboard 聚合層計算(worker-c 依 hub-and-spoke 隔離讀不到 worker-b 的 CVE)。ASUS 韌體來源未接(仍需 worker-c-allow-firmware egress)。",
             "note_en": "This endpoint only reports the current firmware version; CVE-driven urgency is computed at the dashboard aggregation layer (worker-c can't read worker-b's CVE results under hub-and-spoke isolation). ASUS firmware source not wired (still needs worker-c-allow-firmware egress)."}
+ROLLBACK_HISTORY = f"{WD}/rollback-history.jsonl"
+def _rollback_readback(cfg, read_key, login=None, settle=8, passes=4, gap=2):
+    """Read-back verification for run_rollback (spec §12 #4): re-read every restored key and classify
+    it match / mismatch / inconclusive. `inconclusive` (couldn't read the value) is NOT a rollback
+    failure — the EBG19P allows one session and the host streamer grabs it ~every 5s, kicking our
+    token; so, exactly like worker-a's remediation read-back, we re-login() each pass and batch-read
+    all still-unconfirmed keys per login window, retrying a bounded number of passes. Pure w.r.t. the
+    injected read_key/login callables (settle/gap sleeps overridable) → unit-tested without a device."""
+    want = {str(k): v for k, v in (cfg or {}).items()}
+    got = {}
+    if settle:
+        time.sleep(settle)   # let restart_all bring subsystems back before reading
+    for _ in range(passes):
+        pending = [k for k in want if str(got.get(k)) != str(want[k])]
+        if not pending:
+            break
+        if login:
+            try:
+                login()   # re-auth per pass to win the session back from the streamer
+            except Exception:
+                if gap:
+                    time.sleep(gap)
+                continue
+        for k in pending:
+            try:
+                v = read_key(k)
+            except Exception:
+                v = None
+            if v is not None and v != "":
+                got[k] = v
+        if gap:
+            time.sleep(gap)
+    match, mismatch, inconclusive = [], [], []
+    for k, w in want.items():
+        g = got.get(k)
+        if g is None:
+            inconclusive.append(k)
+        elif str(g) == str(w):
+            match.append(k)
+        else:
+            mismatch.append({"key": k, "want": w, "got": g})
+    verified = bool(match) and not mismatch and not inconclusive
+    return {"verified": verified, "checked": len(want), "match": len(match),
+            "mismatch": mismatch, "inconclusive": inconclusive}
+
+def _record_rollback(rec):
+    try:
+        os.makedirs(WD, exist_ok=True)
+        with open(ROLLBACK_HISTORY, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        sh(f"chown 998:998 {ROLLBACK_HISTORY} 2>/dev/null")
+    except Exception as e:
+        print("[rollback-persist]", e, flush=True)
+
+def load_rollbacks():
+    try:
+        rows = [json.loads(l) for l in open(ROLLBACK_HISTORY, encoding="utf-8") if l.strip()]
+    except Exception:
+        rows = []
+    return {"count": len(rows), "rollbacks": rows[-20:][::-1]}   # most-recent-first, capped
+
 def run_rollback(to, approval_token=""):
-    """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。需真機驗證。"""
+    """還原某備份到 EBG19P。高風險 → 需 approval_token(人核准)。套用後做讀回驗證(spec §12 #4):
+    重讀還原的鍵、確認裝置真的回到目標值,結果記入 rollback-history.jsonl 供 GUI 顯示。"""
     if not _zone_has("rollback"):
         return {"ok": False, "note": "rollback 屬 zone C 職責", "note_en": "rollback is zone C's job", "zone": ZONE}
     av = _approval_verify_and_record(approval_token, "rollback", {"to": to})
@@ -2577,11 +2639,22 @@ def run_rollback(to, approval_token=""):
         return {"ok": False, "error": "找不到備份 %s" % to, "error_en": "Backup not found: %s" % to}
     try:
         bk = json.load(open(p, encoding="utf-8"))
+        cfg = bk.get("config") or {}
         c = _ebg_client()
-        c.apply("restart_all", list((bk.get("config") or {}).items()), wait=15)
-        return {"ok": True, "restored_to": to, "keys": len(bk.get("config") or {}), "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        c.apply("restart_all", list(cfg.items()), wait=15)
+        # apply() done → rollback IS applied; `ok` reflects that. `verified` is a SEPARATE, honest
+        # read-back result (not blindly asserting success) — the operator sees match/mismatch/unread.
+        v = _rollback_readback(cfg, c.nvget, login=c.login)
+        res = {"ok": True, "verified": v["verified"], "restored_to": to, "keys": len(cfg),
+               "verify": v, "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        _record_rollback(res)
+        return res
     except Exception as e:
-        return {"ok": False, "error": "rollback 失敗(需真機):%s" % e, "error_en": "Rollback failed (needs a real device): %s" % e}
+        res = {"ok": False, "restored_to": to, "verified": False,
+               "error": "rollback 失敗(需真機):%s" % e, "error_en": "Rollback failed (needs a real device): %s" % e,
+               "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        _record_rollback(res)
+        return res
 REVIEWS = []
 def run_review(kind, subject):
     """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層;記入 REVIEWS 供 console。"""
@@ -2792,6 +2865,10 @@ class H(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})
             self._send(200, {"curations": CURATIONS[-30:]})
+        elif self.path == "/rollbacks":   # worker-c 最近的 rollback + 讀回驗證結果(console)
+            if not self._authed():
+                return self._send(403, {"error": "X-Bridge-Token required"})
+            self._send(200, load_rollbacks())
         elif self.path == "/jira":   # 升級工單佇列(桌面顯示「修不了→開單」用)
             if not self._authed():
                 return self._send(403, {"error": "X-Bridge-Token required"})

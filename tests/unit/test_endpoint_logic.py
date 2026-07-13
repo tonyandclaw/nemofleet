@@ -189,6 +189,49 @@ class TestRunRollbackValidation(unittest.TestCase):
         self.assertIn("approval_token", r["error"])
 
 
+class TestRollbackReadback(unittest.TestCase):
+    """_rollback_readback() re-reads restored keys after a rollback apply and classifies each as
+    match / mismatch / inconclusive. The key design point (mirroring worker-a's remediation): a key
+    it can't read is `inconclusive` — the EBG19P's single session is contended by the host streamer —
+    NOT a mismatch, so session contention can't be misreported as a failed rollback. settle/gap are
+    forced to 0 here so the test doesn't actually sleep."""
+    def _run(self, cfg, values, passes=4):
+        seen = {}
+        def reader(k):
+            v = values.get(k)
+            if isinstance(v, list):
+                i = seen.get(k, 0); seen[k] = i + 1
+                return v[min(i, len(v) - 1)]
+            return v
+        return w._rollback_readback(cfg, reader, login=lambda: None, settle=0, gap=0, passes=passes)
+
+    def test_all_match_is_verified(self):
+        r = self._run({"a": "1", "b": "0"}, {"a": "1", "b": "0"})
+        self.assertTrue(r["verified"])
+        self.assertEqual(r["match"], 2)
+        self.assertEqual(r["mismatch"], [])
+        self.assertEqual(r["inconclusive"], [])
+
+    def test_mismatch_is_not_verified(self):
+        r = self._run({"a": "1"}, {"a": "9"})
+        self.assertFalse(r["verified"])
+        self.assertEqual([m["key"] for m in r["mismatch"]], ["a"])
+        self.assertEqual(r["mismatch"][0]["want"], "1")
+        self.assertEqual(r["mismatch"][0]["got"], "9")
+
+    def test_unreadable_key_is_inconclusive_not_mismatch(self):
+        r = self._run({"a": "1"}, {"a": None})
+        self.assertFalse(r["verified"])
+        self.assertEqual(r["inconclusive"], ["a"])
+        self.assertEqual(r["mismatch"], [])
+
+    def test_retries_across_passes_until_value_appears(self):
+        # first two reads come back None (session busy), third returns the target → verified
+        r = self._run({"a": "1"}, {"a": [None, None, "1"]})
+        self.assertTrue(r["verified"])
+        self.assertEqual(r["match"], 1)
+
+
 class TestPruneBackups(unittest.TestCase):
     """_prune_backups() runs after every run_backup() (schedule or api-triggered) and deletes the
     oldest snapshot files once the count exceeds backup_retain_count, keeping storage bounded

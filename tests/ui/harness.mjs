@@ -70,7 +70,13 @@ export const MOCK = {
   governance_c: { up: true, reviews: [], backups: [], backup_count: 0,
     firmware: { current: '3.0.0.6.102_45537', urgency: 'critical', driven_count: 1, urgency_source: 'worker-b CVE cross-reference (host-aggregated)',
       cve_driven: [{ cve: 'CVE-2024-6119', component: 'openssl', severity: 'critical', our_version: '3.0.12', fixed_in: '3.0.13' }] },
-    skills_count: 0, curations: [] },
+    skills_count: 0, curations: [],
+    // rollbacks mirror run_rollback's read-back result shape (verify.match/mismatch/inconclusive):
+    // one fully verified, one with a real mismatch + an unread (inconclusive) key.
+    rollbacks: [
+      { ts: '2026-07-13T09:15:02', ok: true, verified: true, restored_to: 'bk-20260712-143000', keys: 12, verify: { verified: true, checked: 12, match: 12, mismatch: [], inconclusive: [] } },
+      { ts: '2026-07-12T22:04:11', ok: true, verified: false, restored_to: 'bk-20260712-120000', keys: 12, verify: { verified: false, checked: 12, match: 10, mismatch: [{ key: 'wps_enable', want: '0', got: '1' }], inconclusive: ['sshd_enable'] } },
+    ] },
   settings: {}, flow: [],
   eval: { history: [
       { ts: '2026-07-10 03:54:29', npass: 8, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 1, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 0, lessons_active: 2 },

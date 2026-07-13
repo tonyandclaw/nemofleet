@@ -48,7 +48,7 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 - 入:`{"to": "bk-<id>", "approval_token": "<單次核發、綁定 to、有時效的 token,見第 7 節>"}`
 - 讀該備份的存檔設定,呼叫真機 `c.apply("restart_all", ..., wait=15)`。
 - 回:`{"ok": true, "restored_to": to, "keys": N, "ts": ...}`,或失敗時 `{"ok": false, "error": "...", "error_en": "..."}`。
-- **沒有 `verify` 欄位** —— 套用後不會重讀裝置設定去確認真的回到目標狀態,只要 `.apply()` 沒丟例外就回報成功。
+- **有 `verify` 讀回驗證欄位(2026-07-13 加)** —— 套用後會重讀每個還原的鍵、確認裝置真的回到目標值,回 `{"verified": bool, "verify": {checked, match, mismatch, inconclusive}}`。`inconclusive`(讀不到)不算失敗,而是 EBG19P 單一 session 被 host streamer 搶走(跟 worker-a remediation 同一套「每回合重登再批次讀」的做法)。`ok`(有沒有套用)與 `verified`(有沒有讀回確認)是分開的兩件事。結果落地 `rollback-history.jsonl`,`GET /rollbacks` 給 GUI 的 Change control「Rollbacks」面板顯示。
 
 ### `POST /review` —— 監督核心(內容與原規格一致,見第 3 節)
 - 入:`{"kind": "remediation|cve|source", "subject": <被審的 a/b 產出>}`(目前實作沒有 `"health"` kind,也沒有 `target`/`context` 參數,呼叫端不需要傳)。
@@ -263,10 +263,10 @@ sequenceDiagram
 ```
 
 **要把這條鏈接成真的**,依實作難度大致排序:
-1. `/firmware` 真的讀 worker-b 的 CVE 結果算 `urgency`/`cve_driven`(worker-b 的資料已經存在,只差把它接進來)。
+1. ~~`/firmware` 真的讀 worker-b 的 CVE 結果算 `urgency`/`cve_driven`~~ —— **已完成**(2026-07-13):在 dashboard 聚合層算(worker-c 依隔離讀不到 worker-b),依 CVE 嚴重度算 urgency,Governance 韌體面板顯示受影響 CVE。
 2. 寫 `scripts/worker-c-allow-firmware.sh`,做真的韌體來源 egress。
 3. 實作 `/firmware-stage`(下載 + 驗簽)與真的 `/firmware-apply`(套用 + 讀回驗證 + 失敗自動 `/rollback`)。
-4. 幫 `rollback` 加讀回驗證(`verify` 欄位)。
+4. ~~幫 `rollback` 加讀回驗證(`verify` 欄位)~~ —— **已完成**(2026-07-13,見第 2 節 `/rollback`:`_rollback_readback` + `rollback-history.jsonl` + `GET /rollbacks` + GUI 面板)。
 5. ~~`approval_token` 升級成細粒度核准(單次簽發、綁定特定動作內容、有時效、可追溯核發人)~~ ——
    **已完成**(見第 7 節,2026-07-11:`wi_approval.py` + `firmware-approval` SKILL)。剩下不是密碼學能保證的
    環節見第 7 節結尾:「team-lead 是否真的先問了人」仍是行為約定,不是 token 驗證能強制的;要補這段
