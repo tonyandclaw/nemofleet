@@ -97,7 +97,7 @@ worker-c 是「**已知良好狀態的守門人**」:一面掌管**生命週期*
 
 - `redo_cap` 預設 `2`。同一 `(kind, subject_ref)` 累積被 reject 次數 `redo_count`;**`escalate = redo_count > redo_cap`**,也就是**第 3 次被拒才升級**,不是第 2 次。（本文件先前版本的循序圖標成「`redo_count ≥ N`」,對照 N=2 會讓人以為第 2 次就升級 —— 以程式碼行為為準:第 3 次。）
 - escalate 時 `required_fixes`/`required_fixes_en` 會被覆寫成制式訊息:「重做已達上限,停止重派,升級真人」。
-- **redo 歷史是純記憶體狀態**(`worker-itops.py` 的全域 `REVIEWS` list,只留最近 40 筆),**worker-c 的沙箱一重啟,所有升級計數就歸零** —— 沒有落地持久化,這點原規格沒提到,是實務上的已知限制。
+- ~~**redo 歷史是純記憶體狀態**,worker-c 沙箱一重啟升級計數就歸零~~ —— **已修(2026-07-14)**:`REVIEWS`/`CURATIONS` 現在落地 `review-history.jsonl`/`curation-history.jsonl`,啟動時從檔案還原進 ring,重啟後判決與 redo 計數都在。
 
 ---
 
@@ -135,7 +135,7 @@ sequenceDiagram
 | 護欄 | 規則 | 實作狀態 |
 |---|---|---|
 | **重做上限** | 第 3 次仍不過 → 升級真人(不無限迴圈) | ☑ |
-| **判決可稽核** | 每個 verdict 進既有 tamper-evident audit chain | ◐ `/review`/`/skill-review` 的判決有記進 in-memory 的 `REVIEWS`/`CURATIONS` ring(供 console 顯示),**但沒有寫進 `agent-dashboard.py` 的 tamper-evident audit chain**(那條鏈目前只收 admin 操作,不收 worker-c 判決) |
+| **判決可稽核** | 每個 verdict 進既有 tamper-evident audit chain | ☑ 已修(2026-07-14):dashboard 每次輪詢把新的治理判決(review / curate / rollback / guardrail block)以 `gov-*` action append 進 `agent-dashboard.py` 那條 HMAC 防竄改鏈(`_governance_ledger_entries`,純函式去重 + backfill)。Audit 分頁有 all/gov/admin 篩選,治理判決與 admin 操作共用同一條可驗證帳本 |
 | **c 的高風險動作要人核准** | `firmware-apply` / `rollback` 需 `approval_token` | ☑ 每次核發、綁定動作+參數、有時效、單次使用、可追溯核發人(`wi_approval.py` + `firmware-approval` SKILL,見第 7 節)。未被密碼學保證的環節:team-lead 是否真的先問了人(見第 7 節結尾誠實說明) |
 | **人可覆寫** | 品質層級:人 > c > a/b | ☑(架構上成立;approval_token 現在綁定到具體動作內容 + 單次使用,粒度到位) |
 

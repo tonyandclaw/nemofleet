@@ -289,6 +289,55 @@ def _firmware_urgency(affected):
     urgency = "normal" if not driven else "critical" if top >= 3 else "high" if top >= 2 else "elevated"
     return {"urgency": urgency, "cve_driven": driven, "driven_count": len(driven)}
 
+GOV_SEEN_FILE = os.environ.get("DASH_GOV_SEEN_FILE") or os.path.expanduser("~/.config/nemoclaw/gov-ledger-seen.json")
+def _load_gov_seen():
+    try:
+        return list(json.load(open(GOV_SEEN_FILE, encoding="utf-8")).get("seen", []))
+    except Exception:
+        return []
+def _save_gov_seen(lst):
+    try:
+        os.makedirs(os.path.dirname(GOV_SEEN_FILE), exist_ok=True)
+        with open(GOV_SEEN_FILE, "w", encoding="utf-8") as f:
+            json.dump({"seen": lst[-2000:]}, f)   # FIFO cap ≫ the ~140 events ever in the fetch window at once → a fp never ages out before its source event does
+    except Exception as ex:
+        print("[gov-ledger] seen persist:", ex, flush=True)
+
+def _governance_ledger_entries(d, seen_list):
+    """Pure: from the already-fetched governance stores (worker-c reviews / curations / rollbacks +
+    worker-a guardrail blocks), return the NEW binding decisions to append to the tamper-evident
+    audit chain, deduped against `seen_list` fingerprints. Chaining these into the SAME hash chain as
+    admin ops (worker-c-spec §6) makes the Audit view one verifiable governance ledger. Returns
+    (entries, updated_seen) — each entry is {actor, action, detail, ok}. Unit-tested; the actual
+    audit() append happens in collect() (audit() is lock-protected)."""
+    gc = d.get("governance_c") or {}
+    gr = d.get("guardrail") or {}
+    seen = set(seen_list); order = list(seen_list); out = []
+    def add(fp, actor, action, detail, ok):
+        if fp and fp not in seen:
+            seen.add(fp); order.append(fp)
+            out.append({"actor": actor, "action": action, "detail": detail, "ok": ok})
+    for r in gc.get("reviews", []):
+        k = r.get("ts_iso") or r.get("ts") or ""
+        add("rev:%s:%s:%s" % (k, r.get("ref"), r.get("verdict")), "worker-c", "gov-review",
+            "%s %s %s → %s (score %s)" % (r.get("kind", ""), r.get("target", ""), r.get("ref", ""), r.get("verdict", ""), r.get("score", "")),
+            r.get("verdict") == "approve")
+    for c in gc.get("curations", []):
+        k = c.get("ts_iso") or c.get("ts") or ""
+        add("cur:%s:%s:%s" % (k, c.get("name"), c.get("verdict")), "worker-c", "gov-curate",
+            "%s %s → %s" % (c.get("op", ""), c.get("name", ""), c.get("verdict", "")),
+            c.get("verdict") == "approve")
+    for rb in gc.get("rollbacks", []):
+        add("rbk:%s:%s" % (rb.get("ts"), rb.get("restored_to")), "worker-c", "gov-rollback",
+            "%s verified=%s" % (rb.get("restored_to", ""), rb.get("verified")),
+            bool(rb.get("ok") and rb.get("verified")))
+    for g in gr.get("recent", []):
+        if g.get("verdict") != "block":
+            continue
+        add("grd:%s:%s" % (g.get("ts"), (g.get("reason") or "")[:60]), "worker-a", "gov-guardrail-block",
+            "%s: %s" % (g.get("category", ""), g.get("reason", "")), False)
+    return out, order
+
 _CLOCK = threading.Lock()
 def collect():
     # stale-while-revalidate:有資料就立刻回(過期則背景刷新),請求永不被冷收集阻塞
@@ -704,6 +753,17 @@ def _collect_impl():
     except Exception:
         pass
     d["governance_c"] = _gc
+    # unified governance ledger: append NEW worker-c / guardrail binding decisions into the same
+    # tamper-evident HMAC chain as admin ops (§6). Decision is pure (dedup); audit() is lock-protected.
+    try:
+        _seen0 = _load_gov_seen()
+        _gov_new, _seen1 = _governance_ledger_entries(d, _seen0)
+        for _e in _gov_new:
+            audit(_e["actor"], _e["action"], _e["detail"], "", _e["ok"])
+        if _gov_new:
+            _save_gov_seen(_seen1)
+    except Exception as _gex:
+        print("[gov-ledger]", _gex, flush=True)
     try:
         _eh = [json.loads(l) for l in open(f"{DIR}/eval/ledgers/history.jsonl", encoding="utf-8") if l.strip()][-30:]
     except Exception:

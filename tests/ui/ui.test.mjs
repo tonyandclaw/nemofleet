@@ -98,6 +98,14 @@ test('fleet shows connected clients with the unauthorized flag', async () => {
   assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
 });
 
+// ── Audit view is now a unified governance ledger (admin ops + gov-* verdicts, tamper-evident) ──
+test('audit view surfaces governance decisions in the tamper-evident chain', async () => {
+  const { text } = await mount({ route: 'audit', lang: 'en' });
+  const t = text();
+  assert.ok(/governance decisions/i.test(t), 'governance-decisions count not shown');
+  assert.ok(t.includes('gov-review') || t.includes('gov-rollback') || t.includes('gov-guardrail-block'), 'no gov-* verdict rendered in the chain');
+});
+
 // ── Guardrail tab surfaces decisions, the fail-open count, and the red-team catch rate ──
 test('guardrail tab shows decisions, fail-open, and red-team catch rate', async () => {
   const { text } = await mount({ route: 'guardrail', lang: 'en' });

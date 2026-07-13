@@ -148,6 +148,44 @@ class TestAuditChain(unittest.TestCase):
         self.assertTrue(res["ok"])
 
 
+class TestGovernanceLedger(unittest.TestCase):
+    """_governance_ledger_entries() turns the already-fetched governance stores into the NEW binding
+    decisions to append to the tamper-evident chain, deduped against a seen-set. It must chain every
+    kind (review/curate/rollback/guardrail-block), skip guardrail ALLOWs, and never re-chain an event
+    it has already recorded (idempotent across polls) — otherwise the ledger would grow every 5s."""
+    def _d(self):
+        return {"governance_c": {
+                    "reviews": [{"ts_iso": "2026-07-14T10:00:00", "kind": "remediation", "target": "worker-a", "ref": "ebg-wps", "verdict": "reject", "score": 50}],
+                    "curations": [{"ts_iso": "2026-07-14T10:01:00", "op": "insert", "name": "foo", "verdict": "approve"}],
+                    "rollbacks": [{"ts": "2026-07-14T10:02:00", "restored_to": "bk-1", "ok": True, "verified": True}]},
+                "guardrail": {"recent": [
+                    {"ts": "2026-07-14T10:03:00", "verdict": "block", "category": "destructive", "reason": "factory reset"},
+                    {"ts": "2026-07-14T10:04:00", "verdict": "allow", "category": "ok", "reason": "ok"}]}}
+
+    def test_chains_all_kinds_and_skips_allows(self):
+        entries, seen = d._governance_ledger_entries(self._d(), [])
+        actions = sorted(e["action"] for e in entries)
+        self.assertEqual(actions, ["gov-curate", "gov-guardrail-block", "gov-review", "gov-rollback"])
+        # verdict → ok mapping: reject/block are ok=False, approve/verified rollback are ok=True
+        by = {e["action"]: e["ok"] for e in entries}
+        self.assertFalse(by["gov-review"]); self.assertFalse(by["gov-guardrail-block"])
+        self.assertTrue(by["gov-curate"]); self.assertTrue(by["gov-rollback"])
+
+    def test_idempotent_across_polls(self):
+        entries1, seen1 = d._governance_ledger_entries(self._d(), [])
+        self.assertEqual(len(entries1), 4)
+        entries2, seen2 = d._governance_ledger_entries(self._d(), seen1)
+        self.assertEqual(entries2, [], "same data re-chained on the next poll — the ledger would grow forever")
+
+    def test_new_event_after_seen_is_chained(self):
+        _, seen = d._governance_ledger_entries(self._d(), [])
+        d2 = self._d()
+        d2["governance_c"]["reviews"].append({"ts_iso": "2026-07-14T11:00:00", "kind": "cve", "target": "worker-b", "ref": "CVE-1", "verdict": "approve", "score": 100})
+        entries, _ = d._governance_ledger_entries(d2, seen)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["action"], "gov-review")
+
+
 class TestFirmwareUrgency(unittest.TestCase):
     """_firmware_urgency() computes the Governance-view firmware urgency host-side from worker-b's
     affected DEVICE CVEs (worker-c can't see worker-b under hub-and-spoke, so it can't do this

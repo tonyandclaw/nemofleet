@@ -53,8 +53,14 @@ export const MOCK = {
       remediation: { risk: 'hardcoded key is extractable from firmware', fix: 'load from secrets, not source', ref: 'https://cwe.mitre.org/data/definitions/798.html' } }] },
   events: [],
   jira: { tickets: [{ id: 'NETOPS-1', summary: 'x', kind: 'cve', asset: 'ebg19p', priority: 'High' }] },
-  audit_recent: [{ ts: '2026-07-03 14:20', actor: 'tony@asus.com', action: 'login', detail: 'ok', ok: true }],
-  _audit: { chain: { ok: true, count: 1204 }, recent: [] },
+  // recent feeds the Audit view (normalize reads _audit.recent). admin ops + governance verdicts now
+  // share the one tamper-evident chain — gov-* actions come from _governance_ledger_entries.
+  _audit: { chain: { ok: true, count: 1204 }, recent: [
+    { ts: '2026-07-14 10:04', actor: 'worker-a', action: 'gov-guardrail-block', detail: 'destructive: factory reset', ok: false },
+    { ts: '2026-07-14 10:02', actor: 'worker-c', action: 'gov-rollback', detail: 'bk-20260712-143000 verified=True', ok: true },
+    { ts: '2026-07-14 10:00', actor: 'worker-c', action: 'gov-review', detail: 'remediation worker-a ebg-wps → reject (score 50)', ok: false },
+    { ts: '2026-07-03 14:20', actor: 'tony@asus.com', action: 'login', detail: 'ok', ok: true },
+  ] },
   snapshots_by_agent: [{ label: 'worker-a', sb: 'worker-a', items: [{ ver: 'v1', name: 'baseline', ts: '2026-07-03T14-02-33-771Z' }] }],
   inference: { model: 'nemotron-super', provider: 'vllm-local', reachable: true, endpoint: 'inference.local/v1' },
   // real key is d.proactive (see api.js `proactive: d.proactive || null`) — summary/summary_en

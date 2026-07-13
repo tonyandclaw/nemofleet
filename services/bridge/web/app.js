@@ -132,6 +132,7 @@ const I18N = {
   '2h window · OPA L7': { en: '2h window · OPA L7', zh: '2 小時 · OPA L7' },
   'n/a': { en: 'n/a', zh: '無資料' },
   'chain n/a': { en: 'chain n/a', zh: '雜湊鏈無資料' },
+  'governance decisions': { en: 'governance decisions', zh: '治理判決' },
   'Blocked egress (DENIED)': { en: 'Blocked egress (DENIED)', zh: '封鎖出向(DENIED)' },
   'inbound request screening · deterministic pre-filter + local NIM': { en: 'inbound request screening · deterministic pre-filter + local NIM', zh: '進站請求守門 · 確定性 pre-filter + 本地 NIM' },
   'Screened': { en: 'Screened', zh: '已篩選' },
@@ -1326,19 +1327,25 @@ const ChannelPanel = memo(function ChannelPanel() {
 
 const AuditView = memo(function AuditView({ d }) {
   const [q, setQ] = useState('');
+  const [scope, setScope] = useState('all');   // all | gov | admin — the chain now holds both
   if (!d.audit_recent.length && !(d.me.role === 'admin')) return html`<div class="viewfade"><div class="viewhd"><h2>${t('Audit')}</h2></div><div class="empty">${t('Admin only.')}</div></div>`;
+  const isGov = r => (r.action || '').startsWith('gov-');
+  const govN = d.audit_recent.filter(isGov).length;
   const ql = q.trim().toLowerCase();
-  const rows = ql ? d.audit_recent.filter(r => ((r.ts || '') + (r.actor || '') + (r.action || '') + (r.detail || '')).toLowerCase().includes(ql)) : d.audit_recent;
+  let rows = scope === 'gov' ? d.audit_recent.filter(isGov) : scope === 'admin' ? d.audit_recent.filter(r => !isGov(r)) : d.audit_recent;
+  if (ql) rows = rows.filter(r => ((r.ts || '') + (r.actor || '') + (r.action || '') + (r.detail || '')).toLowerCase().includes(ql));
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Audit')}</h2>
     <span class=${'pill2 ' + (d.audit.ok == null ? '' : d.audit.ok ? 'g' : 'c')}>${d.audit.ok == null ? t('chain n/a') : d.audit.ok ? t('chain verified') : t('chain broken')}</span>
+    ${govN ? html`<span class="pill2 g">${govN} ${t('governance decisions')}</span>` : null}
     <span class="lbl mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></div>
-    ${html`<${Panel} title="Tamper-evident admin audit" label="hash-chained">
-      <div class="srchbar"><input class="inp" placeholder=${t('Search actor / action / detail…')} value=${q} onInput=${e => setQ(e.target.value)}/>${ql ? html`<span class="muted" style=${{ fontSize: '11.5px' }}>${rows.length} / ${d.audit_recent.length}</span>` : null}</div>
+    ${html`<${Panel} title="Tamper-evident ledger" label="hash-chained · admin ops + governance verdicts"
+      right=${html`<${Segmented} value=${scope} options=${['all', 'gov', 'admin']} onChange=${setScope}/>`}>
+      <div class="srchbar"><input class="inp" placeholder=${t('Search actor / action / detail…')} value=${q} onInput=${e => setQ(e.target.value)}/>${(ql || scope !== 'all') ? html`<span class="muted" style=${{ fontSize: '11.5px' }}>${rows.length} / ${d.audit_recent.length}</span>` : null}</div>
       <${VirtualList} rows=${rows} rowH=${38} height=${380} empty=${t('No audit entries.')}
         render=${r => html`<${React.Fragment}>
           <span class="mono" style=${{ width: '150px', flex: 'none' }}>${r.ts || ''}</span>
-          <span style=${{ width: '150px', flex: 'none' }}>${r.actor || ''}</span>
-          <span class="mono" style=${{ width: '110px', flex: 'none' }}>${r.action || ''}</span>
+          <span style=${{ width: '140px', flex: 'none' }}>${r.actor || ''}</span>
+          <span class="mono" style=${{ width: '160px', flex: 'none', color: isGov(r) ? 'var(--accent)' : undefined }}>${r.action || ''}</span>
           <span class="muted" style=${{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${r.detail || ''}</span>
           <${Dot} up=${r.ok !== false}/></${React.Fragment}>`}/></${Panel}>`}</div>`;
 });

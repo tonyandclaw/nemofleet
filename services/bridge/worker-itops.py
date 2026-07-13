@@ -2765,18 +2765,35 @@ def run_rollback(to, approval_token=""):
                "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
         _record_rollback(res)
         return res
-REVIEWS = []
+REVIEWS_FILE = f"{WD}/review-history.jsonl"
+CURATIONS_FILE = f"{WD}/curation-history.jsonl"
+def _persist_gov(path, entry):
+    try:
+        os.makedirs(WD, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        sh(f"chown 998:998 {path} 2>/dev/null")
+    except Exception as e:
+        print("[gov-persist]", e, flush=True)
+def _load_gov(path, n=40):
+    try:
+        return [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()][-n:]
+    except Exception:
+        return []
+
+REVIEWS = _load_gov(REVIEWS_FILE)   # restored from disk so verdicts + redo counts survive a restart (§4)
 def run_review(kind, subject):
-    """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層;記入 REVIEWS 供 console。"""
+    """審查 worker-a/b 的產出 → 綁定判決(approve/reject + required_fixes)。錨定共享知識層;記入 REVIEWS 供 console + 落地 review-history.jsonl。"""
     if not _zone_has("review"):
         return {"note": "review 屬 zone C(治理官)職責", "note_en": "review is the zone C (governance officer)'s job", "zone": ZONE}
     v = wi_review.review(kind, subject or {}, knowledge.baseline_conf("ebg19p"), knowledge.security_keys("ebg19p"))
     v = wi_review.annotate_redo(v, REVIEWS)   # 護欄:同 subject 重做計數;達上限 → escalate 真人
-    REVIEWS.append({"ts": time.strftime("%H:%M:%S"), "kind": kind, "target": v.get("target"),
-                    "verdict": v.get("verdict"), "score": v.get("score"), "ref": v.get("subject_ref", ""),
-                    "redo": v.get("redo_count", 0), "escalate": v.get("escalate", False),
-                    "reasons": (v.get("reasons") or [])[:2]})
-    del REVIEWS[:-40]
+    e = {"ts": time.strftime("%H:%M:%S"), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S"), "kind": kind,
+         "target": v.get("target"), "verdict": v.get("verdict"), "score": v.get("score"),
+         "ref": v.get("subject_ref", ""), "redo": v.get("redo_count", 0),
+         "escalate": v.get("escalate", False), "reasons": (v.get("reasons") or [])[:2]}
+    REVIEWS.append(e); del REVIEWS[:-40]
+    _persist_gov(REVIEWS_FILE, e)   # → dashboard chains it into the tamper-evident governance ledger (§6)
     return v
 SKILLS_REPO = os.environ.get("SKILLS_REPO", "")   # 技能庫目錄(boot 同步給 worker-c);worker-c 當 SkillOS curator
 def _load_skill_stats():
@@ -2804,16 +2821,17 @@ def _load_skills():
                     except Exception:
                         pass
     return out
-CURATIONS = []
+CURATIONS = _load_gov(CURATIONS_FILE)   # restored from disk so curation verdicts survive a restart (§4)
 def run_skill_curate(op, name, text):
     """SkillOS curator:審查技能庫的 insert/update/delete(品質閘 + 抗膨脹 + r_task 下游成效資訊)→ 綁定判決;
-    記入 CURATIONS 供 console。r_task 只附資訊,不影響 verdict(見 wi_skills.curate 的 docstring)。"""
+    記入 CURATIONS 供 console + 落地 curation-history.jsonl。r_task 只附資訊,不影響 verdict(見 wi_skills.curate 的 docstring)。"""
     if not _zone_has("curate"):
         return {"note": "skill 治理屬 zone C(治理官)職責", "note_en": "skill governance is the zone C (governance officer)'s job", "zone": ZONE}
     v = wi_skills.curate(op, text or "", _load_skills(), name=name, downstream_stats=_load_skill_stats())
-    CURATIONS.append({"ts": time.strftime("%H:%M:%S"), "op": v.get("op"), "name": v.get("name") or name,
-                      "verdict": v.get("verdict"), "reason": (v.get("reasons") or [""])[0]})
-    del CURATIONS[:-40]
+    e = {"ts": time.strftime("%H:%M:%S"), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S"), "op": v.get("op"),
+         "name": v.get("name") or name, "verdict": v.get("verdict"), "reason": (v.get("reasons") or [""])[0]}
+    CURATIONS.append(e); del CURATIONS[:-40]
+    _persist_gov(CURATIONS_FILE, e)
     return v
 def skill_search(query):
     """SkillOS BM25 檢索:給 query 找最相關的技能。"""
