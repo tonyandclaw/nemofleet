@@ -229,6 +229,9 @@ const I18N = {
   'loading…': { en: 'loading…', zh: '載入中…' },
   'online': { en: 'online', zh: '在線' },
   'offline': { en: 'offline', zh: '離線' },
+  'unauthorized': { en: 'unauthorized', zh: '未授權' },
+  'known': { en: 'known', zh: '已知' },
+  'No client data (needs device link + asset sync)': { en: 'No client data (needs device link + asset sync)', zh: '無用戶端資料(需裝置連線 + 資產同步)' },
   'name': { en: 'name', zh: '名稱' },
   'role': { en: 'role', zh: '角色' },
   'zone': { en: 'zone', zh: '區域' },
@@ -911,6 +914,16 @@ const FleetView = memo(function FleetView({ d }) {
           <input class="inp" placeholder="model (nemotron-super)" value=${inf.model} onInput=${e => setInf({ ...inf, model: e.target.value })}/>
           <${ConfirmBtn} confirm=${t('Switch inference of') + ' ' + sb + ' → ' + (inf.provider || '?') + ' / ' + (inf.model || '?') + '?'} run=${() => NF.sys({ do: 'infset', sb, provider: inf.provider, model: inf.model })} label="Apply" busyLabel="applying"/>
         </div></${Panel}>`}
+      ${html`<${Panel} title="Connected clients" label="EBG19P · live client list (get_clientlist)"
+        right=${(d.clients && d.clients.unknown) ? html`<span class="pill2 c">${d.clients.unknown} ${t('unauthorized')}</span>` : ((d.clients && d.clients.count) ? html`<span class="lbl">${d.clients.count} ${t('online')}</span>` : null)}>
+        <${DataTable} rows=${(d.clients && d.clients.list) || []} pageSize=${8} empty=${t('No client data (needs device link + asset sync)')}
+          cols=${[
+            { k: 'name', label: 'Name', render: r => html`<span>${r.name || '—'}</span>` },
+            { k: 'ip', label: 'IP', render: r => html`<span class="mono">${r.ip || '—'}</span>` },
+            { k: 'mac', label: 'MAC', render: r => html`<span class="mono muted">${r.mac || '—'}</span>` },
+            { k: 'conn', label: 'Link', render: r => html`<span class="muted">${r.conn || '—'}${(r.sdn && r.sdn !== 'DEFAULT') ? ' · ' + r.sdn : ''}</span>` },
+            { k: 'known', label: 'Status', align: 'right', render: r => r.known ? html`<span class="pill2 g">${t('known')}</span>` : html`<span class="pill2 c">${t('unauthorized')}</span>` },
+          ]}/></${Panel}>`}
       ${html`<${Panel} title="Device ops · EBG19P" label="worker-a quick actions (needs device link)">
         <div class="addrow">${[['sync', t('Sync settings')], ['harden', t('Harden')], ['restart', t('Restart services')], ['block', t('Block unauthorized')]].map(([op, lbl]) => html`<${ConfirmBtn} key=${op} ghost=${true} confirm=${lbl + ' (' + op + ') — ' + t('run against the real EBG19P, confirm?')} run=${() => NF.deviceAction(op)} label=${lbl} busyLabel="…"/>`)}</div>
         <div class="muted" style=${{ fontSize: '11px', marginTop: '8px' }}>${t('Off-net → graceful \'unreachable\'; every action audited.')}</div></${Panel}>`}

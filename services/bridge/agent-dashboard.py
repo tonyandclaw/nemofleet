@@ -354,7 +354,7 @@ def _collect_impl():
             asn = ep(c, "/assets")  # EBG19P 資產盤點(運維節點)
             if asn.get("available"):
                 node["assets"] = {"count": asn.get("count", 0), "unknown": asn.get("unknown", 0),
-                                  "list": asn.get("assets", [])[:12]}
+                                  "list": asn.get("assets", [])[:64]}   # bounded, but roomy enough for the Fleet "Connected clients" panel (a LAN device rarely has >64 online)
             tr = ep(c, "/traffic")  # EBG19P WAN 流量基線(運維節點)
             if tr.get("available") and tr.get("samples"):
                 node["traffic"] = {"latest": tr.get("latest_mbps", 0), "avg": tr.get("avg_mbps", 0),

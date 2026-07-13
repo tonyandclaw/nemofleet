@@ -134,6 +134,11 @@ function normalize(d) {
     source: { ..._src, sast_list: arr(_src.sast_list), design: arr(_src.design) },
     cert: { ..._cert, findings: arr(_cert.findings) },
     nuclei: _nuc ? { ..._nuc, findings: arr(_nuc.findings) } : null,
+    // EBG19P connected-client list (worker-a's /assets → node.assets): mac/ip/name/conn + a
+    // known/unknown flag (unknown = MAC not on the approved list = unauthorized access). The whole
+    // chain already flowed to node.assets; it just was never surfaced in the UI. Hoist it so the
+    // Fleet "Connected clients" panel can read d.clients directly.
+    clients: opsNode.assets || { count: 0, unknown: 0, list: [] },
     syslog: d.syslog || opsNode.loganalysis || d.log_analysis || {},
     events: arr(d.device_events, opsNode.devlog && opsNode.devlog.security_events, opsNode.loganalysis && opsNode.loganalysis.findings),   // 真實設備 syslog;EBG19P 離線時為空(不再誤餵治理事件)
     jira: arr(d.jira && d.jira.tickets, d.jira, d.tickets),

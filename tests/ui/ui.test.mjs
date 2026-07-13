@@ -89,6 +89,15 @@ test('snapshot list renders existing snapshots', async () => {
   assert.ok(text().includes('v1') && text().includes('baseline'), 'snapshot list not shown');
 });
 
+// ── connected-clients panel surfaces the EBG19P client list + flags unauthorized MACs ──
+test('fleet shows connected clients with the unauthorized flag', async () => {
+  const { text } = await mount({ route: 'fleet', lang: 'en' });
+  const t = text();
+  assert.ok(t.includes('Connected clients'), 'connected-clients panel missing');
+  assert.ok(t.includes('nas-01') && t.includes('192.168.50.10'), 'a known client row did not render');
+  assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
+});
+
 // ── governance + admin wire in their editor sub-panels (POLSB-undefined regression) ──
 // (static: the deep async panels don't flush in jsdom's tick; render is verified by screenshots)
 test('GovernanceView wires PolicyEditor + GovActionsPanel', () => {

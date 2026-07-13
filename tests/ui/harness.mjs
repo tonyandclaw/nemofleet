@@ -20,7 +20,14 @@ export const MOCK = {
   // Chinese in EN mode" bug got past this suite.
   nodes: [
     { name: 'team-lead', role: 'Front desk · Telegram / Email intake', tag: 'lead', port: 8642, up: true, zone: '' },
-    { name: 'worker-a', role: 'IT 運維 / 網路管理', role_en: 'IT ops / network management', tag: 'ops', port: 18791, up: true, zone: 'zone A', caps: ['monitor', 'fix', 'cert'] },
+    // assets = worker-a's /assets (EBG19P get_clientlist, device-verified parse in ebg19p-asset-sync.sh):
+    // mac/ip/name/conn + known flag (unknown = unauthorized). Surfaced by the Fleet "Connected clients" panel.
+    { name: 'worker-a', role: 'IT 運維 / 網路管理', role_en: 'IT ops / network management', tag: 'ops', port: 18791, up: true, zone: 'zone A', caps: ['monitor', 'fix', 'cert'],
+      assets: { count: 3, unknown: 1, list: [
+        { mac: 'AA:BB:CC:00:11:22', ip: '192.168.50.10', name: 'nas-01', type: '9', conn: 'wired', sdn: 'DEFAULT', known: true },
+        { mac: 'AA:BB:CC:33:44:55', ip: '192.168.50.24', name: 'tony-mbp', type: '4', conn: 'wifi', sdn: 'DEFAULT', known: true },
+        { mac: 'DE:AD:BE:EF:00:01', ip: '192.168.50.88', name: '', type: '0', conn: 'wifi', sdn: 'IOT', known: false },
+      ] } },
     { name: 'worker-b', role: '資安 / 原始碼分析', role_en: 'security / source analysis', tag: 'sec', port: 18792, up: true, zone: 'zone B', caps: ['cve', 'nuclei'] },
     { name: 'worker-c', role: '變更治理 / QA 監督', role_en: 'change governance / QA oversight', tag: 'gov', port: 18793, up: true, zone: 'zone C', caps: ['review', 'backup', 'curate'] },
   ],
