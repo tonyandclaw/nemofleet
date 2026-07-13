@@ -98,6 +98,17 @@ test('fleet shows connected clients with the unauthorized flag', async () => {
   assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
 });
 
+// ── Guardrail tab surfaces decisions, the fail-open count, and the red-team catch rate ──
+test('guardrail tab shows decisions, fail-open, and red-team catch rate', async () => {
+  const { text } = await mount({ route: 'guardrail', lang: 'en' });
+  const t = text();
+  assert.ok(/Screened/.test(t) && /Blocked/.test(t), 'guardrail KPIs missing');
+  assert.ok(/Fail-open/.test(t), 'fail-open KPI missing (the key visibility feature)');
+  assert.ok(t.includes('71'), 'deterministic backstop catch rate not shown');
+  assert.ok(/prompt.?injection/i.test(t), 'a blocked decision category is not rendered');
+  assert.ok(/pre-filter|NIM/.test(t), 'the deciding layer (pre-filter / NIM) is not shown');
+});
+
 // ── rollback read-back verification surfaces in Change control (verified vs mismatch) ──
 test('change control shows rollback read-back verification', async () => {
   const { text } = await mount({ route: 'changectrl', lang: 'en' });

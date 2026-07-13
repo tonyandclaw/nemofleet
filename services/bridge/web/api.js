@@ -155,6 +155,9 @@ function normalize(d) {
     proactive: d.proactive || null,
     flow: arr(d.flow),
     governance_c: d.governance_c || null,
+    // guardrail decision log + fail-open count + red-team eval (worker-a's /guardrail-log). Drives
+    // the Guardrail tab. Defaults are all-zero/empty (honest "nothing screened yet", not fabricated).
+    guardrail: d.guardrail || { count: 0, blocked: 0, allowed: 0, fail_open: 0, by_category: {}, recent: [], eval_deterministic: null, eval_full: null },
     frozen: d.frozen || { frozen: false },
     eval: d.eval || null,
   };

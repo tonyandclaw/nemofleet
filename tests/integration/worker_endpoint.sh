@@ -41,11 +41,11 @@ N=""; for _ in $(seq 12); do N=$(g $PB /nuclei); echo "$N" | grep -q '"available
 echo "$N" | grep -q '"available": false' && ok "GET /nuclei degrades gracefully (no binary -> clear note)" || bad "nuclei: ${N:0:120}"
 # every authed route is still wired (no-token -> 403, before any scan runs; guards refactors/modularization)
 WIRED=1
-for ep in /jira /assets /device-log /log-analysis /traffic /cve /monitor /source-cve /cert-scan /settings /recipients /last /knowledge /nuclei /flow /backup /firmware /skills /rollbacks; do
+for ep in /jira /assets /device-log /log-analysis /traffic /cve /monitor /source-cve /cert-scan /settings /recipients /last /knowledge /nuclei /flow /backup /firmware /skills /rollbacks /guardrail-log; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PB$ep")
   [ "$code" = 403 ] || { WIRED=0; bad "route $ep not wired (got $code)"; }
 done
-[ "$WIRED" = 1 ] && ok "all 19 authed routes wired (no-token -> 403)"
+[ "$WIRED" = 1 ] && ok "all 20 authed routes wired (no-token -> 403)"
 stop
 
 # ---- zone C: worker-c governance (review gates + lifecycle degrade) ----

@@ -133,6 +133,25 @@ const I18N = {
   'n/a': { en: 'n/a', zh: '無資料' },
   'chain n/a': { en: 'chain n/a', zh: '雜湊鏈無資料' },
   'Blocked egress (DENIED)': { en: 'Blocked egress (DENIED)', zh: '封鎖出向(DENIED)' },
+  'inbound request screening · deterministic pre-filter + local NIM': { en: 'inbound request screening · deterministic pre-filter + local NIM', zh: '進站請求守門 · 確定性 pre-filter + 本地 NIM' },
+  'Screened': { en: 'Screened', zh: '已篩選' },
+  'inbound requests': { en: 'inbound requests', zh: '進站請求' },
+  'Blocked': { en: 'Blocked', zh: '已攔截' },
+  'injection · out-of-scope · destructive': { en: 'injection · out-of-scope · destructive', zh: '注入 · 越權 · 破壞性' },
+  'Fail-open': { en: 'Fail-open', zh: 'Fail-open' },
+  'NIM down → passed unscreened': { en: 'NIM down → passed unscreened', zh: 'NIM 掛掉 → 未經篩選就放行' },
+  'none — guardrail live': { en: 'none — guardrail live', zh: '無 — 守門運作中' },
+  'Backstop catch rate': { en: 'Backstop catch rate', zh: '後盾攔截率' },
+  'attacks · no NIM needed': { en: 'attacks · no NIM needed', zh: '種攻擊 · 不需 NIM' },
+  'No screening yet.': { en: 'No screening yet.', zh: '尚無篩選紀錄。' },
+  'fail-open': { en: 'fail-open', zh: 'fail-open' },
+  'pre-filter': { en: 'pre-filter', zh: 'pre-filter' },
+  'prompt-injection': { en: 'prompt-injection', zh: 'prompt-injection' },
+  'destructive': { en: 'destructive', zh: '破壞性' },
+  'out-of-scope': { en: 'out-of-scope', zh: '越權' },
+  'Deterministic floor (no NIM)': { en: 'Deterministic floor (no NIM)', zh: '確定性下限(無 NIM)' },
+  'Full guardrail (last run)': { en: 'Full guardrail (last run)', zh: '完整守門(上次執行)' },
+  'Full run not triggered yet — needs NIM up.': { en: 'Full run not triggered yet — needs NIM up.', zh: '尚未觸發完整評測 — 需 NIM 在線。' },
   'Active alerts': { en: 'Active alerts', zh: '作用中告警' },
   'Open escalations': { en: 'Open escalations', zh: '待處理升級' },
   'unauthorized host · OPA host-layer': { en: 'unauthorized host · OPA host-layer', zh: '未授權主機 · OPA 主機層' },
@@ -1781,12 +1800,71 @@ const ArchitectureView = memo(function ArchitectureView({ d }) {
     </div>
   </div>`;
 });
+const GuardrailView = memo(function GuardrailView({ d }) {
+  const gr = d.guardrail || {};
+  const cat = gr.by_category || {};
+  const det = gr.eval_deterministic || {};
+  const full = gr.eval_full || null;
+  const vPill = v => v === 'block' ? html`<span class="pill2 c">block</span>` : html`<span class="pill2 g">allow</span>`;
+  const byPill = (by, fo) => fo ? html`<span class="pill2 w">${t('fail-open')}</span>`
+    : by === 'deterministic' ? html`<span class="pill2">${t('pre-filter')}</span>`
+    : html`<span class="pill2" style=${{ color: 'var(--accent)' }}>NIM</span>`;
+  const catPill = (k, label, cls) => cat[k] ? html`<span class=${'pill2 ' + cls}>${cat[k]} ${label}</span>` : null;
+  return html`<div class="viewfade">
+    <div class="viewhd"><h2>${t('Guardrail')}</h2>
+      <span class="lbl">${t('inbound request screening · deterministic pre-filter + local NIM')}</span></div>
+    <section class="kpis">
+      ${html`<${Kpi} stripe="var(--accent)" label="Screened" big=${(gr.count || 0).toLocaleString()} sub=${t('inbound requests')}/>`}
+      ${html`<${Kpi} stripe="var(--crit)" label="Blocked" big=${gr.blocked || 0} sub=${t('injection · out-of-scope · destructive')}/>`}
+      ${html`<${Kpi} stripe=${(gr.fail_open > 0) ? 'var(--warn)' : 'var(--good)'} label="Fail-open" big=${gr.fail_open || 0} sub=${(gr.fail_open > 0) ? t('NIM down → passed unscreened') : t('none — guardrail live')}/>`}
+      ${html`<${Kpi} stripe="var(--good)" label="Backstop catch rate" big=${det.catch_rate != null ? det.catch_rate : '—'} unit="%" sub=${det.attacks ? (det.caught + '/' + det.attacks + ' ' + t('attacks · no NIM needed')) : ''}/>`}
+    </section>
+    <div class="grid">
+      <div class="col">
+        ${html`<${Panel} title="Recent decisions" label="allow + block · newest first">
+          <${DataTable} rows=${gr.recent || []} pageSize=${12} empty=${t('No screening yet.')}
+            cols=${[
+              { k: 'ts', label: 'Time', render: r => html`<span class="mono">${(r.ts || '').replace('T', ' ')}</span>` },
+              { k: 'gate', label: 'Gate', render: r => html`<span class="muted mono">${r.gate || ''}</span>` },
+              { k: 'verdict', label: 'Verdict', render: r => vPill(r.verdict) },
+              { k: 'category', label: 'Category', render: r => html`<span class="muted">${r.category || ''}</span>` },
+              { k: 'by', label: 'By', render: r => byPill(r.by, r.fail_open) },
+              { k: 'reason', label: 'Reason', render: r => html`<span class="muted" title=${r.excerpt || ''}>${r.reason || ''}</span>` },
+            ]}/></${Panel}>`}
+      </div>
+      <div class="col">
+        ${html`<${Panel} title="Blocked by category" label="what the guardrail caught">
+          <div style=${{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            ${catPill('prompt_injection', t('prompt-injection'), 'c')}
+            ${catPill('destructive', t('destructive'), 'c')}
+            ${catPill('out_of_scope', t('out-of-scope'), 'w')}
+            ${catPill('ok', t('allowed'), 'g')}
+            ${!gr.count ? html`<span class="muted" style=${{ fontSize: '12px' }}>${t('No screening yet.')}</span>` : null}
+          </div></${Panel}>`}
+        ${html`<${Panel} title="Red-team eval" label="known attacks + legit requests · measured catch rate"
+          right=${html`<${ActionBtn} act="guardrail_eval" label="Run full red-team" busyLabel="…" ghost=${true}/>`}>
+          <div style=${{ fontSize: '13px', lineHeight: 1.8, marginBottom: '8px' }}>
+            <div>${t('Deterministic floor (no NIM)')}: <b class="mono">${det.catch_rate ?? '—'}%</b> <span class="muted">${det.attacks ? '(' + det.caught + '/' + det.attacks + ')' : ''}</span></div>
+            ${full ? html`<div>${t('Full guardrail (last run)')}: <b class="mono">${full.catch_rate}%</b> <span class="muted">(${full.caught}/${full.attacks}${full.false_block ? ' · ' + full.false_block + ' false-block' : ''}) · ${(full.ts || '').replace('T', ' ')}</span></div>`
+              : html`<div class="muted">${t('Full run not triggered yet — needs NIM up.')}</div>`}
+          </div>
+          <${DataTable} rows=${(full && full.cases) || det.cases || []} pageSize=${6} empty="—"
+            cols=${[
+              { k: 'note', label: 'Case', render: r => html`<span>${r.note || ''}</span>` },
+              { k: 'expected', label: 'Expect', render: r => html`<span class="muted mono">${r.expected}</span>` },
+              { k: 'verdict', label: 'Got', align: 'right', render: r => html`<span class=${'pill2 ' + (r.ok ? 'g' : 'c')}>${r.verdict}${r.ok ? '' : ' ✗'}</span>` },
+            ]}/></${Panel}>`}
+      </div>
+    </div></div>`;
+});
+
 const VIEWS = {
   overview: { label: 'Overview', comp: OverviewView },
   architecture: { label: 'Architecture', comp: ArchitectureView },
   flow: { label: 'Flow', comp: FlowView },
   fleet: { label: 'Fleet', comp: FleetView },
   security: { label: 'Security', comp: SecurityView },
+  guardrail: { label: 'Guardrail', comp: GuardrailView },
   governance: { label: 'Governance', comp: GovernanceView },
   proactive: { label: 'Proactive', comp: ProactiveView },
   changectrl: { label: 'Change ctrl', comp: ChangeCtrlView },
@@ -1798,7 +1876,7 @@ const VIEWS = {
 
 const NAV_GROUPS = [
   { key: 'monitor', items: ['overview', 'architecture', 'flow', 'fleet'] },
-  { key: 'govern', items: ['security', 'governance', 'changectrl', 'audit', 'scorecard'] },
+  { key: 'govern', items: ['security', 'guardrail', 'governance', 'changectrl', 'audit', 'scorecard'] },
   { key: 'system', items: ['proactive', 'admin', 'settings'] },
 ];
 const NAV_ICON = {
@@ -1807,6 +1885,7 @@ const NAV_ICON = {
   flow: '<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.3 10.9 16.7 6.9M7.3 13.1 16.7 17.1"/>',
   fleet: '<rect x="3" y="4" width="18" height="5.5" rx="1.5"/><rect x="3" y="14.5" width="18" height="5.5" rx="1.5"/><path d="M6.5 6.75h.01M6.5 17.25h.01"/>',
   security: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/>',
+  guardrail: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/><path d="M9 11.8l2 2 4-4.2"/>',
   governance: '<path d="M12 3.5v17M6 7.5h12M8 7.5 5 14h6zM16 7.5 13 14h6zM8.5 20.5h7"/>',
   changectrl: '<circle cx="6.5" cy="6" r="2.3"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="17.5" cy="12" r="2.3"/><path d="M6.5 8.3v7.4M8.7 6H13a2.2 2.2 0 0 1 2.2 2.2v2"/>',
   proactive: '<circle cx="12" cy="12" r="1.8"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a10.5 10.5 0 0 0 0 13.2M18.6 5.4a10.5 10.5 0 0 1 0 13.2"/>',

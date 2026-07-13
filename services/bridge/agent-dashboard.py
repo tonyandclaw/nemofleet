@@ -455,6 +455,9 @@ def _collect_impl():
             del _ser[:-40]
         _dev["history"] = DEV_HIST.get(_a, [])
     d["settings"] = (ep(cto, "/settings") if cto else {}) or {}   # 管理設定(讀 node A;兩台同步)
+    # guardrail 決策紀錄:守門在 worker-a 跑(team-lead 收件呼叫 %%WA_IP%%/guardrail + worker-a /fix 動作閘),
+    # 紀錄也落在 worker-a → 讀這台。含 allow/block/fail-open 統計 + 紅隊評測分數,供 Guardrail 分頁。
+    d["guardrail"] = (ep(cto, "/guardrail-log") if cto else {}) or {}
     d["mttr_n"] = 0   # 動態 MTTR:讀 node A 的 fix-history 近 N 次成功修復取平均(無紀錄→保留 44 秒基準)
     try:
         oks = []
@@ -962,7 +965,13 @@ def _flow_append(node, peer, task, status, detail=""):
     except Exception:
         pass
 def do_action(do):
-    ct2 = ct("worker-b")
+    ct2 = ct("worker-b"); cto = ct("worker-a")
+    if do == "guardrail_eval" and cto:
+        sh(f"docker exec {cto} sh -c \"curl -s -m8 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/guardrail-eval\"", 12)
+        _flow_append("worker-a", "human", "guardrail red-team eval (GUI)", "working")
+        _CACHE["ts"] = 0
+        return {"ok": True, "msg": "已觸發 guardrail 紅隊評測(完整,背景執行,稍後刷新)",
+                "msg_en": "Guardrail red-team eval triggered (full; runs in background, refresh shortly)"}
     if do == "patrol":
         try:
             open(f"{DIR}/data/proactive-trigger", "w", encoding="utf-8").close()
@@ -1821,7 +1830,7 @@ class H(BaseHTTPRequestHandler):
                     return self._send(200, json.dumps(do_freeze(do == "freeze", sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
                 except Exception as e:
                     return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作", "msg_en": "Action not allowed"}), "application/json; charset=utf-8")
             try:
                 self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")
