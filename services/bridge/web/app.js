@@ -127,7 +127,11 @@ const I18N = {
   'Policy editor': { en: 'Policy editor', zh: '政策編輯器' },
   'Messaging channels': { en: 'Messaging channels', zh: '訊息管道' },
   'writes to the live backend': { en: 'writes to the live backend', zh: '即時寫入後端' },
-  'Governance coverage': { en: 'Governance coverage', zh: '治理覆蓋率' },
+  'Governed egress': { en: 'Governed egress', zh: '受治理 egress' },
+  'benign-filtered · ': { en: 'benign-filtered · ', zh: '良性已濾除 · ' },
+  '2h window · OPA L7': { en: '2h window · OPA L7', zh: '2 小時 · OPA L7' },
+  'n/a': { en: 'n/a', zh: '無資料' },
+  'chain n/a': { en: 'chain n/a', zh: '雜湊鏈無資料' },
   'Blocked egress (DENIED)': { en: 'Blocked egress (DENIED)', zh: '封鎖出向(DENIED)' },
   'Active alerts': { en: 'Active alerts', zh: '作用中告警' },
   'Open escalations': { en: 'Open escalations', zh: '待處理升級' },
@@ -726,7 +730,9 @@ const sevPill = s => html`<span class=${'sev ' + (s === 'high' || s === 'critica
 const GovChart = memo(function GovChart({ gov }) {
   const ref = useRef(null), chart = useRef(null);
   const empty = !gov.allowed && !(gov.series_allowed && gov.series_allowed.some(v => v));
-  const data = gov.series_allowed.length ? gov.series_allowed : synth(gov.allowed);
+  // real series (d.history.allowed via normalize) — empty until the backend has accumulated a few
+  // polls, in which case the empty-overlay below shows honestly rather than filling with fake data.
+  const data = gov.series_allowed.length ? gov.series_allowed : [];
   useEffect(() => {
     const ctx = ref.current.getContext('2d');
     const grad = ctx.createLinearGradient(0, 0, 0, 190);
@@ -746,14 +752,13 @@ const GovChart = memo(function GovChart({ gov }) {
   useEffect(() => { if (chart.current) { chart.current.data.datasets[0].data = data; chart.current.update('none'); } }, [gov.allowed, gov.series_allowed]);
   return html`<div class="chartbox">${_emptyOverlay}<canvas ref=${ref} aria-label="Allowed governance events over time"></canvas></div>`;
 });
-function synth(total, n = 20) { if (!total) return new Array(n).fill(0); const o = []; let a = 0; for (let i = 0; i < n; i++) { a += (total / n) * (0.6 + Math.random() * 0.8); o.push(Math.round(a / (i + 1))); } return o; }
 
 // ── views (each memoized; data-driven so more nodes/devices/findings just render) ────────────
 const OverviewView = memo(function OverviewView({ d }) {
   const g = d.governance;
   return html`<div class="viewfade">
     <section class="kpis">
-      ${html`<${Kpi} stripe="var(--good)" label="Governance coverage" big=${g.coverage} unit="%" sub=${g.allowed.toLocaleString() + ' ' + t('actions · 2h window')}/>`}
+      ${html`<${Kpi} stripe="var(--good)" label="Governed egress" big=${g.allowed.toLocaleString()} sub=${(g.benign ? g.benign.toLocaleString() + ' ' + t('benign-filtered · ') : '') + t('2h window · OPA L7')}/>`}
       ${html`<${Kpi} stripe="var(--crit)" label="Blocked egress (DENIED)" big=${g.denied} sub="unauthorized host · OPA host-layer"/>`}
       ${html`<${Kpi} stripe="var(--warn)" label="Active alerts" big=${d.alerts.length} sub=${d.alerts[0] ? d.alerts[0].msg : 'none'}/>`}
       ${html`<${Kpi} stripe="var(--accent)" label="Open escalations" big=${d.jira.length} unit="Jira" sub="human-in-the-loop · NETOPS"/>`}
@@ -805,10 +810,14 @@ const FleetSummary = memo(function FleetSummary({ nodes, devices }) {
 
 const SecuritySummary = memo(function SecuritySummary({ d }) {
   const cve = d.cve, cert = d.cert, source = d.source;
-  const crit = cve.critical ?? (cve.counts && cve.counts.critical) ?? 1;
-  const serious = cve.serious ?? cve.affected ?? 2;
-  const weak = cert.high ?? (cert.counts && cert.counts.high) ?? 2;
-  const recon = source.cve_reconciled ?? 7;
+  // ?? 0 (not ?? 1/2/2/7): a missing field means "scan hasn't reported this yet" → show 0, never a
+  // fabricated non-zero count. (?? already preserves a real 0 from the backend; the bug was the
+  // made-up non-zero defaults, which showed "1 critical / 2 serious / 2 weak / 7 reconciled" on a
+  // fleet that had never run a scan.)
+  const crit = cve.critical ?? (cve.counts && cve.counts.critical) ?? 0;
+  const serious = cve.serious ?? cve.affected ?? 0;
+  const weak = cert.high ?? (cert.counts && cert.counts.high) ?? 0;
+  const recon = source.cve_reconciled ?? 0;
   const max = Math.max(crit, serious, weak, recon, 1);
   return html`<${Panel} title="Security posture" label="worker-b · daily scan">
     <${SevBar} label="Critical" count=${crit} max=${max} color="var(--crit)" dotcls="c"/>
@@ -1269,7 +1278,7 @@ const AuditView = memo(function AuditView({ d }) {
   const ql = q.trim().toLowerCase();
   const rows = ql ? d.audit_recent.filter(r => ((r.ts || '') + (r.actor || '') + (r.action || '') + (r.detail || '')).toLowerCase().includes(ql)) : d.audit_recent;
   return html`<div class="viewfade"><div class="viewhd"><h2>${t('Audit')}</h2>
-    <span class=${'pill2 ' + (d.audit.ok ? 'g' : 'c')}>${d.audit.ok ? t('chain verified') : t('chain broken')}</span>
+    <span class=${'pill2 ' + (d.audit.ok == null ? '' : d.audit.ok ? 'g' : 'c')}>${d.audit.ok == null ? t('chain n/a') : d.audit.ok ? t('chain verified') : t('chain broken')}</span>
     <span class="lbl mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></div>
     ${html`<${Panel} title="Tamper-evident admin audit" label="hash-chained">
       <div class="srchbar"><input class="inp" placeholder=${t('Search actor / action / detail…')} value=${q} onInput=${e => setQ(e.target.value)}/>${ql ? html`<span class="muted" style=${{ fontSize: '11.5px' }}>${rows.length} / ${d.audit_recent.length}</span>` : null}</div>
@@ -1833,7 +1842,7 @@ function App() {
       </div>` : null}
       <${ErrorBoundary} key=${route}><${View} d=${d}/></${ErrorBoundary}>
       <footer class="foot">
-        <span>${t('Audit chain')} <b style=${{ color: d.audit.ok ? 'var(--good)' : 'var(--crit)' }}>${d.audit.ok ? t('✓ verified') : t('✗ broken')}</b> · <span class="mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></span>
+        <span>${t('Audit chain')} <b style=${{ color: d.audit.ok == null ? 'var(--ink3)' : d.audit.ok ? 'var(--good)' : 'var(--crit)' }}>${d.audit.ok == null ? t('n/a') : d.audit.ok ? t('✓ verified') : t('✗ broken')}</b> · <span class="mono">${(d.audit.count || 0).toLocaleString()} ${t('entries')}</span></span>
         <span style=${{ marginLeft: 'auto' }} class="mono">nemofleet · ${t('live every 5s')}${err ? ' · ' + t('reconnecting…') : ''}</span>
       </footer>
     </main>

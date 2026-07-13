@@ -26,7 +26,13 @@ export const MOCK = {
   ],
   devices: [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', online: false, cpu: null, mem: null, temp: null, firmware: null }],
   containers: [{ name: 'openshell-worker-a-2b91', state: 'up 6d', image: 'openshell/sandbox:2026.4' }],
-  governance: { allowed: 1240, denied: 3, benign: 418, coverage: 99.8, series_allowed: [1, 2, 3, 4, 5], events: [{ ts: '14:22', target: 'api.telegram.org:443', policy: 'telegram', verdict: 'allowed' }] },
+  // mirrors the REAL backend shape (agent-dashboard.py): governance has NO `coverage` and NO
+  // `series_allowed` — the allowed-over-time series lives at top-level `history.allowed` (one point
+  // per poll). A mock that carried a fake coverage/series_allowed couldn't catch the frontend
+  // reading fields the backend never sends (which is exactly how the hardcoded 99.8% + random
+  // synth() sparkline hid in plain sight).
+  governance: { allowed: 1240, denied: 3, benign: 418, events: [{ ts: '14:22', target: 'api.telegram.org:443', policy: 'telegram', verdict: 'allowed' }] },
+  history: { allowed: [980, 1010, 1044, 1102, 1180, 1211, 1240], denied: [0, 1, 1, 2, 2, 3, 3], telegram: [4, 5, 5, 6, 6, 7, 7], ts: ['12:00', '12:20', '12:40', '13:00', '13:20', '13:40', '14:00'] },
   cve: { critical: 1, serious: 2, counts: { critical: 1, affected: 84 }, findings: [{ cve: 'CVE-2024-6119', component: 'openssl', asset: 'ebg19p', severity: 'critical' }] },
   cert: { high: 0, counts: {}, findings: [] },
   source: { sbom: 142, sast: 6, sbom_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', sbom_list: [{ name: 'openssl', version: '3.0.12' }, { name: 'dropbear', version: '2022.83' }], sast_source: 'RMerl/asuswrt-merlin.ng@92e9b31110', cve_reconciled: 7,

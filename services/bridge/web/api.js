@@ -118,8 +118,15 @@ function normalize(d) {
     governance: {
       allowed: num(gov.allowed, d.allowed), denied: num(gov.denied, d.denied),
       benign: num(gov.benign, d.benign, gov.denied_benign, d.denied_benign),
-      series_allowed: arr(gov.series_allowed, d.gov_series_allowed),
-      coverage: num(gov.coverage, d.coverage) || 99.8, events: arr(gov.events, d.events, d.timeline),
+      // the real allowed-over-time series the backend already tracks (agent-dashboard.py's HISTORY
+      // → d.history.allowed, one point per poll). Previously this read a `series_allowed` field the
+      // backend never emits, so it was always empty and GovChart fell back to synth()'s random data.
+      series_allowed: arr(gov.series_allowed, d.gov_series_allowed, d.history && d.history.allowed),
+      events: arr(gov.events, d.events, d.timeline),
+      // NOTE: no fabricated `coverage` here. The backend has no way to measure "% of egress that was
+      // governed" (it can't count traffic that never reached the L7 proxy), so there is no honest
+      // coverage number — the old `|| 99.8` was a hardcoded constant shown 100% of the time. The
+      // Overview KPI now shows the real allowed-decisions count instead.
     },
     alerts: arr(d.alerts_list, d.alerts).map(a => (typeof a === 'string' ? { msg: a } : a)),
     devices: devices.length ? devices : [{ asset: 'lab-asus-ebg19p-01', model: 'EBG19P', firmware: null, online: false, cpu: null, mem: null, temp: null }],   // 無設備資料 → 誠實顯示離線(不捏造 online telemetry)
@@ -130,7 +137,11 @@ function normalize(d) {
     syslog: d.syslog || opsNode.loganalysis || d.log_analysis || {},
     events: arr(d.device_events, opsNode.devlog && opsNode.devlog.security_events, opsNode.loganalysis && opsNode.loganalysis.findings),   // 真實設備 syslog;EBG19P 離線時為空(不再誤餵治理事件)
     jira: arr(d.jira && d.jira.tickets, d.jira, d.tickets),
-    audit: (d._audit && d._audit.chain) || d.audit || { ok: true, count: 0 },
+    // ok:null (not true) when there's no audit data — the admin-only /api/status branch is the only
+    // thing that populates _audit.chain, so a viewer has no chain to verify. Defaulting to ok:true
+    // fabricated a "✓ verified" claim in the footer for every non-admin. Displays treat null as a
+    // neutral "—" (unknown), distinct from ok:false ("✗ broken").
+    audit: (d._audit && d._audit.chain) || d.audit || { ok: null, count: 0 },
     audit_recent: arr(d._audit && d._audit.recent),
     settings: d.settings || {},
     snapshots_by_agent: arr(d.snapshots_by_agent),
