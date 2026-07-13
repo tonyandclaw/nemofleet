@@ -21,12 +21,12 @@ from wi_skills import compute_skill_stats  # noqa: E402 — r_task: replay skill
 
 def load_lessons():
     try:
-        return json.load(open(LESSONS))
+        return json.load(open(LESSONS, encoding="utf-8"))
     except Exception:
         return {}
 
 def save_lessons(d):
-    json.dump(d, open(LESSONS, "w"), ensure_ascii=False, indent=2)
+    json.dump(d, open(LESSONS, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
 def get_gateway_token():
     # The gateway rejects unauthenticated calls (API_SERVER_KEY minted per sandbox — this
@@ -51,7 +51,7 @@ def call_hermes(prompt, maxtok, token):
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(HERMES, data=body, headers=headers)
-    with urllib.request.urlopen(req, timeout=240) as r:
+    with urllib.request.urlopen(req, timeout=240) as r:  # nosemgrep: dynamic-urllib-use-detected — HERMES is a fixed localhost URL (only the port is env-configurable), not attacker-influenced
         d = json.loads(r.read())
     return d["choices"][0]["message"].get("content") or ""
 
@@ -94,7 +94,7 @@ def run_check(content, chk):
 def main():
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lessons = load_lessons()
-    tasks = [json.loads(l) for l in open(TASKS) if l.strip()]
+    tasks = [json.loads(l) for l in open(TASKS, encoding="utf-8") if l.strip()]
     token = get_gateway_token()
     if not token:
         print("⚠ 拿不到 gateway token(nemoclaw 不在 PATH 或 team-lead 未註冊)— 呼叫大概率 401,視同 transient 錯誤處理")
@@ -135,7 +135,7 @@ def main():
         skill = tk.get("skill")
         if skill and not errored:
             try:
-                with open(SKILL_OUTCOMES, "a") as f:
+                with open(SKILL_OUTCOMES, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"ts": ts, "skill": skill, "task_id": tid, "pass": passed}, ensure_ascii=False) + "\n")
             except Exception:
                 pass
@@ -147,13 +147,13 @@ def main():
     # r_task:重放整份 outcome ledger 算最新的每技能成效統計(純函式、全量重算,不做增量更新 —
     # 跟這個檔案其他地方一樣,寧可每次算好算滿,也不要留增量更新的漂移風險)。
     try:
-        outcomes = [json.loads(l) for l in open(SKILL_OUTCOMES) if l.strip()]
+        outcomes = [json.loads(l) for l in open(SKILL_OUTCOMES, encoding="utf-8") if l.strip()]
     except Exception:
         outcomes = []
     skill_stats = compute_skill_stats(outcomes) if outcomes else {}
     if skill_stats:
         os.makedirs(os.path.dirname(SKILL_STATS), exist_ok=True)
-        json.dump(skill_stats, open(SKILL_STATS, "w"), ensure_ascii=False, indent=2)
+        json.dump(skill_stats, open(SKILL_STATS, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
     npass = sum(1 for r in results if r["pass"]); n = len(results)
     nerr = sum(1 for r in results if r["errored"])
@@ -164,12 +164,12 @@ def main():
         for r in results:
             c = by_cat.setdefault(r["category"], {"pass": 0, "n": 0})
             c["n"] += 1; c["pass"] += 1 if r["pass"] else 0
-        with open(HISTORY, "a") as f:
+        with open(HISTORY, "a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": ts, "npass": npass, "n": n, "by_category": by_cat,
                                 "recovered": sum(1 for r in results if r["recovered"]),
                                 "lessons_active": sum(len(v) for v in lessons.values())}, ensure_ascii=False) + "\n")
     # 寫 LEDGER.md
-    with open(LEDGER, "a") as f:
+    with open(LEDGER, "a", encoding="utf-8") as f:
         f.write(f"\n## eval {ts} — {npass}/{n} 通過\n")
         for r in results:
             mark = "⚠️" if r["errored"] else ("✅" if r["pass"] else "❌")

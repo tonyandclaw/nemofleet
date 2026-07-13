@@ -3,7 +3,7 @@
 # http://127.0.0.1:8899 → 整個 agent stack 活狀態 + 可操作控制 + 即時事件流/趨勢/告警/巡檢歷史。
 # 渲染:側欄 menu + hash 路由分頁;分區 memo(內容沒變不重繪→無閃爍)。唯讀為主、每 call timeout、整體快取 ~8s、單項失敗降級。
 # X-Bridge-Token 只 server 端用,不入 HTML/JSON。POST /api/action?do=cve|source|refresh(localhost only)。
-import json, os, re, shlex, subprocess, threading, time, hashlib, hmac, secrets
+import json, os, re, shlex, shutil, subprocess, tempfile, threading, time, hashlib, hmac, secrets
 from http.cookies import SimpleCookie
 try:
     import ipaddress
@@ -29,7 +29,7 @@ _WEB_CT = {".html": "text/html; charset=utf-8", ".js": "application/javascript; 
            ".map": "application/json"}
 TOKEN = ""
 try:
-    TOKEN = open(f"{BRIDGE}/.bridge-token").read().strip()
+    TOKEN = open(f"{BRIDGE}/.bridge-token", encoding="utf-8").read().strip()
 except Exception:
     pass
 # 只有明確宣告前面有可信 reverse proxy 時才信 X-Forwarded-For(否則任何客戶端可偽造繞過 IP 白名單/登入鎖)
@@ -43,7 +43,7 @@ _CACHE = {"ts": 0, "data": None}
 _COLLECT_TTL = int(os.environ.get("DASH_COLLECT_TTL", "5"))   # SWR 背景刷新間隔(秒);搭配 streamer 5s + 前端 5s 輪詢
 HISTORY = []
 try:                                                  # 真 NemoClaw/worker 家族品牌圖(🦞 Claw logo)
-    BRAND_SVG = open(f"{BRIDGE}/assets/brand.svg").read()
+    BRAND_SVG = open(f"{BRIDGE}/assets/brand.svg", encoding="utf-8").read()
 except Exception:
     BRAND_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0066ff"/></svg>'
 
@@ -235,7 +235,7 @@ def parse_policy(out, sandbox="team-lead"):
     vm = re.search(r"Version:\s*(\d+)", out); hm = re.search(r"Hash:\s*([0-9a-f]+)", out)
     p["version"] = vm.group(1) if vm else None
     p["hash"] = hm.group(1)[:10] if hm else None
-    if yaml is None:
+    if yaml is None:  # nosemgrep: identical-is-comparison -- false positive from semgrep's constant propagation (it knows `yaml = None` in the except-ImportError branch above and treats this as a tautological self-comparison); this is the normal "did the optional import succeed" check
         return p
     parts = re.split(r"\n-{3,}\n", out, maxsplit=1)
     body = parts[1] if len(parts) > 1 else out
@@ -920,7 +920,7 @@ def do_action(do):
     ct2 = ct("worker-b")
     if do == "patrol":
         try:
-            open(f"{DIR}/data/proactive-trigger", "w").close()
+            open(f"{DIR}/data/proactive-trigger", "w", encoding="utf-8").close()
         except Exception:
             pass
         _flow_append("team-lead", "human", "patrol (GUI)", "working")
@@ -936,7 +936,7 @@ def do_action(do):
         _CACHE["ts"] = 0; return {"ok": True, "msg": "已重新整理", "msg_en": "Refreshed"}
     if do == "run_eval":
         try:
-            open(f"{DIR}/data/eval-trigger", "w").close()
+            open(f"{DIR}/data/eval-trigger", "w", encoding="utf-8").close()
         except Exception:
             pass
         _flow_append("team-lead", "human", "eval run (GUI)", "working")
@@ -992,7 +992,7 @@ def do_freeze(on, actor=""):
         changed.append(frag)
     st = {"frozen": bool(on), "by": actor, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
     try:
-        json.dump(st, open(FREEZE_FILE, "w"))
+        json.dump(st, open(FREEZE_FILE, "w", encoding="utf-8"))
     except Exception:
         pass
     _miss_zh = f"(缺 {','.join(missing)})" if missing else ""
@@ -1066,22 +1066,26 @@ def do_snapshot(op, sel, sb="worker-a"):
 def _strip_ansi(s):
     return re.sub(r"\x1b\[[0-9;]*m", "", s or "")
 
-POLICY_PROVE_DIR = "/tmp/.nclaw-prove"
 def _prove(raw_yaml):
     # 形式化證明:回 (gaps:int, rc0:bool, out:str)。gaps = critical/high 缺口數(-1=無法解析);rc0 = 退出碼 0
-    os.makedirs(POLICY_PROVE_DIR, exist_ok=True)
-    pf = f"{POLICY_PROVE_DIR}/policy.yaml"; cf = f"{POLICY_PROVE_DIR}/cred.yaml"
-    with open(pf, "w") as fh: fh.write(raw_yaml or "")
-    with open(cf, "w") as fh: fh.write("version: 1\ncredentials: []\n")
+    # tempfile.mkdtemp():每次呼叫一個新的隨機、0700 目錄,不是固定的 /tmp 路徑——固定路徑在多使用者
+    # 主機上可被預先埋 symlink(這裡寫的是治理政策 YAML,不是什麼絕對機密,但沒理由留這個攻擊面)。
+    d = tempfile.mkdtemp(prefix="nclaw-prove-")
     try:
-        r = subprocess.run(f"openshell policy prove --policy {shlex.quote(pf)} --credentials {shlex.quote(cf)} --compact",
-                           shell=True, capture_output=True, text=True, timeout=60, env=ENV)
-    except Exception as e:
-        return (-1, False, f"prove 執行失敗:{e}")
-    out = _strip_ansi((r.stdout or "") + (r.stderr or ""))
-    m = re.search(r"(\d+)\s+critical/high gaps", out)
-    gaps = int(m.group(1)) if m else (0 if r.returncode == 0 else -1)
-    return (gaps, r.returncode == 0, out.strip())
+        pf = f"{d}/policy.yaml"; cf = f"{d}/cred.yaml"
+        with open(pf, "w", encoding="utf-8") as fh: fh.write(raw_yaml or "")
+        with open(cf, "w", encoding="utf-8") as fh: fh.write("version: 1\ncredentials: []\n")
+        try:
+            r = subprocess.run(f"openshell policy prove --policy {shlex.quote(pf)} --credentials {shlex.quote(cf)} --compact",
+                               shell=True, capture_output=True, text=True, timeout=60, env=ENV)
+        except Exception as e:
+            return (-1, False, f"prove 執行失敗:{e}")
+        out = _strip_ansi((r.stdout or "") + (r.stderr or ""))
+        m = re.search(r"(\d+)\s+critical/high gaps", out)
+        gaps = int(m.group(1)) if m else (0 if r.returncode == 0 else -1)
+        return (gaps, r.returncode == 0, out.strip())
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 def _policy_sb_ok(sb):
     return bool(re.match(r"^[A-Za-z0-9._-]+$", sb or ""))
@@ -1378,7 +1382,7 @@ def do_policy(op, body):
         binflags = " ".join(f"--binary {shlex.quote(b)}" for b in bins if re.match(r"^[/A-Za-z0-9._-]+$", b))
         flag = "--dry-run" if dry else "--wait --timeout 60"
         try:
-            r = subprocess.run(f"openshell policy update {shlex.quote(sb)} --add-endpoint {shlex.quote(host + ':' + port + ':' + access)} {binflags} {flag}",
+            r = subprocess.run(f"openshell policy update {shlex.quote(sb)} --add-endpoint {shlex.quote(host + ':' + port + ':' + access)} {binflags} {flag}",  # nosemgrep: subprocess-list-passed-as-string -- binflags joins per-element shlex.quote()d strings (see line above), the rule doesn't model quoting happening before the join
                                shell=True, capture_output=True, text=True, timeout=90, env=ENV)
         except Exception as e:
             return {"ok": False, "msg": f"執行失敗:{e}", "msg_en": f"Execution failed: {e}"}
@@ -1403,14 +1407,17 @@ def do_policy(op, body):
             return {"ok": False, "blocked": True, "gaps": cand, "baseline_gaps": base,
                     "msg": f"❌ 已拒絕:此改動讓 critical/high 缺口由 {base} 增為 {cand}",
                     "msg_en": f"❌ Rejected: this change would raise critical/high gaps from {base} to {cand}", "out": cout[-1500:]}
-        os.makedirs(POLICY_PROVE_DIR, exist_ok=True)
-        pf = f"{POLICY_PROVE_DIR}/apply.yaml"
-        with open(pf, "w") as fh: fh.write(raw)
+        d = tempfile.mkdtemp(prefix="nclaw-apply-")   # same rationale as _prove(): fresh random dir, not a fixed guessable /tmp path
         try:
-            r = subprocess.run(f"openshell policy set --policy {shlex.quote(pf)} {shlex.quote(sb)} --wait --timeout 40",
-                               shell=True, capture_output=True, text=True, timeout=75, env=ENV)
-        except Exception as e:
-            return {"ok": False, "msg": f"套用失敗:{e}", "msg_en": f"Apply failed: {e}"}
+            pf = f"{d}/apply.yaml"
+            with open(pf, "w", encoding="utf-8") as fh: fh.write(raw)
+            try:
+                r = subprocess.run(f"openshell policy set --policy {shlex.quote(pf)} {shlex.quote(sb)} --wait --timeout 40",
+                                   shell=True, capture_output=True, text=True, timeout=75, env=ENV)
+            except Exception as e:
+                return {"ok": False, "msg": f"套用失敗:{e}", "msg_en": f"Apply failed: {e}"}
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
         sout = _strip_ansi((r.stdout or "") + (r.stderr or "")); sok = r.returncode == 0
         return {"ok": sok, "gaps": cand, "baseline_gaps": base,
                 "msg": (f"✅ prove 通過(缺口 {cand} ≤ 現行 {base})並已套用" if sok else "prove 通過但 set 失敗"),

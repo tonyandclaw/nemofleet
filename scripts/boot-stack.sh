@@ -165,9 +165,9 @@ ensure_xagent() {
     if docker exec "$CT_LEAD" sh -c "cat $SK 2>/dev/null" | cmp -s - "/tmp/$skn-rendered.md"; then
       ok "$skn SKILL 已是當前 IP/token"
     else
-      docker exec -u 0 "$CT_LEAD" sh -c "mkdir -p $(dirname $SK)" >>"$LOG" 2>&1
+      docker exec -u 0 "$CT_LEAD" sh -c "mkdir -p $(dirname "$SK")" >>"$LOG" 2>&1
       docker cp "/tmp/$skn-rendered.md" "$CT_LEAD:$SK" >>"$LOG" 2>&1
-      docker exec -u 0 "$CT_LEAD" sh -c "chown -R 998:998 $(dirname $SK); chmod 644 $SK" >>"$LOG" 2>&1 \
+      docker exec -u 0 "$CT_LEAD" sh -c "chown -R 998:998 $(dirname "$SK"); chmod 644 $SK" >>"$LOG" 2>&1 \
         && ok "$skn SKILL 已渲染部署(IP/token)" || bad "$skn SKILL 部署失敗(看 $LOG)"
     fi
     rm -f "/tmp/$skn-rendered.md"
@@ -182,10 +182,10 @@ ensure_xagent() {
     if docker exec "$CT_LEAD" sh -c "cat $AID 2>/dev/null" | cmp -s - /tmp/approval_issue-rendered.py; then
       ok "approval_issue.py 已是當前密鑰"
     else
-      docker exec -u 0 "$CT_LEAD" sh -c "mkdir -p $(dirname $AID)" >>"$LOG" 2>&1
+      docker exec -u 0 "$CT_LEAD" sh -c "mkdir -p $(dirname "$AID")" >>"$LOG" 2>&1
       docker cp /tmp/approval_issue-rendered.py "$CT_LEAD:$AID" >>"$LOG" 2>&1
       docker cp "$BRIDGE/wi_approval.py" "$CT_LEAD:$(dirname "$AID")/wi_approval.py" >>"$LOG" 2>&1
-      docker exec -u 0 "$CT_LEAD" sh -c "chown -R 998:998 $(dirname $AID); chmod 644 $AID $(dirname "$AID")/wi_approval.py" >>"$LOG" 2>&1 \
+      docker exec -u 0 "$CT_LEAD" sh -c "chown -R 998:998 $(dirname "$AID"); chmod 644 $AID $(dirname "$AID")/wi_approval.py" >>"$LOG" 2>&1 \
         && ok "approval_issue.py 已渲染部署(APPROVAL_KEY)" || bad "approval_issue.py 部署失敗(看 $LOG)"
     fi
     rm -f /tmp/approval_issue-rendered.py
@@ -256,7 +256,7 @@ ensure_dashboard() {
 echo "== boot-stack $(date '+%F %H:%M %Z') =="
 
 # ── 0. 全綠就提前收工(仍確保跨 agent 端點/policy 在位)──────────────
-if port_up $GW_PORT && hermes_host; then
+if port_up "$GW_PORT" && hermes_host; then
   ok "核心已全部在線(gateway :$GW_PORT / hermes API :8642)"
   ensure_xagent
   ensure_dashboard
@@ -272,7 +272,7 @@ require_ct CT_WA worker-a || die "worker-a 容器不存在(docker ps 查無)"
 # 不可 pipe recover 的 stdout:它的 ssh -f forward 會 hold pipe 造成假 hang;導檔即可
 NEMOCLAW_GATEWAY_PORT=$GW_PORT nemoclaw worker-a recover >"$LOG" 2>&1 \
   || die "worker-a recover 失敗"
-port_up $GW_PORT || die "gateway :$GW_PORT 沒起來"
+port_up "$GW_PORT" || die "gateway :$GW_PORT 沒起來"
 ok "gateway :$GW_PORT"
 UIP_A="$(ui_port worker-a)"
 if [ -n "$UIP_A" ]; then

@@ -23,4 +23,4 @@ if [ "${SEDIMENT:-1}" = "1" ]; then
   echo "---- 沉澱教訓進 Hermes + worker SKILL.md ----"
   "$DIR/scripts/lessons-to-skill.sh" both 2>&1 | grep -E '渲染|安裝' || true
 fi
-exit $rc
+exit "$rc"

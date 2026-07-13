@@ -56,7 +56,7 @@ ND(){ local r a; for a in 1 2 3 4; do r="$(curl -s -m12 -H "Cookie: asus_token=$
 URL="$B/appGet.cgi?hook=nvram_dump(\"syslog.log\",\"\")"
 
 # 3) 啟動 worker 灌流量(重用 token)
-END=$(( $(date +%s) + DUR )); PIDS=""
+END=$(( $(date +%s) + DUR )); PIDS=""  # nosemgrep: unquoted-command-substitution-in-command -- inside $(( )) arithmetic context, no word-splitting/globbing applies
 echo "[loadtest] 啟動 $WORKERS 個 worker,持續 ~${DUR}s …"
 for w in $(seq "$WORKERS"); do
   ( while [ "$(date +%s)" -lt "$END" ]; do curl -s -m12 -H "Cookie: asus_token=$TOK" -H "Referer: $B/index.asp" -o /dev/null "$URL" 2>/dev/null; done ) & PIDS="$PIDS $!"

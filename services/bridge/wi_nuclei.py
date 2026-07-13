@@ -16,8 +16,12 @@ NUCLEI_TAGS = os.environ.get("BRIDGE_NUCLEI_TAGS", "asus").strip()
 # them there) so a scan never has to phone home to update templates — the sandbox is deny-by-default.
 NUCLEI_TEMPLATES = os.environ.get("NUCLEI_TEMPLATES_DIR", "/usr/local/share/nuclei-templates").strip()
 LAST_NUCLEI = {}
-_deps = {"zone_has": lambda c: False, "load_settings": lambda: {},
-         "open_jira": lambda *a, **k: None, "zone": "?"}
+# nosemgrep: return-not-in-function — semgrep's parser misidentifies these lambda bodies as
+# top-level `return` statements (there is no `return` anywhere in this dict literal); confirmed
+# by testing in isolation, reformatting doesn't change it, it's a parser limitation on this
+# specific "dict of lambdas" shape, not a real issue.
+_deps = {"zone_has": lambda c: False, "load_settings": lambda: {},  # nosemgrep: return-not-in-function
+         "open_jira": lambda *a, **k: None, "zone": "?"}  # nosemgrep: return-not-in-function
 
 
 def configure(zone_has, load_settings, open_jira, zone):
@@ -81,7 +85,7 @@ def run_nuclei_scan(trigger="api"):
     # so point it at /tmp which always is.
     env = dict(os.environ, HOME=os.environ.get("NUCLEI_HOME", "/tmp"))
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)  # nosemgrep: dangerous-subprocess-use-audit,dangerous-subprocess-use-tainted-env-args — argv list, no shell=True, so there's no shell to inject into; cmd's dynamic parts (url/tags) are settings-controlled, not attacker input
     except subprocess.TimeoutExpired:
         LAST_NUCLEI = {"available": True, "target": url, "note": "nuclei 逾時(600s)", "note_en": "nuclei timed out (600s)",
                        "count": 0, "findings": [], "ts": now}
@@ -114,7 +118,7 @@ def run_nuclei_scan(trigger="api"):
 
 def schedule_loop():
     """worker-b nuclei 排程:就緒後先掃一輪,之後每 nuclei_interval_sec 秒掃一次(0=暫停)。"""
-    time.sleep(30)
+    time.sleep(30)  # nosemgrep: arbitrary-sleep — intentional startup delay before the first scan, not leftover debug code
     while True:
         iv = NUCLEI_INTERVAL
         try:

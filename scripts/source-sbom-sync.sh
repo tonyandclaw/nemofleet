@@ -14,7 +14,7 @@ WD="/sandbox/.hermes/workspace/it-task"
 CTB="${CT_B:-$(docker ps --format '{{.Names}}'|grep -m1 worker-b)}"
 [ -n "$CTB" ] || { echo "[sbom] zone B(worker-b)容器未跑" >&2; exit 1; }
 fresh=$(docker exec "$CTB" sh -c "[ -f $WD/source-sbom.json ] && echo \$(( \$(date +%s) - \$(stat -c %Y $WD/source-sbom.json) )) || echo 999999" 2>/dev/null)
-if [ "${fresh:-999999}" -lt 43200 ]; then echo "[sbom] 12h 內已更新($(( ${fresh:-0}/3600 ))h 前),跳過"; exit 0; fi
+if [ "${fresh:-999999}" -lt 43200 ]; then echo "[sbom] 12h 內已更新($(( ${fresh:-0}/3600 ))h 前),跳過"; exit 0; fi  # nosemgrep: unquoted-variable-expansion-in-command -- inside $(( )) arithmetic context, no word-splitting/globbing applies
 JSON="$(REPO="$REPO" REF="$REF" python3 <<'PY'
 import os, json, re, time, urllib.request
 repo=os.environ["REPO"]; ref=os.environ["REF"]

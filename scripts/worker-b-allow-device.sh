@@ -15,10 +15,15 @@ command -v openshell >/dev/null 2>&1 || { echo "[allow-dev] 找不到 openshell 
 openshell policy get "$SB" >/dev/null 2>&1 || { echo "[allow-dev] 沙箱 $SB 未就緒(略過)"; exit 0; }
 IP="$(cut -d'|' -f1 "$CRED" 2>/dev/null | tr -d ' \n\r')"
 [ -n "$IP" ] || echo "[allow-dev] 無 EBG19P IP(缺 $CRED)→ 只允許 nuclei binary,無裝置 egress"
-# shellcheck disable=SC2086
-openshell policy update "$SB" \
-  ${IP:+--add-endpoint "$IP:80:full"} ${IP:+--add-endpoint "$IP:443:full"} ${IP:+--add-endpoint "$IP:8443:full"} \
-  --binary /usr/local/bin/nuclei --binary /usr/bin/nuclei \
-  --wait --timeout 60 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -iE "submitted|loaded|error|denied" || true
+# array form (not a single unquoted-expansion command line) so each --add-endpoint flag/value pair
+# is its own argv element without relying on word-splitting an unquoted "${IP:+...}" — same effect
+# as the old form (endpoints omitted entirely when IP is empty), just not a semgrep/shellcheck
+# unquoted-expansion finding to begin with.
+args=(policy update "$SB")
+if [ -n "$IP" ]; then
+  args+=(--add-endpoint "$IP:80:full" --add-endpoint "$IP:443:full" --add-endpoint "$IP:8443:full")
+fi
+args+=(--binary /usr/local/bin/nuclei --binary /usr/bin/nuclei --wait --timeout 60)
+openshell "${args[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -iE "submitted|loaded|error|denied" || true
 v="$(openshell policy get "$SB" 2>&1 | awk '/^Active:/{print $2}')"
 echo "[allow-dev] ✓ $SB nuclei egress 就緒(裝置 ${IP:-<none>} + nuclei binary;active policy v${v:-?})"

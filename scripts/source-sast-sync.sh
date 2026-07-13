@@ -19,7 +19,7 @@ EXAMINE="${SAST_EXAMINE:-90}" # 最多檢視幾支候選檔(限流保護)
 CTB="${CT_B:-$(docker ps --format '{{.Names}}'|grep -m1 worker-b)}"
 [ -n "$CTB" ] || { echo "[sast] zone B(worker-b)容器未跑" >&2; exit 1; }
 fresh=$(docker exec "$CTB" sh -c "[ -f $WD/source-sast-manifest.json ] && echo \$(( \$(date +%s) - \$(stat -c %Y $WD/source-sast-manifest.json) )) || echo 999999" 2>/dev/null)
-if [ "${fresh:-999999}" -lt 43200 ]; then echo "[sast] 12h 內已更新($(( ${fresh:-0}/3600 ))h 前),跳過"; exit 0; fi
+if [ "${fresh:-999999}" -lt 43200 ]; then echo "[sast] 12h 內已更新($(( ${fresh:-0}/3600 ))h 前),跳過"; exit 0; fi  # nosemgrep: unquoted-variable-expansion-in-command -- inside $(( )) arithmetic context, no word-splitting/globbing applies
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 REPO="$REPO" REF="$REF" KEEP="$KEEP" EXAMINE="$EXAMINE" OUT="$TMP" python3 <<'PY' || { echo "[sast] 抓取失敗(github 限流?)" >&2; exit 1; }

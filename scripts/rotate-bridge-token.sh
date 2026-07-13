@@ -29,7 +29,7 @@ for entry in "worker-a:A" "worker-b:B"; do
   sleep 2
   c=$(docker exec "$ct" sh -c "curl -s -m4 -o /dev/null -w '%{http_code}' -H 'X-Bridge-Token: $NEW' http://127.0.0.1:9099/health" 2>/dev/null)
   c0=$(docker exec "$ct" sh -c "curl -s -m4 -o /dev/null -w '%{http_code}' http://127.0.0.1:9099/monitor" 2>/dev/null)
-  [ "$c" = 200 ] && [ "$c0" = 403 ] && ok "$frag 端點已換新 token(zone $zone;無 token=403)" || bad "$frag 端點異常(health=$c noauth=$c0)"
+  [ "$c" = 200 ] && [ "$c0" = 403 ] && ok "$frag 端點已換新 token(zone $zone;無 token=403)" || bad "$frag 端點異常(health=$c noauth=$c0)"  # nosemgrep: nemofleet-bash-hardcoded-credential -- "token=403" here is prose inside a human-readable status message ("no token gives 403"), not a credential assignment
 done
 
 # 3) 重渲染 Hermes 委派 SKILL(IP + 新 token)

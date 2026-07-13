@@ -40,7 +40,7 @@ class EBG19PClient:
             headers={"Content-Type": "application/x-www-form-urlencoded",
                      "Referer": f"{self.base}/Main_Login.asp"})
         try:
-            resp = urllib.request.urlopen(req, timeout=self.timeout)
+            resp = urllib.request.urlopen(req, timeout=self.timeout)  # nosemgrep: dynamic-urllib-use-detected — self.base is the managed device's IP from the operator-provided EBG19P_CRED file, not external/attacker input
             for h in resp.headers.get_all("Set-Cookie") or []:
                 m = re.search(r"asus_token=([A-Za-z0-9]+)", h)
                 if m:
@@ -54,7 +54,7 @@ class EBG19PClient:
         req = urllib.request.Request(
             f"{self.base}{path}",
             headers={"Cookie": f"asus_token={self.token}", "Referer": f"{self.base}/index.asp"})
-        return urllib.request.urlopen(req, timeout=self.timeout).read().decode("utf-8", "replace")
+        return urllib.request.urlopen(req, timeout=self.timeout).read().decode("utf-8", "replace")  # nosemgrep: dynamic-urllib-use-detected — same trusted device IP as login() above
 
     def hook(self, hook):
         if not self.token:
@@ -79,7 +79,7 @@ class EBG19PClient:
             headers={"Cookie": f"asus_token={self.token}",
                      "Content-Type": "application/x-www-form-urlencoded",
                      "Referer": f"{self.base}/index.asp"})
-        return urllib.request.urlopen(req, timeout=self.timeout + wait).read().decode("utf-8", "replace")
+        return urllib.request.urlopen(req, timeout=self.timeout + wait).read().decode("utf-8", "replace")  # nosemgrep: dynamic-urllib-use-detected — same trusted device IP as login() above
 
 
 def parse_nvram_value(raw):

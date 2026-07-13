@@ -36,11 +36,39 @@ uitest: ## run UI render tests (jsdom; catches i18n leaks, blank views, dead wir
 itest: ## run integration tests (services started standalone; python3 + curl only, no live stack)
 	@set -e; for t in tests/integration/*.sh; do echo "→ $$t"; bash "$$t"; done
 
-security-scan: ## scan THIS repo (not an upstream sync) with the same Semgrep ruleset worker-b uses
+# --error: exit 1 on any finding, so this actually gates CI (make security-scan used to always
+# exit 0 regardless of findings — see docs/design/architecture.md if that changes again).
+# --timeout 120 --timeout-threshold 0: the defaults (30s / stop-after-3-timeouts-per-file) were
+# silently skipping the rest of the ruleset on worker-itops.py (our largest file) once 3 rules
+# timed out on it — a scan that reports "0 findings" because it gave up isn't a real all-clear.
+# Rules excluded repo-wide (not per-finding nosemgrep, because every instance found across the
+# whole repo was the same non-issue for this codebase specifically):
+#   i18next-key-format — assumes a "MODULE.FEATURE.*" translation-key convention; this repo's own
+#     i18n (t('English sentence')) deliberately uses full source strings as keys instead.
+#   arbitrary-sleep — this codebase's agents are plain `while True: ...; time.sleep(interval)`
+#     polling/scheduling loops throughout (no async framework, no cron lib) — sleep IS the
+#     scheduling primitive here, not a debug leftover.
+#   dynamic-urllib-use-detected — every instance is a fixed host (github/osv.dev/local NIM) with
+#     only the path or an operator-configured device IP varying, not an attacker-redirectable SSRF.
+#   subprocess-shell-true / dangerous-subprocess-use-audit — both blunt "shell=True is used at
+#     all" / "argument isn't a literal" checks, with no taint analysis. This codebase's own sh()
+#     helpers (worker-itops.py, agent-dashboard.py) are shell=True by design, contractually
+#     requiring every caller to shlex.quote() + regex-validate untrusted segments — checked
+#     individually across ~20 call sites, all compliant. nemofleet-py-command-injection (this
+#     repo's own taint rule, NOT excluded) is what actually catches real injection here: it traces
+#     source→sink and understands when a value was never sanitized, instead of flagging the
+#     pattern this whole codebase deliberately and safely uses everywhere.
+security-scan: ## scan THIS repo (not an upstream sync) with the same Semgrep ruleset worker-b uses; exits 1 on any finding
 	@command -v semgrep >/dev/null 2>&1 || { \
 	  echo "semgrep not on PATH — install it once: pip3 install --user semgrep"; exit 1; }
 	@bash scripts/fetch-semgrep-rules.sh
-	semgrep scan --config .cache/semgrep-rules --metrics=off .
+	semgrep scan --config .cache/semgrep-rules \
+	  --exclude-rule cache.semgrep-rules.typescript.react.portability.i18next.i18next-key-format \
+	  --exclude-rule cache.semgrep-rules.python.lang.best-practice.arbitrary-sleep \
+	  --exclude-rule cache.semgrep-rules.python.lang.security.audit.dynamic-urllib-use-detected \
+	  --exclude-rule cache.semgrep-rules.python.lang.security.audit.subprocess-shell-true \
+	  --exclude-rule cache.semgrep-rules.python.lang.security.audit.dangerous-subprocess-use-audit \
+	  --metrics=off --error --timeout 120 --timeout-threshold 0 .
 
 eval: ## run the fleet-competency eval harness (score + lessons sedimentation); needs a live boot
 	@bash eval/eval.sh

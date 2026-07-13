@@ -1,8 +1,11 @@
 # CI: `make lint` (bash -n + py_compile), `make test` (stdlib unittest), `make itest` (integration:
 # the worker endpoint + dashboard started standalone with plain python3 + curl — no NemoClaw/
-# OpenShell/NIM/device), and `make uitest` (jsdom render + i18n-completeness checks — the one
+# OpenShell/NIM/device), `make uitest` (jsdom render + i18n-completeness checks — the one
 # real dependency this CI takes on, specifically because the "translate to English, half the app
-# is still Chinese" bug kept shipping when this only ran manually/locally; see tests/ui/ui.test.mjs).
+# is still Chinese" bug kept shipping when this only ran manually/locally; see tests/ui/ui.test.mjs),
+# and `make security-scan` (Semgrep, --error → blocks the PR on any finding; the ruleset + its
+# --exclude-rule list are documented right above the Makefile target — every excluded rule was
+# excluded because it doesn't fit this codebase's own patterns, not to silence real findings).
 # The heavier e2e that needs live sandboxes stays on the dev box (make health / tests/e2e-*.sh).
 name: ci
 on:
@@ -19,7 +22,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          pip install --user --break-system-packages semgrep || pip install --user semgrep
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: make lint
       - run: make test
       - run: make itest
       - run: make uitest
+      - run: make security-scan

@@ -96,7 +96,11 @@ def _single_flight(name, fn, reuse_sec=5):
         return r
 
 def sh(cmd, **kw):
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)
+    # this file's one generic shell=True helper by design (callers pass a pre-built command
+    # string); the actual security contract is "every caller shlex.quote()s untrusted input
+    # before it reaches here" — audited/enforced per call site (e.g. _cert_state()'s CN
+    # handling), not at this single shared entry point.
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)  # nosemgrep: dangerous-subprocess-use-audit,subprocess-shell-true
 
 def save_last():
     try:
@@ -1782,7 +1786,7 @@ def _run_semgrep(scan_dir):
     cmd = [exe, "scan", "--config", SEMGREP_RULES, "--json", "--quiet", "--metrics=off",
            "--no-git-ignore", "--timeout", "20", scan_dir]
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=400, env=env)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=400, env=env)  # nosemgrep: dangerous-subprocess-use-audit,dangerous-subprocess-use-tainted-env-args -- argv list (no shell=True); cmd built from fixed paths/flags + scan_dir (an internal WD subpath), env is os.environ plus a fixed HOME/PATH override, not attacker input
         data = json.loads(p.stdout or "{}")
     except Exception as e:
         print(f"[SEMGREP] scan failed: {e}", flush=True)

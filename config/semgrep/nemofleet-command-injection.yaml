@@ -45,12 +45,22 @@ rules:
       - pattern: sys.argv[...]
       - pattern: input(...)
     pattern-sinks:
-      - pattern: os.system(...)
-      - pattern: os.popen(...)
-      - pattern: eval(...)
-      - pattern: exec(...)
       - patterns:
           - pattern-either:
-              - pattern: subprocess.run(..., shell=True, ...)
-              - pattern: subprocess.call(..., shell=True, ...)
-              - pattern: subprocess.Popen(..., shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: os.popen($CMD)
+              - pattern: eval($CMD)
+              - pattern: exec($CMD)
+          - focus-metavariable: $CMD
+      # focus-metavariable pins the sink check to $CMD (the actual command string/list) — without
+      # it, "..." matches ANY argument, so a call like subprocess.run(cmd, shell=True, env=ENV)
+      # where only ENV (built from os.environ, one of this rule's own sources — see ENV = dict(
+      # os.environ, ...) in agent-dashboard.py) is "tainted" would false-positive on every such
+      # call, even when $CMD itself is fully shlex.quote()d/allowlisted (confirmed this false-
+      # positive against 10 real call sites in agent-dashboard.py before adding this).
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run($CMD, ..., shell=True, ...)
+              - pattern: subprocess.call($CMD, ..., shell=True, ...)
+              - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+          - focus-metavariable: $CMD

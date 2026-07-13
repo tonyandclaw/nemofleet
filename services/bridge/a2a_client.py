@@ -27,7 +27,7 @@ class A2AClient:
         body = json.dumps(data).encode() if data is not None else None
         req = urllib.request.Request(self.base + path, data=body, headers=headers,
                                      method="POST" if data is not None else "GET")
-        return json.loads(urllib.request.urlopen(req, timeout=self.timeout).read().decode("utf-8", "replace"))
+        return json.loads(urllib.request.urlopen(req, timeout=self.timeout).read().decode("utf-8", "replace"))  # nosemgrep: dynamic-urllib-use-detected — self.base is only ever an internal worker endpoint (127.0.0.1 or a peer IP from egress policy), never externally-supplied input
 
     def agent_card(self):
         """A2A capability discovery — the worker's public Agent Card (skills it can be delegated)."""
