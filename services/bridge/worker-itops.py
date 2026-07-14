@@ -262,7 +262,8 @@ SETTINGS_DEFAULTS = {
   "dev_overrides": {},           # 每設備健康門檻覆寫:{asset:{dev_cpu_hi,dev_ram_hi,dev_temp_hi}}
   "recipients": [],              # 通知對象/管理者:[{name, telegram(chat id), email}]
   "proactive_enabled": True,     # team-lead 主動巡邏 + 主動回報(scripts/teamlead-proactive.sh)
-  "patrol_interval_sec": int(os.environ.get("BRIDGE_PATROL_INTERVAL", "1200")),  # 主動巡邏頻率(積極=20 分)
+  "patrol_interval_sec": int(os.environ.get("BRIDGE_PATROL_INTERVAL", "1200")),  # 主動巡邏頻率(積極=20 分);patrol_auto=on 時被自適應老化取代
+  "patrol_auto": os.environ.get("BRIDGE_PATROL_AUTO", "0") == "1",  # auto 模式:base 5 分,同 error/warning 重複或沒人回應 → 老化 backoff 至 12h(見 proactive_backoff.py)
   "digest_interval_sec": int(os.environ.get("BRIDGE_DIGEST_INTERVAL", "3600")),  # 主動 digest 頻率(每小時)
   "backup_interval_sec": int(os.environ.get("BRIDGE_BACKUP_INTERVAL", "86400")),  # worker-c 設定備份頻率
   "backup_retain_count": int(os.environ.get("BRIDGE_BACKUP_RETAIN", "15")),  # 最多保留幾份快照,超過自動砍最舊的(0=不砍,無上限)

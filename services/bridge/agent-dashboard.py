@@ -775,7 +775,7 @@ def _collect_impl():
 ALLOWED_CFG = {"cve_interval_sec", "cert_interval_sec", "cert_expire_warn_days", "cert_rsa_min",
                "auto_escalate", "quiet_enabled", "quiet_start", "quiet_end", "quiet_days", "notify_channels", "cert_sig_min", "cert_cipher_policy", "cert_ec_min",
                "dev_cpu_hi", "dev_ram_hi", "dev_temp_hi",
-               "proactive_enabled", "patrol_interval_sec", "digest_interval_sec", "proactive_safety_net",
+               "proactive_enabled", "patrol_interval_sec", "patrol_auto", "digest_interval_sec", "proactive_safety_net",
                "nuclei_interval_sec", "nuclei_tags", "proactive_snooze_until", "backup_interval_sec",
                "sast_src", "sast_ref", "source_scan_interval_sec"}   # worker-b SAST 原始碼來源(GitHub URL / owner-repo / 已掛載資料夾)+ ref + 每日重掃排程
 def _worker_post(path, payload, timeout=10):

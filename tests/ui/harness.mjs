@@ -66,7 +66,10 @@ export const MOCK = {
   // real key is d.proactive (see api.js `proactive: d.proactive || null`) — summary/summary_en
   // mirrors teamlead-proactive.sh's real bilingual output; a mock with no Chinese here can't catch
   // the "proactive page shows a raw Chinese sentence in EN mode" bug (that's how it shipped).
-  proactive: { enabled: true, patrol_interval_sec: 1200, digest_interval_sec: 3600, safety_net: true,
+  // auto/auto_interval/auto_max_sec mirror proactive-status.json in auto mode: patrol_interval_sec is
+  // the current AGED cadence (1200 = 20m here), aging toward auto_max_sec (12h) while alerts repeat.
+  proactive: { enabled: true, auto: true, auto_interval: 1200, auto_max_sec: 43200, alert_sig: 'a1b2c3d4e5f6a7b8',
+    patrol_interval_sec: 1200, fixed_interval_sec: 1200, digest_interval_sec: 3600, safety_net: true,
     last_patrol: '2026-07-10 09:30:01', last_critical: 0, last_warning: 0, last_routine: 0, snooze_until: 0,
     summary: '機隊 1 台;開單 0;CVE affected 84;憑證高風險 0\n- lab-asus-ebg19p-01: offline',
     summary_en: 'Fleet: 1 device(s); open tickets 0; CVE affected 84; cert high-risk 0\n- lab-asus-ebg19p-01: offline',
@@ -107,7 +110,7 @@ export const MOCK = {
     },
     eval_full: null,
   },
-  settings: {}, flow: [],
+  settings: { patrol_auto: true }, flow: [],
   eval: { history: [
       { ts: '2026-07-10 03:54:29', npass: 8, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 1, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 0, lessons_active: 2 },
       { ts: '2026-07-10 04:24:17', npass: 9, n: 11, by_category: { general: { pass: 4, n: 5 }, security: { pass: 1, n: 2 }, ops: { pass: 2, n: 2 }, governance: { pass: 2, n: 2 } }, recovered: 2, lessons_active: 1 },

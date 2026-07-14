@@ -270,6 +270,7 @@ run_cycle(){
   S=$(wk "$WORKERA_CT_NAME" /settings)
   PROACTIVE=$(printf '%s' "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("proactive_enabled",True))' 2>/dev/null || echo True)
   PATROL_IV=$(printf '%s' "$S" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("patrol_interval_sec",1200)))' 2>/dev/null || echo 1200)
+  PATROL_AUTO=$(printf '%s' "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("patrol_auto",False))' 2>/dev/null || echo False)
   DIGEST_IV=$(printf '%s' "$S" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("digest_interval_sec",3600)))' 2>/dev/null || echo 3600)
   RECIPIENTS_JSON=$(printf '%s' "$S" | python3 -c 'import sys,json;print(json.dumps(json.load(sys.stdin).get("recipients",[]),ensure_ascii=False))' 2>/dev/null || echo "[]")
   SAFETY_NET=$(printf '%s' "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("proactive_safety_net",True))' 2>/dev/null || echo True)
@@ -367,19 +368,39 @@ print("\n\n".join(parts))')
 
   # record status + rolling log for dashboard visibility (/api/status → proactive)
   OUT="$OUT" NCRIT="$NCRIT" NWARN="$NWARN" NROUT="$NROUT" DUE="$DUE" SAFETY_NET="${SAFETY_NET:-True}" \
-  PATROL_IV="$PATROL_IV" DIGEST_IV="$DIGEST_IV" SNOOZE_UNTIL="${SNOOZE_UNTIL:-0}" STATUS="$DATA_DIR/proactive-status.json" \
+  PATROL_IV="$PATROL_IV" PATROL_AUTO="$PATROL_AUTO" BRIDGE_DIR="$DIR/services/bridge" DIGEST_IV="$DIGEST_IV" SNOOZE_UNTIL="${SNOOZE_UNTIL:-0}" STATUS="$DATA_DIR/proactive-status.json" \
   LOOKAROUND_SENT="$LOOKAROUND_SENT" PLOG="$DATA_DIR/proactive-log.jsonl" python3 - <<'PYREC' 2>/dev/null || true
-import os, json, time
+import os, json, time, sys
 try: out = json.loads(os.environ["OUT"])
 except Exception: out = {"critical": [], "warning": [], "routine": [], "stale": [], "summary": "", "summary_en": ""}
 now = time.strftime("%Y-%m-%d %H:%M:%S"); nc = int(os.environ.get("NCRIT") or 0); nw = int(os.environ.get("NWARN") or 0)
 lookaround = os.environ.get("LOOKAROUND_SENT") == "1"
-json.dump({"enabled": True, "patrol_interval_sec": int(os.environ.get("PATROL_IV") or 1200),
+status_path = os.environ["STATUS"]
+try: old_status = json.load(open(status_path))
+except Exception: old_status = {}
+# auto-mode cadence aging: reset to 5m base when the alert state changes, else age ×2 toward 12h (see
+# proactive_backoff.py). The run loop reads back "auto_interval" as the next sleep when auto is on.
+auto = os.environ.get("PATROL_AUTO") == "True"
+fixed_iv = int(os.environ.get("PATROL_IV") or 1200)
+alert_sig = old_status.get("alert_sig")
+auto_iv = int(old_status.get("auto_interval") or 300)
+if auto:
+    sys.path.insert(0, os.environ.get("BRIDGE_DIR", ""))
+    try:
+        import proactive_backoff
+        bo = proactive_backoff.next_auto_interval(old_status.get("auto_interval"), old_status.get("alert_sig"),
+                                                  out.get("critical"), out.get("warning"), out.get("stale"))
+        auto_iv = bo["interval"]; alert_sig = bo["signature"]
+    except Exception:
+        auto_iv = 300
+eff_iv = auto_iv if auto else fixed_iv
+json.dump({"enabled": True, "auto": auto, "auto_interval": auto_iv, "auto_max_sec": 43200, "alert_sig": alert_sig,
+           "patrol_interval_sec": eff_iv, "fixed_interval_sec": fixed_iv,
            "digest_interval_sec": int(os.environ.get("DIGEST_IV") or 3600),
            "safety_net": os.environ.get("SAFETY_NET") == "True", "last_patrol": now,
            "last_critical": nc, "last_warning": nw, "last_routine": int(os.environ.get("NROUT") or 0), "snooze_until": int(os.environ.get("SNOOZE_UNTIL") or 0),
            "last_lookaround": lookaround, "stale": out.get("stale", []),
-           "summary": out.get("summary", ""), "summary_en": out.get("summary_en", "")}, open(os.environ["STATUS"], "w"), ensure_ascii=False)
+           "summary": out.get("summary", ""), "summary_en": out.get("summary_en", "")}, open(status_path, "w"), ensure_ascii=False)
 rec = {"ts": now, "critical": out.get("critical", []), "warning": out.get("warning", []), "routine": out.get("routine", []),
        "stale": out.get("stale", []),
        "digest_sent": os.environ.get("DUE") == "True", "lookaround_sent": lookaround,
@@ -389,6 +410,15 @@ except Exception: lines = []
 lines.append(json.dumps(rec, ensure_ascii=False))
 open(os.environ["PLOG"], "w").write("\n".join(lines) + "\n")
 PYREC
+
+  # next sleep: auto 模式用剛剛老化算出的 auto_interval(PYREC 已寫進 status.json;同 error/warning 重複
+  # → 老化到最多 12h,狀態一變回 5m base);否則用固定的 patrol_interval_sec。
+  if [ "$PATROL_AUTO" = "True" ]; then
+    PATROL_INTERVAL=$(python3 -c "import json;print(int(json.load(open('$DATA_DIR/proactive-status.json')).get('auto_interval',300)))" 2>/dev/null || echo 300)
+    log "auto 巡邏間隔 → ${PATROL_INTERVAL}s(base 300 / cap 43200,依告警是否重複而老化)"
+  else
+    PATROL_INTERVAL=$PATROL_IV
+  fi
 }
 
 TRIGGER="$DATA_DIR/proactive-trigger"

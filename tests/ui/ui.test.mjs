@@ -98,6 +98,14 @@ test('fleet shows connected clients with the unauthorized flag', async () => {
   assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
 });
 
+// ── Proactive view shows the auto cadence + that it ages toward the 12h cap ──
+test('proactive view shows auto cadence aging toward the cap', async () => {
+  const { text } = await mount({ route: 'proactive', lang: 'en' });
+  const t = text();
+  assert.ok(/auto/i.test(t), 'auto-cadence indicator missing');
+  assert.ok(/aging/i.test(t) && /12h/i.test(t), 'aging-toward-cap (12h) not shown');
+});
+
 // ── Audit view is now a unified governance ledger (admin ops + gov-* verdicts, tamper-evident) ──
 test('audit view surfaces governance decisions in the tamper-evident chain', async () => {
   const { text } = await mount({ route: 'audit', lang: 'en' });

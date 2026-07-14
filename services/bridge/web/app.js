@@ -273,6 +273,10 @@ const I18N = {
   'dev_ram_hi': { en: 'Device RAM alert', zh: '設備 RAM 告警' },
   'dev_temp_hi': { en: 'Device temp alert', zh: '設備溫度告警' },
   'patrol_interval_sec': { en: 'Patrol interval', zh: '巡邏間隔' },
+  'patrol_auto': { en: 'Auto cadence', zh: '自動頻率' },
+  'auto': { en: 'auto', zh: '自動' },
+  'aging → ': { en: 'aging → ', zh: '老化至 ' },
+  ' (auto — ignored)': { en: ' (auto — ignored)', zh: '(auto 模式下忽略)' },
   'digest_interval_sec': { en: 'Digest interval', zh: '摘要間隔' },
   'quiet_start': { en: 'Quiet start', zh: '靜音開始' },
   'quiet_end': { en: 'Quiet end', zh: '靜音結束' },
@@ -1389,7 +1393,8 @@ const SettingsView = memo(function SettingsView({ d }) {
       ${html`<${Panel} title="Proactive team-lead" label="active patrol + reporting"><div class="formgrid">
         <${Field} label="proactive_enabled" hint="team-lead active patrol + reporting"><${Toggle} on=${s.proactive_enabled !== false} onChange=${v => set('proactive_enabled', v)}/></${Field}>
         <${Field} label="proactive_safety_net" hint="deterministic critical alerts (independent of team-lead)"><${Toggle} on=${s.proactive_safety_net !== false} onChange=${v => set('proactive_safety_net', v)}/></${Field}>
-        ${seg('patrol_interval_sec', t('proactive patrol cadence'))}${seg('digest_interval_sec', t('proactive digest cadence'))}</div></${Panel}>`}
+        <${Field} label="patrol_auto" hint="auto cadence: 5m base, ages ×2 up to 12h when the same alert repeats / nobody responds; resets to 5m on a new alert. Overrides the fixed interval below."><${Toggle} on=${s.patrol_auto === true} onChange=${v => set('patrol_auto', v)}/></${Field}>
+        ${seg('patrol_interval_sec', t('proactive patrol cadence') + (s.patrol_auto === true ? t(' (auto — ignored)') : ''))}${seg('digest_interval_sec', t('proactive digest cadence'))}</div></${Panel}>`}
       ${html`<${Panel} title="Quiet hours & scan tags" label="quiet hours (critical still pushed) + nuclei scope"><div class="formgrid">
         <${Field} label="quiet_enabled" hint="enable quiet hours"><${Toggle} on=${s.quiet_enabled === true} onChange=${v => set('quiet_enabled', v)}/></${Field}>
         ${seg('quiet_start', t('quiet start'))}${seg('quiet_end', t('quiet end'))}
@@ -1462,7 +1467,9 @@ const ProactiveView = memo(function ProactiveView({ d }) {
         ${html`<${Panel} title="Patrol status" label="team-lead active patrol" right=${html`<${ActionBtn} act="patrol" label="Patrol now" busyLabel="Triggering" ghost=${true}/>`}>
           <div class="formgrid">
             <${Field} label="Last patrol"><div class="mono ink2">${p.last_patrol || '—'}</div></${Field}>
-            <${Field} label="Cadence"><div class="mono ink2">patrol ${fmtSec(p.patrol_interval_sec)} · digest ${fmtSec(p.digest_interval_sec)}</div></${Field}>
+            <${Field} label="Cadence"><div class="mono ink2">${p.auto
+              ? html`<span class="pill2 g" style=${{ marginRight: '6px' }}>${t('auto')}</span>patrol ${fmtSec(p.patrol_interval_sec)} <span class="muted">${t('aging → ')}${fmtSec(p.auto_max_sec || 43200)}</span> · digest ${fmtSec(p.digest_interval_sec)}`
+              : html`patrol ${fmtSec(p.patrol_interval_sec)} · digest ${fmtSec(p.digest_interval_sec)}`}</div></${Field}>
             <${Field} label="Safety net"><span class=${'pill2 ' + (p.safety_net ? 'g' : 'w')}>${p.safety_net ? t('on · guaranteed delivery') : 'off'}</span></${Field}>
             <${Field} label="Last cycle"><div><b style=${{ color: (p.last_critical || 0) > 0 ? 'var(--crit)' : 'var(--ink2)' }}>${p.last_critical || 0}</b> <span class="muted">critical ·</span> ${p.last_routine || 0} <span class="muted">routine</span></div></${Field}>
             <${Field} label="Critical alerts" hint="mute proactive interrupts during maintenance (still patrols + logs)">
