@@ -1343,23 +1343,29 @@ def do_policy_ro(sb):
             "presets": [p for p in _policy_presets(sb) if p.get("active")],
             "sandboxes": _list_agent_sandboxes()}
 
-# ── 系統資訊(高價值唯讀;60s 快取,避免每 5s 輪詢狂打 CLI)──
+# ── 系統資訊(高價值唯讀;短快取,避免每次輪詢都狂打 CLI)──
+_SYSINFO_TTL = int(os.environ.get("DASH_SYSINFO_TTL", "10"))   # NIM / gateway / forwards 的新鮮度 —— 每 10s 重探一次(舊值 60s)
+_NIM_PROBE_URL = os.environ.get("NIM_PROBE_URL", "http://host.openshell.internal:8000/v1/models")   # 艦隊實際用的 NIM 路徑(host vLLM 經 OpenShell egress);舊的 inference.local 已不再解析,才會永遠誤判 unreachable
 _SYSINFO = {"ts": 0, "data": None}
 def _sysinfo():
-    if _SYSINFO["data"] is not None and time.time() - _SYSINFO["ts"] < 60:
+    if _SYSINFO["data"] is not None and time.time() - _SYSINFO["ts"] < _SYSINFO_TTL:
         return _SYSINFO["data"]
     info = {}
-    # 推理路由(provider/model)+ 從 Hermes 容器探 inference.local 可達性(就是 Telegram 503 的根因指標)
     try:
         j = json.loads(sh("nemoclaw inference get --json 2>/dev/null", 15) or "{}")
     except Exception:
         j = {}
-    cth = ct("team-lead"); code = ""   # Hermes 跑在 team-lead 容器裡;容器名稱從來不含 "hermes"(見 openshell-team-lead-*),
-    # 舊的 ct("hermes") 永遠抓不到容器 → code 永遠是空字串 → reachable 永遠誤判 False,不管 NIM 真實狀態如何。
+    # 用「艦隊實際觸及 NIM 的方式」探:從 team-lead 沙箱經 OpenShell egress 打 host vLLM
+    # (host.openshell.internal:8000)—— 測的是真正的 agent→NIM 路徑(含 egress),不只是「host 上有沒有跑」。
+    # 容器路徑失敗時退回 host 端直探(NIM 可能起著、只是 egress 有問題),兩者任一有回應即 reachable。
+    cth = ct("team-lead"); code = ""
     if cth:
-        code = sh(f"docker exec {cth} sh -c \"curl -s -k -m4 -o /dev/null -w '%{{http_code}}' https://inference.local/v1/models\" 2>/dev/null", 10).strip()
+        code = sh(f"docker exec {cth} sh -c \"curl -s -m4 -o /dev/null -w '%{{http_code}}' {shlex.quote(_NIM_PROBE_URL)}\" 2>/dev/null", 8).strip()
+    if code in ("", "000"):
+        code = sh(f"curl -s -m4 -o /dev/null -w '%{{http_code}}' {shlex.quote(_NIM_PROBE_URL.replace('host.openshell.internal', 'localhost'))}", 6).strip()
     info["inference"] = {"provider": j.get("provider"), "model": j.get("model"),
-                         "reachable": code not in ("", "000"), "http": code or "—"}
+                         "reachable": code not in ("", "000"), "http": code or "—", "probe": _NIM_PROBE_URL,
+                         "checked_at": time.strftime("%H:%M:%S")}
     # OpenShell gateway 狀態
     st = _strip_ansi(sh("openshell status 2>/dev/null", 12))
     pick = lambda k: (re.search(k + r":\s*(\S+)", st) or (0, None))[1]
@@ -1384,6 +1390,7 @@ def _sysinfo():
         m = re.match(r"\s{2,}([a-z]+)\s+—", ln)
         if m: chans.append(m.group(1))
     info["channels"] = chans
+    info["checked_at"] = time.strftime("%H:%M:%S")   # freshness stamp — the GUI shows "checked HH:MM:SS" so a status can be seen to be live, not stale
     _SYSINFO["ts"] = time.time(); _SYSINFO["data"] = info
     return info
 

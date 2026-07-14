@@ -69,7 +69,10 @@ export const MOCK = {
     { ts: '2026-07-03 14:20', actor: 'tony@asus.com', action: 'login', detail: 'ok', ok: true },
   ] },
   snapshots_by_agent: [{ label: 'worker-a', sb: 'worker-a', items: [{ ver: 'v1', name: 'baseline', ts: '2026-07-03T14-02-33-771Z' }] }],
-  inference: { model: 'nemotron-super', provider: 'vllm-local', reachable: true, endpoint: 'inference.local/v1' },
+  // normalize reads d.sysinfo.inference (NOT a top-level `inference`) — mirror the real _sysinfo()
+  // shape so the NIM indicator + freshness (probe / http / checked_at) render from real-shaped data.
+  sysinfo: { inference: { model: 'nemotron-super', provider: 'vllm-local', reachable: true, http: '200', probe: 'http://host.openshell.internal:8000/v1/models', checked_at: '20:29:18' },
+    gateway: { status: 'running', version: '2026.4', server: 'ok' }, forwards: [], credentials: [], channels: ['telegram'], checked_at: '20:29:18' },
   // real key is d.proactive (see api.js `proactive: d.proactive || null`) — summary/summary_en
   // mirrors teamlead-proactive.sh's real bilingual output; a mock with no Chinese here can't catch
   // the "proactive page shows a raw Chinese sentence in EN mode" bug (that's how it shipped).

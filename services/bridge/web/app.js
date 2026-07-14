@@ -307,6 +307,8 @@ const I18N = {
   'Filter services…': { en: 'Filter services…', zh: '篩選服務…' },
   'Editing policy for': { en: 'Editing policy for', zh: '正在編輯的沙箱' },
   'Inference detail': { en: 'Inference detail', zh: '推理詳情' },
+  'checked': { en: 'checked', zh: '最後確認' },
+  'every 10s': { en: 'every 10s', zh: '每 10 秒' },
   'model': { en: 'model', zh: '模型' },
   'provider': { en: 'provider', zh: '供應商' },
   'reachable': { en: 'reachable', zh: '可達' },
@@ -2028,7 +2030,9 @@ function App() {
               { k: t('model'), v: d.inference.model || '—', mono: true },
               { k: t('provider'), v: d.inference.provider || 'nim', mono: true },
               { k: t('status'), v: statusBullet(d.inference.reachable !== false, t('reachable'), t('unreachable')) },
-              { k: t('endpoint'), v: d.inference.endpoint || d.inference.base_url || 'inference.local/v1', mono: true } ] })}>NIM · ${d.inference.model} <${Dot} s=${d.inference.reachable !== false ? 'on' : 'off'}/></span>
+              { k: 'HTTP', v: d.inference.http || '—', mono: true },
+              { k: t('endpoint'), v: d.inference.probe || d.inference.endpoint || 'host.openshell.internal:8000/v1', mono: true },
+              { k: t('checked'), v: d.inference.checked_at ? d.inference.checked_at + ' · ' + t('every 10s') : '—', mono: true } ] })}>NIM · ${d.inference.model} <${Dot} s=${d.inference.reachable !== false ? 'on' : 'off'}/></span>
             <span class="seg clock">${clock}</span>
           </div>
         </div>
