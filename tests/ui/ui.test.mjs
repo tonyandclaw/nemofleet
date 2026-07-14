@@ -98,6 +98,16 @@ test('fleet shows connected clients with the unauthorized flag', async () => {
   assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
 });
 
+// ── Admin has a Backup/Restore panel (export button + last export + CLI restore) ──
+test('admin backup/restore panel: export control, last export, CLI restore', async () => {
+  const { text } = await mount({ route: 'admin', lang: 'en' });
+  const t = text();
+  assert.ok(/Backup \/ Restore/.test(t), 'Backup/Restore panel missing');
+  assert.ok(/Create full backup/.test(t), 'export button missing');
+  assert.ok(t.includes('nemofleet-export-20260714'), 'last export path not shown');
+  assert.ok(/make import/.test(t), 'CLI restore command not shown');
+});
+
 // ── Proactive view shows the auto cadence + that it ages toward the 12h cap ──
 test('proactive view shows auto cadence aging toward the cap', async () => {
   const { text } = await mount({ route: 'proactive', lang: 'en' });
@@ -144,7 +154,7 @@ test('GovernanceView wires PolicyEditor + GovActionsPanel', () => {
   assert.ok(/const POLSB =/.test(appSrc), 'POLSB not defined (would crash the view)');
 });
 test('AdminView wires users + recipients + ChannelPanel', () => {
-  const i = appSrc.indexOf('const AdminView'); const v = appSrc.slice(i, i + 3500);
+  const i = appSrc.indexOf('const AdminView'); const v = appSrc.slice(i, i + 6500);   // window sized to cover AdminView incl. the Backup/Restore panel before Users
   assert.ok(v.includes('Users'), 'admin users panel missing');
   assert.ok(/recipient/i.test(v), 'admin recipients panel missing');
   assert.ok(appSrc.includes('ChannelPanel'), 'ChannelPanel not defined/wired');

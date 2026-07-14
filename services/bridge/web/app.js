@@ -540,6 +540,21 @@ const I18N = {
   'Resume all agents? They will continue from where they were paused.': { en: 'Resume all agents? They will continue from where they were paused.', zh: '恢復所有 agent?它們會從暫停處繼續。' },
   'Resume all agents? They continue from where they were paused.': { en: 'Resume all agents? They continue from where they were paused.', zh: '恢復所有 agent?它們會從暫停處繼續。' },
   'Emergency kill-switch': { en: 'Emergency kill-switch', zh: '緊急凍結開關' },
+  'Backup / Restore': { en: 'Backup / Restore', zh: '備份 / 還原' },
+  'whole-fleet export (Layer 1) · move the system to another host': { en: 'whole-fleet export (Layer 1) · move the system to another host', zh: '整套匯出(Layer 1)· 把系統搬到另一台主機' },
+  'Export bundles every secret (tokens / keys / TLS / device password) + the audit chain + sandbox data. Written to the HOST filesystem (chmod 600) and never sent to your browser — retrieve it with scp.': { en: 'Export bundles every secret (tokens / keys / TLS / device password) + the audit chain + sandbox data. Written to the HOST filesystem (chmod 600) and never sent to your browser — retrieve it with scp.', zh: '匯出會打包全部密鑰(token / key / TLS / 裝置密碼)+ 稽核鏈 + 沙箱資料。寫在主機檔案系統(chmod 600),絕不送到瀏覽器 —— 請用 scp 從主機取走。' },
+  'Create full backup': { en: 'Create full backup', zh: '產生完整備份' },
+  'Exporting…': { en: 'Exporting…', zh: '匯出中…' },
+  'Create a full-fleet backup on the host? It holds every secret — retrieve it over an encrypted channel, not through the browser.': { en: 'Create a full-fleet backup on the host? It holds every secret — retrieve it over an encrypted channel, not through the browser.', zh: '在主機上產生整套備份?內含全部密鑰 —— 請用加密通道從主機取走,不要走瀏覽器。' },
+  'last export': { en: 'last export', zh: '上次匯出' },
+  'no export yet': { en: 'no export yet', zh: '尚未匯出過' },
+  'Layer 1 · in the bundle': { en: 'Layer 1 · in the bundle', zh: 'Layer 1 · 包含內容' },
+  'secrets on host': { en: 'secrets on host', zh: '主機上的密鑰' },
+  'audit chain': { en: 'audit chain', zh: '稽核鏈' },
+  'device config backups': { en: 'device config backups', zh: '裝置設定備份' },
+  "+ every worker sandbox's scan / verdict histories, settings, baselines": { en: "+ every worker sandbox's scan / verdict histories, settings, baselines", zh: '+ 每台 worker 沙箱的掃描 / 判決歷史、設定、baselines' },
+  'Restore · host console (stays CLI)': { en: 'Restore · host console (stays CLI)', zh: '還原 · 主機 console(維持 CLI)' },
+  'Import uploads all secrets + restarts the whole fleet + needs Layer-3 prereqs — a host-console op, not a web button. See docs/design/backup-restore.md.': { en: 'Import uploads all secrets + restarts the whole fleet + needs Layer-3 prereqs — a host-console op, not a web button. See docs/design/backup-restore.md.', zh: '還原要上傳全部密鑰 + 重啟整個艦隊 + 需 Layer-3 前置 —— 屬主機 console 操作,不是網頁按鈕。見 docs/design/backup-restore.md。' },
   'freeze / resume the whole fleet': { en: 'freeze / resume the whole fleet', zh: '凍結 / 恢復整個艦隊' },
   'FROZEN': { en: 'FROZEN', zh: '已凍結' },
   'all 4 agents paused': { en: 'all 4 agents paused', zh: '4 個 agent 全部暫停' },
@@ -1409,6 +1424,7 @@ const AdminView = memo(function AdminView({ d }) {
   const [nr, setNr] = useState({ name: '', telegram: '', email: '' });
   if (d.me.role !== 'admin') return html`<div class="viewfade"><div class="viewhd"><h2>${t('Admin')}</h2></div><div class="empty">Admin only.</div></div>`;
   const frozen = d.frozen && d.frozen.frozen;
+  const fb = d.fleet_backup || {};
   return html`<div class="viewfade"><div class="viewhd"><h2>Admin</h2><span class="lbl">${t('users · notifications')}</span></div>
     <div class="grid1">
       ${html`<${Panel} title=${t('Emergency kill-switch')} label=${t('freeze / resume the whole fleet')}>
@@ -1422,6 +1438,32 @@ const AdminView = memo(function AdminView({ d }) {
           ${frozen
             ? html`<${ConfirmBtn} run=${() => NF.action('unfreeze')} label=${t('▶ Resume fleet')} busyLabel=${t('Resuming')} confirm=${t('Resume all agents? They continue from where they were paused.')}/>`
             : html`<${ConfirmBtn} run=${() => NF.action('freeze')} label=${t('🛑 Freeze fleet')} busyLabel=${t('Freezing')} danger=${true} confirm=${t('Freeze the ENTIRE fleet? Every agent stops immediately. Reversible from here.')}/>`}
+        </div>
+      </${Panel}>`}
+      ${html`<${Panel} title=${t('Backup / Restore')} label=${t('whole-fleet export (Layer 1) · move the system to another host')}>
+        <div style=${{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style=${{ flex: '1 1 260px', minWidth: 0 }}>
+            <div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.7, marginBottom: '10px' }}>${t('Export bundles every secret (tokens / keys / TLS / device password) + the audit chain + sandbox data. Written to the HOST filesystem (chmod 600) and never sent to your browser — retrieve it with scp.')}</div>
+            <${ConfirmBtn} run=${() => NF.action('export_fleet')} label=${t('Create full backup')} busyLabel=${t('Exporting…')}
+              confirm=${t('Create a full-fleet backup on the host? It holds every secret — retrieve it over an encrypted channel, not through the browser.')}/>
+            ${fb.last_export
+              ? html`<div class="mono" style=${{ fontSize: '11.5px', marginTop: '10px', color: 'var(--ink2)' }}>${t('last export')}: ${fb.last_export.ts} · ${fb.last_export.size}<div class="muted" style=${{ wordBreak: 'break-all' }}>${fb.last_export.path}</div></div>`
+              : html`<div class="muted" style=${{ fontSize: '11.5px', marginTop: '10px' }}>${t('no export yet')}</div>`}
+          </div>
+          <div style=${{ flex: '1 1 260px', minWidth: 0 }}>
+            <div class="lbl" style=${{ marginBottom: '6px' }}>${t('Layer 1 · in the bundle')}</div>
+            <div style=${{ fontSize: '12.5px', lineHeight: 1.85 }}>
+              <div>${t('secrets on host')}: <b class="mono">${fb.secrets_present || 0}/${fb.secrets_total || 0}</b></div>
+              <div>${t('audit chain')}: <b class="mono">${(d.audit.count || 0).toLocaleString()}</b> ${t('entries')}</div>
+              <div>${t('device config backups')}: <b class="mono">${(d.governance_c && d.governance_c.backup_count) || 0}</b></div>
+              <div class="muted">${t('+ every worker sandbox\'s scan / verdict histories, settings, baselines')}</div>
+            </div>
+            <hr class="sep" style=${{ margin: '11px 0' }}/>
+            <div class="lbl" style=${{ marginBottom: '4px' }}>${t('Restore · host console (stays CLI)')}</div>
+            <pre class="mono" style=${{ fontSize: '11px', background: 'var(--inset)', border: '1px solid var(--line)', borderRadius: '8px', padding: '9px', margin: 0, whiteSpace: 'pre-wrap' }}>make import ARGS='&lt;bundle&gt; --dry-run'
+make import ARGS='&lt;bundle&gt;'</pre>
+            <div class="muted" style=${{ fontSize: '11px', marginTop: '6px' }}>${t('Import uploads all secrets + restarts the whole fleet + needs Layer-3 prereqs — a host-console op, not a web button. See docs/design/backup-restore.md.')}</div>
+          </div>
         </div>
       </${Panel}>`}
       ${html`<${Panel} title="Users & access" label="RBAC">

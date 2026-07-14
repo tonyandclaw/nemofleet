@@ -753,6 +753,16 @@ def _collect_impl():
     except Exception:
         pass
     d["governance_c"] = _gc
+    # whole-fleet backup status for the Admin "Backup / Restore" panel: last export (from the GUI
+    # export action) + a cheap Layer-1 inventory (which host-side secret files exist). Sandbox file
+    # counts / audit length aren't recomputed here (the panel reuses d.audit / governance_c for those).
+    try:
+        _le = json.load(open(LAST_EXPORT_FILE, encoding="utf-8"))
+    except Exception:
+        _le = None
+    _sec = [f"{BRIDGE}/.bridge-token", f"{BRIDGE}/.approval-key", f"{BRIDGE}/dash-ca.pem", f"{BRIDGE}/dash-cert.pem",
+            os.path.expanduser("~/.config/nemoclaw/admin-audit.hmac-key"), os.path.expanduser("~/.config/nemoclaw/ebg19p.cred")]
+    d["fleet_backup"] = {"last_export": _le, "secrets_present": sum(1 for f in _sec if os.path.exists(f)), "secrets_total": len(_sec)}
     # unified governance ledger: append NEW worker-c / guardrail binding decisions into the same
     # tamper-evident HMAC chain as admin ops (§6). Decision is pure (dedup); audit() is lock-protected.
     try:
@@ -1024,8 +1034,30 @@ def _flow_append(node, peer, task, status, detail=""):
             f.write("\n".join(lines) + "\n")
     except Exception:
         pass
+LAST_EXPORT_FILE = os.path.expanduser("~/.config/nemoclaw/last-fleet-export.json")
 def do_action(do):
     ct2 = ct("worker-b"); cto = ct("worker-a")
+    if do == "export_fleet":
+        # Runs export-fleet.sh server-side. The bundle (which holds EVERY secret) is written to the
+        # host filesystem chmod 600 and NEVER streamed to the browser — the operator retrieves it
+        # out-of-band (scp). Read-only w.r.t. the fleet, so it can't disrupt anything.
+        r = subprocess.run(["bash", f"{DIR}/scripts/export-fleet.sh"], capture_output=True, text=True, timeout=180, env=ENV)   # argv form, no shell — nothing to inject into
+        out = _strip_ansi((r.stdout or "") + (r.stderr or ""))
+        m = re.search(r"完成:(\S+) \(([^)]+)\)", out)
+        if r.returncode == 0 and m:
+            rec = {"path": m.group(1), "size": m.group(2), "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "by": "gui"}
+            try:
+                os.makedirs(os.path.dirname(LAST_EXPORT_FILE), exist_ok=True)
+                with open(LAST_EXPORT_FILE, "w", encoding="utf-8") as f:
+                    json.dump(rec, f, ensure_ascii=False)
+            except Exception:
+                pass
+            _flow_append("team-lead", "human", "fleet export (GUI)", "done")
+            _CACHE["ts"] = 0
+            return {"ok": True, "path": rec["path"], "size": rec["size"],
+                    "msg": f"已產生完整備份包 → {rec['path']} ({rec['size']})。用 scp 從主機取走;內含全部密鑰,請加密傳輸。",
+                    "msg_en": f"Full backup bundle written → {rec['path']} ({rec['size']}). Retrieve it from the host over an encrypted channel; it holds every secret."}
+        return {"ok": False, "msg": "export 失敗(見主機 stderr)", "msg_en": "export failed (see host stderr)", "out": out[-600:]}
     if do == "guardrail_eval" and cto:
         sh(f"docker exec {cto} sh -c \"curl -s -m8 -X POST -H 'X-Bridge-Token: {TOKEN}' http://127.0.0.1:9099/guardrail-eval\"", 12)
         _flow_append("worker-a", "human", "guardrail red-team eval (GUI)", "working")
@@ -1883,14 +1915,14 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
+            if do in ("freeze", "unfreeze", "export_fleet") and sess["role"] != "admin":   # 高衝擊 / 產生含全部密鑰的包 —— 僅管理員
+                return self._send(403, json.dumps({"ok": False, "msg": "此操作需要管理員權限", "msg_en": "This action requires admin permission"}), "application/json; charset=utf-8")
             if do in ("freeze", "unfreeze"):   # 緊急凍結全隊 —— 高衝擊,僅管理員
-                if sess["role"] != "admin":
-                    return self._send(403, json.dumps({"ok": False, "msg": "緊急凍結需要管理員權限", "msg_en": "Emergency freeze requires admin permission"}), "application/json; charset=utf-8")
                 try:
                     return self._send(200, json.dumps(do_freeze(do == "freeze", sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
                 except Exception as e:
                     return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval", "export_fleet"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作", "msg_en": "Action not allowed"}), "application/json; charset=utf-8")
             try:
                 self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")

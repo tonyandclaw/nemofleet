@@ -13,6 +13,9 @@ export const MOCK = {
   me: { email: 'tony@asus.com', role: 'admin' },
   _me: { email: 'tony@asus.com', role: 'admin' },   // normalize() reads d._me → d.me (collect() emits _me)
   frozen: { frozen: false, by: '', ts: '' },
+  // fleet_backup mirrors the Admin Backup/Restore panel data (agent-dashboard collect()): last GUI
+  // export result (stays on host, never streamed) + a cheap Layer-1 secret inventory.
+  fleet_backup: { last_export: { path: '/home/op/nemofleet-export-20260714-034308Z.tar.gz', size: '148K', ts: '2026-07-14 11:43:02', by: 'gui' }, secrets_present: 6, secrets_total: 6 },
   // role/role_en deliberately mirror the REAL backend shape (worker-itops.py's ZONE_ROLE is
   // Chinese-only; agent-dashboard.py adds the role_en sibling) — a mock that pre-translates this
   // to English, like an earlier version of this file did, can't catch a missing/broken _en sibling

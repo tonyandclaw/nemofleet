@@ -159,6 +159,8 @@ function normalize(d) {
     // the Guardrail tab. Defaults are all-zero/empty (honest "nothing screened yet", not fabricated).
     guardrail: d.guardrail || { count: 0, blocked: 0, allowed: 0, fail_open: 0, by_category: {}, recent: [], eval_deterministic: null, eval_full: null },
     frozen: d.frozen || { frozen: false },
+    // whole-fleet backup status (last export + secret inventory) for the Admin Backup/Restore panel.
+    fleet_backup: d.fleet_backup || { last_export: null, secrets_present: 0, secrets_total: 0 },
     eval: d.eval || null,
   };
 }
