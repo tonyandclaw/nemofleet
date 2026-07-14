@@ -11,7 +11,7 @@ export PATH="$HOME/.local/bin:$NEMOFLEET_NODE_BIN:/usr/local/bin:/usr/bin:/bin:$
 g(){ printf '  \033[32m✓\033[0m %s\n' "$*"; }
 r(){ printf '  \033[31m✗\033[0m %s\n' "$*"; }
 hr(){ printf '\n\033[1;36m%s\033[0m\n' "$*"; }
-IP=$(ip -4 -o addr show eth0 2>/dev/null | grep -oE 'inet [0-9.]+' | awk '{print $2}' | head -1)
+IP=$(primary_ip)
 TOKEN=$(cat "$BRIDGE_DIR/.bridge-token" 2>/dev/null)
 
 hr "🔗 連線網址(目前 WiFi/WSL IP = ${IP:-未知})"

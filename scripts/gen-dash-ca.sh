@@ -6,10 +6,10 @@ NEMOFLEET_ROOT="$__dir"; DIR="$NEMOFLEET_ROOT"; . "$NEMOFLEET_ROOT/lib/common.sh
 # gen-dash-ca.sh — 自建本機 CA + 簽發儀表板伺服器憑證(把 CA 裝進裝置信任清單後,browser 零警告)。
 # 私有 IP 無法用公開 CA(Let's Encrypt 不簽),故走「自管 CA」。
 # CA 只建一次、之後重用;IP 變了重跑只重簽伺服器憑證,各裝置「不必重裝 CA」。
-# 用法:bash scripts/gen-dash-ca.sh [IP]   IP 省略則自動抓 eth0
+# 用法:bash scripts/gen-dash-ca.sh [IP]   IP 省略則自動抓主要 LAN IP(default-route source,不管介面叫什麼名字)
 set -uo pipefail
 DIR=$NEMOFLEET_ROOT; B="$BRIDGE_DIR"
-IP="${1:-$(ip -4 -o addr show eth0 2>/dev/null | grep -oE 'inet [0-9.]+' | awk '{print $2}' | head -1)}"
+IP="${1:-$(primary_ip)}"
 [ -n "$IP" ] || { echo "抓不到 IP,請手動帶:bash scripts/gen-dash-ca.sh 10.88.23.85" >&2; exit 1; }
 CA_KEY="$B/dash-ca-key.pem"; CA_CRT="$B/dash-ca.pem"
 

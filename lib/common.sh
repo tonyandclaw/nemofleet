@@ -112,6 +112,17 @@ WWS=/sandbox/.hermes/workspace              # worker workspace (IT-task staging)
 resolve_ct() {  # $1 = name fragment (team-lead | worker-a | worker-b)
   docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 "openshell-$1-" || true
 }
+
+# primary_ip — the host's primary LAN IPv4, interface-name-agnostic. Uses the source IP the kernel
+# would pick for outbound traffic (default route), so it works whether the NIC is eth0 / enP7s7 /
+# ens5 / wlan0 (hardcoding "eth0" broke TLS cert signing on a DGX Spark whose NIC is enP7s7).
+# Falls back to the first global-scope non-docker/bridge address. Empty only if truly offline.
+primary_ip() {
+  local ip
+  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.][0-9.]*\).*/\1/p' | head -1)"
+  [ -n "$ip" ] || ip="$(ip -4 -o addr show scope global up 2>/dev/null | awk '$2 !~ /^(docker|br-|veth)/ {print $4}' | cut -d/ -f1 | head -1)"
+  printf '%s' "$ip"
+}
 CT_LEAD="$(resolve_ct "$TEAMLEAD_CT_NAME")"
 CT_WA="$(resolve_ct "$WORKERA_CT_NAME")"
 CT_WB="$(resolve_ct "$WORKERB_CT_NAME")"
