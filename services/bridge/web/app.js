@@ -541,6 +541,10 @@ const I18N = {
   'Resume all agents? They continue from where they were paused.': { en: 'Resume all agents? They continue from where they were paused.', zh: '恢復所有 agent?它們會從暫停處繼續。' },
   'Emergency kill-switch': { en: 'Emergency kill-switch', zh: '緊急凍結開關' },
   'Backup / Restore': { en: 'Backup / Restore', zh: '備份 / 還原' },
+  'Delete': { en: 'Delete', zh: '刪除' },
+  'bundles on host': { en: 'bundles on host', zh: '主機上的備份包' },
+  'no bundles on host': { en: 'no bundles on host', zh: '主機上沒有備份包' },
+  'Delete this backup from the host? Retrieve it first (scp) if you still need it — it cannot be undone.': { en: 'Delete this backup from the host? Retrieve it first (scp) if you still need it — it cannot be undone.', zh: '從主機刪除這個備份?若還需要請先用 scp 取走 —— 刪除無法復原。' },
   'whole-fleet export (Layer 1) · move the system to another host': { en: 'whole-fleet export (Layer 1) · move the system to another host', zh: '整套匯出(Layer 1)· 把系統搬到另一台主機' },
   'Export bundles every secret (tokens / keys / TLS / device password) + the audit chain + sandbox data. Written to the HOST filesystem (chmod 600) and never sent to your browser — retrieve it with scp.': { en: 'Export bundles every secret (tokens / keys / TLS / device password) + the audit chain + sandbox data. Written to the HOST filesystem (chmod 600) and never sent to your browser — retrieve it with scp.', zh: '匯出會打包全部密鑰(token / key / TLS / 裝置密碼)+ 稽核鏈 + 沙箱資料。寫在主機檔案系統(chmod 600),絕不送到瀏覽器 —— 請用 scp 從主機取走。' },
   'Create full backup': { en: 'Create full backup', zh: '產生完整備份' },
@@ -1446,9 +1450,17 @@ const AdminView = memo(function AdminView({ d }) {
             <div class="muted" style=${{ fontSize: '12.5px', lineHeight: 1.7, marginBottom: '10px' }}>${t('Export bundles every secret (tokens / keys / TLS / device password) + the audit chain + sandbox data. Written to the HOST filesystem (chmod 600) and never sent to your browser — retrieve it with scp.')}</div>
             <${ConfirmBtn} run=${() => NF.action('export_fleet')} label=${t('Create full backup')} busyLabel=${t('Exporting…')}
               confirm=${t('Create a full-fleet backup on the host? It holds every secret — retrieve it over an encrypted channel, not through the browser.')}/>
-            ${fb.last_export
-              ? html`<div class="mono" style=${{ fontSize: '11.5px', marginTop: '10px', color: 'var(--ink2)' }}>${t('last export')}: ${fb.last_export.ts} · ${fb.last_export.size}<div class="muted" style=${{ wordBreak: 'break-all' }}>${fb.last_export.path}</div></div>`
-              : html`<div class="muted" style=${{ fontSize: '11.5px', marginTop: '10px' }}>${t('no export yet')}</div>`}
+            <div class="lbl" style=${{ margin: '13px 0 4px' }}>${t('bundles on host')}${(fb.bundles && fb.bundles.length) ? html` <span class="muted mono">(${fb.bundles.length})</span>` : null}</div>
+            ${(fb.bundles && fb.bundles.length)
+              ? fb.bundles.map(b => html`<div key=${b.name} style=${{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0', borderTop: '1px solid var(--line)' }}>
+                  <div style=${{ flex: 1, minWidth: 0 }}>
+                    <div class="mono" style=${{ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title=${b.name}>${b.name}</div>
+                    <div class="muted" style=${{ fontSize: '10.5px' }}>${b.mtime} · ${b.size}</div>
+                  </div>
+                  <${ConfirmBtn} ghost=${true} danger=${true} run=${() => NF.action('delete_backup', { name: b.name })} label=${t('Delete')} busyLabel="…"
+                    confirm=${t('Delete this backup from the host? Retrieve it first (scp) if you still need it — it cannot be undone.')}/>
+                </div>`)
+              : html`<div class="muted" style=${{ fontSize: '11.5px', marginTop: '4px' }}>${t('no bundles on host')}</div>`}
           </div>
           <div style=${{ flex: '1 1 260px', minWidth: 0 }}>
             <div class="lbl" style=${{ marginBottom: '6px' }}>${t('Layer 1 · in the bundle')}</div>

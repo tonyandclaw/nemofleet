@@ -762,7 +762,8 @@ def _collect_impl():
         _le = None
     _sec = [f"{BRIDGE}/.bridge-token", f"{BRIDGE}/.approval-key", f"{BRIDGE}/dash-ca.pem", f"{BRIDGE}/dash-cert.pem",
             os.path.expanduser("~/.config/nemoclaw/admin-audit.hmac-key"), os.path.expanduser("~/.config/nemoclaw/ebg19p.cred")]
-    d["fleet_backup"] = {"last_export": _le, "secrets_present": sum(1 for f in _sec if os.path.exists(f)), "secrets_total": len(_sec)}
+    d["fleet_backup"] = {"last_export": _le, "secrets_present": sum(1 for f in _sec if os.path.exists(f)),
+                         "secrets_total": len(_sec), "bundles": _list_fleet_backups()}
     # unified governance ledger: append NEW worker-c / guardrail binding decisions into the same
     # tamper-evident HMAC chain as admin ops (§6). Decision is pure (dedup); audit() is lock-protected.
     try:
@@ -1035,8 +1036,54 @@ def _flow_append(node, peer, task, status, detail=""):
     except Exception:
         pass
 LAST_EXPORT_FILE = os.path.expanduser("~/.config/nemoclaw/last-fleet-export.json")
-def do_action(do):
+_EXPORT_DIR = os.path.expanduser("~")   # export-fleet.sh's default output dir
+_EXPORT_RE = re.compile(r"^nemofleet-export-[0-9A-Za-z_-]+\.tar\.gz(\.gpg)?$")
+def _human_size(n):
+    n = float(n)
+    for u in ("B", "K", "M", "G"):
+        if n < 1024 or u == "G":
+            return f"{n:.0f}{u}"
+        n /= 1024
+def _list_fleet_backups():
+    """List the export bundles on the host (name/size/mtime, newest first). Read-only; the panel
+    uses it to show what can be deleted."""
+    import glob
+    out = []
+    try:
+        paths = glob.glob(os.path.join(_EXPORT_DIR, "nemofleet-export-*.tar.gz")) + \
+                glob.glob(os.path.join(_EXPORT_DIR, "nemofleet-export-*.tar.gz.gpg"))
+        for p in sorted(paths, key=os.path.getmtime, reverse=True)[:20]:
+            st = os.stat(p)
+            out.append({"name": os.path.basename(p), "size": _human_size(st.st_size),
+                        "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))})
+    except Exception:
+        pass
+    return out
+def do_action(do, arg=""):
     ct2 = ct("worker-b"); cto = ct("worker-a")
+    if do == "delete_backup":
+        # delete an export bundle from the host. The client sends only a basename; we basename() it
+        # again and hard-match the export naming regex, then rebuild the path inside _EXPORT_DIR — so
+        # a traversal like "../../etc/passwd" basenames to "passwd", fails the regex, and is rejected.
+        name = os.path.basename(arg or "")
+        if not _EXPORT_RE.match(name):
+            return {"ok": False, "msg": "備份檔名不合法", "msg_en": "Invalid backup filename"}
+        path = os.path.join(_EXPORT_DIR, name)
+        if not os.path.isfile(path):
+            return {"ok": False, "msg": "找不到該備份", "msg_en": "Backup not found"}
+        try:
+            os.remove(path)
+        except Exception as e:
+            return {"ok": False, "msg": f"刪除失敗:{e}", "msg_en": f"Delete failed: {e}"}
+        try:   # clear the last-export marker if it pointed at the file we just removed
+            _le = json.load(open(LAST_EXPORT_FILE, encoding="utf-8"))
+            if os.path.basename(_le.get("path", "")) == name:
+                os.remove(LAST_EXPORT_FILE)
+        except Exception:
+            pass
+        _CACHE["ts"] = 0
+        _flow_append("team-lead", "human", f"fleet backup deleted (GUI): {name}", "done")
+        return {"ok": True, "msg": f"已刪除備份 {name}", "msg_en": f"Deleted backup {name}"}
     if do == "export_fleet":
         # Runs export-fleet.sh server-side. The bundle (which holds EVERY secret) is written to the
         # host filesystem chmod 600 and NEVER streamed to the browser — the operator retrieves it
@@ -1915,17 +1962,18 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
-            if do in ("freeze", "unfreeze", "export_fleet") and sess["role"] != "admin":   # 高衝擊 / 產生含全部密鑰的包 —— 僅管理員
+            if do in ("freeze", "unfreeze", "export_fleet", "delete_backup") and sess["role"] != "admin":   # 高衝擊 / 產生或刪除含全部密鑰的包 —— 僅管理員
                 return self._send(403, json.dumps({"ok": False, "msg": "此操作需要管理員權限", "msg_en": "This action requires admin permission"}), "application/json; charset=utf-8")
             if do in ("freeze", "unfreeze"):   # 緊急凍結全隊 —— 高衝擊,僅管理員
                 try:
                     return self._send(200, json.dumps(do_freeze(do == "freeze", sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
                 except Exception as e:
                     return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval", "export_fleet"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval", "export_fleet", "delete_backup"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作", "msg_en": "Action not allowed"}), "application/json; charset=utf-8")
             try:
-                self._send(200, json.dumps(do_action(do), ensure_ascii=False), "application/json; charset=utf-8")
+                _bname = parse_qs(urlparse(self.path).query).get("name", [""])[0]
+                self._send(200, json.dumps(do_action(do, _bname), ensure_ascii=False), "application/json; charset=utf-8")
             except Exception as e:
                 self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
         elif self.path.startswith("/api/config"):  # 管理設定(localhost only;推到兩台 endpoint)

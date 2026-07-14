@@ -25,7 +25,7 @@ const qs = o => Object.entries(o).filter(([, v]) => v != null && v !== '').map((
 
 const NF = {
   status: () => _get('/api/status'),
-  action: (act) => _post('/api/action?do=' + encodeURIComponent(act)),
+  action: (act, params) => _post('/api/action?' + qs({ do: act, ...(params || {}) })),
   deviceAction: (act) => _post('/api/device-action?do=' + encodeURIComponent(act)),
   // write controls (map 1:1 to the existing admin endpoints)
   config: (k, v) => _post('/api/config?' + qs({ k, v })),

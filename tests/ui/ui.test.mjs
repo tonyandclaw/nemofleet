@@ -104,8 +104,9 @@ test('admin backup/restore panel: export control, last export, CLI restore', asy
   const t = text();
   assert.ok(/Backup \/ Restore/.test(t), 'Backup/Restore panel missing');
   assert.ok(/Create full backup/.test(t), 'export button missing');
-  assert.ok(t.includes('nemofleet-export-20260714'), 'last export path not shown');
+  assert.ok(t.includes('nemofleet-export-20260714'), 'export bundle not listed');
   assert.ok(/make import/.test(t), 'CLI restore command not shown');
+  assert.ok(/bundles on host/i.test(t) && /Delete/.test(t), 'bundle list + delete control missing');
 });
 
 // ── Proactive view shows the auto cadence + that it ages toward the 12h cap ──
