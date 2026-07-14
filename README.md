@@ -168,5 +168,6 @@ rate-limit; broaden the human-approval gate to any egress-widening policy edit; 
 - `docs/design/architecture.md` — architecture (mermaid + ASCII)
 - `docs/design/worker-c-spec.md` — worker-c (governance worker) behavior: backup/firmware/rollback/review + SkillOS skill curation, corrected against actual code (what's real vs. still just a stub)
 - `docs/design/governance-inventory.md` — governance inventory
+- `docs/design/backup-restore.md` — **whole-fleet backup/restore** (`make export` / `make import`): move the entire system to another host
 - `docs/ebg19p-operations.md` — EBG19P operations knowledge base
 - `docs/design/ebg19p-integration-design.md` — real-device integration design

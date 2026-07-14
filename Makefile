@@ -2,7 +2,7 @@
 # works from anywhere in the tree.
 SHELL := /bin/bash
 
-.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan
+.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan export import
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -22,6 +22,12 @@ mail-up: ## configure the real SMTP relay for outbound notifications (reads .env
 
 gen-certs: ## (re)generate dashboard CA + TLS + bridge token
 	bash scripts/gen-dash-ca.sh && bash scripts/gen-dash-tls.sh && bash scripts/rotate-bridge-token.sh
+
+export: ## bundle the whole fleet's portable state (Layer 1) → one archive to move to another host. ARGS='--gpg you@host'
+	@bash scripts/export-fleet.sh $(ARGS)
+
+import: ## restore a fleet bundle onto this host (Layer 3 preflight → Layer 1 restore → Layer 2 make boot). ARGS='<bundle.tar.gz> [--dry-run] [--yes]'
+	@bash scripts/import-fleet.sh $(ARGS)
 
 lint: ## syntax-check every shell script + py-compile services
 	@set -e; for f in $$(find lib scripts tests eval services provisioning -name '*.sh'); do bash -n "$$f"; done; echo "shell OK"

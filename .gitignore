@@ -1,5 +1,8 @@
 # ─── secrets / credentials (NEVER commit) ────────────────────────────────────
 .env
+# full-fleet export bundles — contain EVERY secret (tokens/keys/certs/device cred); never commit
+nemofleet-export-*.tar.gz
+nemofleet-export-*.tar.gz.gpg
 *.pem
 *.key
 *.crt
