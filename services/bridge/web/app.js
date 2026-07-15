@@ -249,6 +249,12 @@ const I18N = {
   'loading…': { en: 'loading…', zh: '載入中…' },
   'online': { en: 'online', zh: '在線' },
   'offline': { en: 'offline', zh: '離線' },
+  'NIM unreachable': { en: 'NIM unreachable', zh: 'NIM 無法連線' },
+  'audit chain broken': { en: 'audit chain broken', zh: '稽核鏈已斷裂' },
+  'rollback read-back mismatch': { en: 'rollback read-back mismatch', zh: '回滾讀回不符' },
+  'guardrail fail-open': { en: 'guardrail fail-open', zh: 'guardrail fail-open' },
+  'unauthorized client(s)': { en: 'unauthorized client(s)', zh: '未授權連線裝置' },
+  'All clear — no active issues': { en: 'All clear — no active issues', zh: '一切正常 — 目前無異常' },
   'unauthorized': { en: 'unauthorized', zh: '未授權' },
   'known': { en: 'known', zh: '已知' },
   'No client data (needs device link + asset sync)': { en: 'No client data (needs device link + asset sync)', zh: '無用戶端資料(需裝置連線 + 資產同步)' },
@@ -809,9 +815,33 @@ const GovChart = memo(function GovChart({ gov }) {
 });
 
 // ── views (each memoized; data-driven so more nodes/devices/findings just render) ────────────
+// attention(d) — aggregate everything currently abnormal across the whole model into one ranked
+// list of {sev, msg, view} chips for the Overview strip (Von Restorff: make the wrong thing the
+// first thing the eye lands on). Reads only real normalized fields — no fabricated state — so an
+// empty list is a truthful "all clear", not a display that can't show problems. Criticals first.
+function attention(d) {
+  const crit = [], warn = [];
+  (d.nodes || []).forEach(n => { if (n && n.up === false) crit.push({ msg: (n.name || 'node') + ' ' + t('offline'), view: 'fleet' }); });
+  if (d.inference && d.inference.reachable === false) crit.push({ msg: t('NIM unreachable'), view: 'architecture' });
+  if (d.audit && d.audit.ok === false) crit.push({ msg: t('audit chain broken'), view: 'audit' });
+  const rbMis = (((d.governance_c || {}).rollbacks) || []).filter(r => r && r.verify && (r.verify.mismatch || []).length).length;
+  if (rbMis) crit.push({ msg: rbMis + ' ' + t('rollback read-back mismatch'), view: 'changectrl' });
+  if (d.guardrail && d.guardrail.fail_open > 0) warn.push({ msg: d.guardrail.fail_open + ' ' + t('guardrail fail-open'), view: 'guardrail' });
+  if (d.clients && d.clients.unknown > 0) warn.push({ msg: d.clients.unknown + ' ' + t('unauthorized client(s)'), view: 'fleet' });
+  (d.devices || []).forEach(dv => { if (dv && dv.online === false) warn.push({ msg: (dv.asset || 'device').replace(/^lab-/, '') + ' ' + t('offline'), view: 'fleet' }); });
+  (d.alerts || []).forEach(a => { if (a && a.msg) (a.sev === 'high' || a.sev === 'crit' ? crit : warn).push({ msg: a.msg, view: 'proactive' }); });
+  const seen = new Set();
+  return [...crit.map(x => ({ ...x, sev: 'c' })), ...warn.map(x => ({ ...x, sev: 'w' }))]
+    .filter(x => (seen.has(x.msg) ? false : seen.add(x.msg))).slice(0, 8);
+}
+
 const OverviewView = memo(function OverviewView({ d }) {
   const g = d.governance;
+  const attn = attention(d);
   return html`<div class="viewfade">
+    ${attn.length
+      ? html`<div class="attn" role="status">${attn.map((a, i) => html`<a key=${i} class=${'attn-chip ' + a.sev} href=${'#/' + a.view}><span class="attn-dot"></span>${a.msg}</a>`)}</div>`
+      : html`<div class="attn ok" role="status"><span class="attn-dot"></span>${t('All clear — no active issues')}</div>`}
     <section class="kpis">
       ${html`<${Kpi} stripe="var(--good)" label="Governed egress" big=${g.allowed.toLocaleString()} sub=${(g.benign ? g.benign.toLocaleString() + ' ' + t('benign-filtered · ') : '') + t('2h window · OPA L7')}/>`}
       ${html`<${Kpi} stripe="var(--crit)" label="Blocked egress (DENIED)" big=${g.denied} sub="unauthorized host · OPA host-layer"/>`}

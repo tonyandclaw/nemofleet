@@ -221,6 +221,24 @@
 .btn.ghost{background:transparent;border-color:var(--line2);color:var(--ink2)}
 .btn.ghost:hover:not(:disabled){color:var(--ink);border-color:#455}
 .btn:disabled{opacity:.5;cursor:default}
+
+/* ── Overview attention strip (Von Restorff: surface anything currently wrong, first thing) ── */
+.attn{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 18px;align-items:center}
+.attn.ok{color:var(--good);font-size:12.5px;font-weight:560}
+.attn-chip{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:6px 12px;border-radius:20px;text-decoration:none;border:1px solid transparent;transition:filter .12s}
+.attn-chip .attn-dot,.attn.ok .attn-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.attn-chip.c{color:var(--crit);background:var(--crit-bg);border-color:color-mix(in srgb,var(--crit) 30%,transparent)}
+.attn-chip.w{color:var(--warn);background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.attn-chip:hover{filter:brightness(1.14)}
+
+/* ── Fitts's Law: comfortable touch targets on coarse pointers (phone/tablet on the LAN) ── */
+@media (pointer:coarse){
+  .btn{min-height:40px;padding:9px 15px}
+  .seg,.inp,select,.toggle{min-height:40px}
+  .attn-chip{padding:9px 14px}
+  .clickcard,.clickrow{cursor:pointer}
+  tr.clickrow td{padding-top:11px;padding-bottom:11px}
+}
 .btn .mini{width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-top-color:transparent;display:inline-block;vertical-align:-1px;margin-right:5px;animation:sp .7s linear infinite}
 
 /* ── forms + admin controls ── */

@@ -98,6 +98,23 @@ test('fleet shows connected clients with the unauthorized flag', async () => {
   assert.ok(t.includes('unauthorized'), 'the unknown-MAC client is not flagged unauthorized');
 });
 
+// ── Overview attention strip aggregates current abnormal states into clickable chips ──
+test('overview attention strip surfaces abnormal states as navigation links', async () => {
+  const { window, cleanup } = await mount({ route: 'overview', lang: 'en', close: false });
+  try {
+    const chips = [...window.document.querySelectorAll('.attn-chip')];
+    // the mock is deliberately abnormal: a rollback read-back mismatch, a guardrail fail-open,
+    // an unauthorized client, and an offline device — all must surface, none fabricated.
+    assert.ok(chips.length >= 3, `expected ≥3 attention chips from the mock's abnormal states, got ${chips.length}`);
+    const txt = chips.map(c => c.textContent).join(' | ');
+    assert.ok(/fail-open/.test(txt), `guardrail fail-open not surfaced: ${txt}`);
+    assert.ok(/unauthorized/.test(txt), `unauthorized client not surfaced: ${txt}`);
+    assert.ok(/mismatch/.test(txt), `rollback read-back mismatch not surfaced: ${txt}`);
+    const hrefs = chips.map(c => c.getAttribute('href'));
+    assert.ok(hrefs.includes('#/guardrail') && hrefs.includes('#/fleet'), `chips must deep-link to the owning view, got ${JSON.stringify(hrefs)}`);
+  } finally { cleanup(); }
+});
+
 // ── Admin has a Backup/Restore panel (export button + last export + CLI restore) ──
 test('admin backup/restore panel: export control, last export, CLI restore', async () => {
   const { text } = await mount({ route: 'admin', lang: 'en' });
