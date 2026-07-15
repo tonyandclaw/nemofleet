@@ -147,6 +147,19 @@ class TestAuditChain(unittest.TestCase):
         res = d.verify_audit()
         self.assertTrue(res["ok"])
 
+    def test_whitespace_boundary_key_survives_readback(self):
+        # regression for a ~4.6% flake: _audit_key() used to write the raw token but read it back
+        # with .strip(), so a key whose first/last byte was ASCII whitespace changed on read-back and
+        # verify_audit() falsely reported the chain broken. Force exactly that key and prove the chain
+        # still verifies (write-key must equal read-key regardless of the key's byte values).
+        import unittest.mock as mock
+        ws_key = b"\n" + d.secrets.token_bytes(30) + b"\t"   # whitespace at BOTH ends -> strip() would maul it
+        with mock.patch.object(d.secrets, "token_bytes", return_value=ws_key):
+            d.audit("alice", "login", "ok", "127.0.0.1", True)   # first audit generates + persists the key
+        self.assertEqual(d._audit_key(), ws_key, "read-back key differs from the written key")
+        d.audit("bob", "logout", "", "127.0.0.1", True)          # a second entry hashed under the read-back key
+        self.assertTrue(d.verify_audit()["ok"], "chain rejected itself after a whitespace-boundary key")
+
 
 class TestGovernanceLedger(unittest.TestCase):
     """_governance_ledger_entries() turns the already-fetched governance stores into the NEW binding

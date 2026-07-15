@@ -1659,12 +1659,28 @@ ADMIN_AUDIT = os.environ.get("DASH_AUDIT_FILE") or os.path.expanduser("~/.config
 # much higher bar than "can overwrite this one file's bytes".
 AUDIT_KEY_FILE = os.environ.get("DASH_AUDIT_KEY_FILE") or os.path.expanduser("~/.config/nemoclaw/admin-audit.hmac-key")
 _AUDIT_LOCK = threading.Lock()
+def _audit_key_decode(raw):
+    # New keys are persisted hex-encoded (64 chars) so that reading back with .strip() — needed to
+    # tolerate a trailing newline — can never alter the key. Decode those; return everything else
+    # (legacy raw-32-byte key files) verbatim. A legacy raw key is 32 bytes, so len==64 uniquely
+    # identifies the hex format and can't collide with a legacy key.
+    if len(raw) == 64 and all(c in b"0123456789abcdefABCDEF" for c in raw):
+        try:
+            return bytes.fromhex(raw.decode())
+        except Exception:
+            pass
+    return raw
 def _audit_key():
+    # BUG FIXED: this used to write the raw 32-byte token but read it back with .strip(); ~4.6% of
+    # random keys have an ASCII-whitespace byte at a boundary, so the stripped read-back key differed
+    # from the write-time key and verify_audit() falsely reported the whole chain broken (a ~1-in-22
+    # flake in tests, and the same odds of a real self-inflicted "chain broken" in production). Storing
+    # hex makes write-key == read-key always; legacy raw key files still read back unchanged.
     try:
         with open(AUDIT_KEY_FILE, "rb") as f:
-            k = f.read().strip()
-        if k:
-            return k
+            raw = f.read().strip()
+        if raw:
+            return _audit_key_decode(raw)
     except Exception:
         pass
     k = secrets.token_bytes(32)
@@ -1672,11 +1688,13 @@ def _audit_key():
         os.makedirs(os.path.dirname(AUDIT_KEY_FILE), exist_ok=True)
         fd = os.open(AUDIT_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as f:
-            f.write(k)
+            f.write(k.hex().encode())
     except FileExistsError:
         try:
             with open(AUDIT_KEY_FILE, "rb") as f:
-                k = f.read().strip() or k
+                raw = f.read().strip()
+            if raw:
+                return _audit_key_decode(raw)
         except Exception:
             pass
     except Exception as ex:
