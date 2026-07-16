@@ -316,6 +316,19 @@ const I18N = {
   'quiet_enabled': { en: 'Quiet hours', zh: '靜音時段' },
   'nuclei_tags': { en: 'Nuclei tags', zh: 'Nuclei 標籤' },
   'nuclei_targets': { en: 'Nuclei targets', zh: 'Nuclei 掃描目標' },
+  'Attack surface & governed remediation': { en: 'Attack surface & governed remediation', zh: '攻擊面與治理修復' },
+  'decision-boundary hardening controls vs live device state': { en: 'decision-boundary hardening controls vs live device state', zh: '決策邊界加固項 vs 裝置即時狀態' },
+  'Each control is an nvram remediation in the decision boundary. Fix runs the GOVERNED loop: guardrail → boundary gate → nvram apply → read-back verify.': { en: 'Each control is an nvram remediation in the decision boundary. Fix runs the GOVERNED loop: guardrail → boundary gate → nvram apply → read-back verify.', zh: '每個加固項都是決策邊界裡的一個 nvram 修復。按 Fix 走的是治理閉環:guardrail → 邊界閘 → nvram 套用 → 讀回驗證。' },
+  'exposed': { en: 'exposed', zh: '暴露' },
+  'hardened': { en: 'hardened', zh: '已加固' },
+  'all hardened': { en: 'all hardened', zh: '全部已加固' },
+  'nvram-only': { en: 'nvram-only', zh: '僅 nvram' },
+  'no baseline-drift signal — direct nvram control only': { en: 'no baseline-drift signal — direct nvram control only', zh: '無基準漂移訊號 — 僅直接 nvram 控制' },
+  'device offline': { en: 'device offline', zh: '裝置離線' },
+  'Control': { en: 'Control', zh: '加固項' },
+  'Fix': { en: 'Fix', zh: '修復' },
+  'Delegate': { en: 'Delegate', zh: '委派' },
+  'to worker-a? It runs the governed loop (guardrail → decision boundary → nvram apply → read-back) against the real EBG19P.': { en: 'to worker-a? It runs the governed loop (guardrail → decision boundary → nvram apply → read-back) against the real EBG19P.', zh: '給 worker-a?它會對真實 EBG19P 跑治理閉環(guardrail → 決策邊界 → nvram 套用 → 讀回)。' },
   'Quiet hours': { en: 'Quiet hours', zh: '靜音時段' },
   'critical alerts are still pushed during quiet hours': { en: 'critical alerts are still pushed during quiet hours', zh: 'critical 告警在靜音時段仍會推送' },
   'Nuclei scan scope': { en: 'Nuclei scan scope', zh: 'Nuclei 掃描範圍' },
@@ -1194,6 +1207,56 @@ const SastSource = memo(function SastSource({ d }) {
     </div>
   </div>`;
 });
+// Attack-surface: each auto nvram remediation in the decision boundary ↔ the semantic drift key
+// worker-a's baseline-compare (run_monitor) flags. Only the overlapping controls have a live drift
+// signal; the rest are nvram-only (no baseline key) → shown honestly, not faked as "hardened".
+const ATTACK_SURFACE_DRIFT = {
+  'ebg-wps': 'wps.enabled', 'ebg-upnp': 'upnp.enabled', 'ebg-dos': 'firewall.dos_protection',
+  'ebg-wanweb': 'webui.wan_access', 'ebg-fw-on': 'firewall.wan_to_lan.default', 'ebg-ssh': 'ssh.wan_access',
+};
+function attackSurfaceRows(d) {
+  const acts = ((d.decision_boundary || {}).actions || []).filter(a => a.approval_tier === 'auto' && String((a.effect || {}).type || '').startsWith('nvram'));
+  const ops = (d.nodes || []).find(n => n.name === 'worker-a') || (d.nodes || []).find(n => (n.caps || []).includes('cert')) || {};
+  const mon = (ops.monitor || [])[0] || {};
+  const regr = mon.regressions || [];
+  // worker-a's baseline-compare is the authority on device reachability (d.devices online is derived
+  // from it). Offline → we can't know the live nvram state, so mark unknown rather than faking hardened.
+  const online = !!mon.status && mon.status !== 'offline' && mon.offline !== true;
+  return acts.map(a => {
+    const dk = ATTACK_SURFACE_DRIFT[a.id];
+    const state = !online ? 'unknown' : (dk ? (regr.includes(dk) ? 'exposed' : 'hardened') : 'nvram');
+    return { ...a, driftKey: dk, state };
+  });
+}
+const AttackSurfacePanel = memo(function AttackSurfacePanel({ d }) {
+  const rows = attackSurfaceRows(d);
+  if (!rows.length) return null;
+  const exposed = rows.filter(r => r.state === 'exposed').length;
+  const online = (d.devices || []).some(dv => dv.online);
+  const admin = d.me && d.me.role === 'admin';
+  const eff = a => (a.effect || {}).type === 'nvram-multi' ? ((a.effect.sets || []).length + ' keys') : ((a.effect || {}).key + '=' + (a.effect || {}).value);
+  const pill = s => s === 'exposed' ? html`<span class="pill2 c">⚠ ${t('exposed')}</span>`
+    : s === 'hardened' ? html`<span class="pill2 g">✓ ${t('hardened')}</span>`
+    : s === 'nvram' ? html`<span class="pill2" title=${t('no baseline-drift signal — direct nvram control only')}>${t('nvram-only')}</span>`
+    : html`<span class="pill2 w">? ${t('device offline')}</span>`;
+  return html`<${Panel} title="Attack surface & governed remediation" label="decision-boundary hardening controls vs live device state"
+    right=${html`<span class=${'pill2 ' + (exposed ? 'c' : online ? 'g' : 'w')}>${exposed ? '⚠ ' + exposed + ' ' + t('exposed') : online ? '✓ ' + t('all hardened') : t('device offline')}</span>`}>
+    <div class="muted" style=${{ fontSize: '11.5px', marginBottom: '10px' }}>${t('Each control is an nvram remediation in the decision boundary. Fix runs the GOVERNED loop: guardrail → boundary gate → nvram apply → read-back verify.')}</div>
+    ${rows.map(r => html`<div key=${r.id} style=${{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 2px', borderTop: '1px solid var(--line)' }}>
+      <div style=${{ flex: 1, minWidth: 0 }}>
+        <div style=${{ fontSize: '13px' }}>${r.title}</div>
+        <div class="mono muted" style=${{ fontSize: '10.5px' }}>${r.id} · ${eff(r)}</div>
+      </div>
+      ${pill(r.state)}
+      ${r.state === 'hardened'
+        ? html`<span class="muted mono" style=${{ fontSize: '11px', width: '52px', textAlign: 'right' }}>—</span>`
+        : admin
+          ? html`<${ConfirmBtn} ghost=${true} run=${() => NF.action('remediate', { name: r.id })} label=${t('Fix')} busyLabel="…"
+              confirm=${t('Delegate') + ' “' + r.id + '” ' + t('to worker-a? It runs the governed loop (guardrail → decision boundary → nvram apply → read-back) against the real EBG19P.')}/>`
+          : html`<span class="muted" style=${{ fontSize: '10.5px', width: '52px', textAlign: 'right' }}>${t('admin')}</span>`}
+    </div>`)}</${Panel}>`;
+});
+
 const SecurityView = memo(function SecurityView({ d }) {
   const P = posture(d);
   const gc = P.score >= 80 ? 'var(--ok)' : P.score >= 65 ? 'var(--warn)' : 'var(--crit)';
@@ -1212,6 +1275,7 @@ const SecurityView = memo(function SecurityView({ d }) {
             </div>`) : html`<div class="muted">${t('No penalties — fleet posture is healthy ✓')}</div>`}
           </div>
         </div></${Panel}>`}
+      ${html`<${AttackSurfacePanel} d=${d}/>`}
       ${d.nuclei ? html`<${Panel} title="Active scan (nuclei)" label=${'projectdiscovery · ' + (d.nuclei.tags || 'asus') + ' templates'} right=${html`<${ActionBtn} act="nuclei" label="Scan now" busyLabel="Scanning" ghost=${true}/>`}>
         ${d.nuclei.available === false
           ? html`<div class="muted" style=${{ padding: '2px 2px 6px' }}>⚠ ${d.nuclei.note || 'nuclei unavailable'}</div>`

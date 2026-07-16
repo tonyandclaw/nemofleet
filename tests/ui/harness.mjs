@@ -56,6 +56,9 @@ export const MOCK = {
     // assets = worker-a's /assets (EBG19P get_clientlist, device-verified parse in ebg19p-asset-sync.sh):
     // mac/ip/name/conn + known flag (unknown = unauthorized). Surfaced by the Fleet "Connected clients" panel.
     { name: 'worker-a', role: 'IT 運維 / 網路管理', role_en: 'IT ops / network management', tag: 'ops', port: 18791, up: true, zone: 'zone A', caps: ['monitor', 'fix', 'cert'],
+      // baseline-compare (run_monitor): device offline → empty regressions + offline flag (real shape).
+      // The Attack-surface panel reads this to decide hardened / exposed / unknown per control.
+      monitor: [{ asset: 'asus-ebg19p-01', status: 'offline', offline: true, regressions: [], pending: [] }],
       assets: { count: 3, unknown: 1, list: [
         { mac: 'AA:BB:CC:00:11:22', ip: '192.168.50.10', name: 'nas-01', type: '9', conn: 'wired', sdn: 'DEFAULT', known: true },
         { mac: 'AA:BB:CC:33:44:55', ip: '192.168.50.24', name: 'tony-mbp', type: '4', conn: 'wifi', sdn: 'DEFAULT', known: true },

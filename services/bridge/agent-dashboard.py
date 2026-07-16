@@ -1164,6 +1164,30 @@ def do_action(do, arg=""):
         _flow_append("worker-b", "human", "nuclei scan (GUI)", "done")
         _CACHE["ts"] = 0; return {"ok": True, "msg": "worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)",
                 "msg_en": "worker-b triggered an active nuclei scan (runs in the background, refresh shortly)"}
+    if do == "remediate":
+        # Attack-surface one-click fix: delegate a SINGLE catalog action to worker-a via the GOVERNED
+        # sandbox path — worker-a's /fix re-screens at the request guardrail + the decision-boundary gate
+        # (_policy_gate) + applies the nvram change + read-back-verifies. Not the host executor: this is
+        # the governed loop. Defense-in-depth: the bug must be a published, non-forbidden nvram action.
+        bug = os.path.basename((arg or "").strip())   # a plain id like 'ebg-wps'; basename strips any path trick
+        cat = _decision_boundary()
+        valid = {a.get("id") for a in cat.get("actions", []) if (a.get("effect") or {}).get("type") in ("nvram-apply", "nvram-multi")}
+        if bug not in valid:
+            return {"ok": False, "msg": f"'{bug}' 不在決策邊界(拒絕)", "msg_en": f"'{bug}' is not a nvram action in the decision boundary (refused)"}
+        if not cto:
+            return {"ok": False, "msg": "worker-a 未部署", "msg_en": "worker-a is not deployed"}
+        try:
+            r = subprocess.run(["docker", "exec", "-i", cto, "curl", "-s", "-m", "20",
+                                "-H", f"X-Bridge-Token: {TOKEN}", "-H", "Content-Type: application/json",
+                                "-X", "POST", "--data-binary", "@-", "http://127.0.0.1:9099/fix"],
+                               input=json.dumps({"bug": bug}), capture_output=True, text=True, timeout=25, env=ENV)
+            resp = (r.stdout or r.stderr or "")[-400:]
+        except Exception as e:
+            return {"ok": False, "msg": f"委派失敗:{e}", "msg_en": f"Delegation failed: {e}"}
+        _CACHE["ts"] = 0
+        _flow_append("worker-a", "human", f"remediate {bug} (GUI · governed)", "accepted")
+        return {"ok": True, "msg": f"已委派 {bug} 給 worker-a(受治理:guardrail + 決策邊界 + 讀回驗證;背景執行)",
+                "msg_en": f"Delegated '{bug}' to worker-a (governed: guardrail + decision boundary + read-back; runs in the background)", "out": resp}
     if do == "backup":
         ct3 = ct("worker-c")
         if ct3:
@@ -2003,14 +2027,14 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(do_auth_config(self._body()), ensure_ascii=False), "application/json; charset=utf-8")
         if self.path.startswith("/api/action"):
             do = parse_qs(urlparse(self.path).query).get("do", [""])[0]
-            if do in ("freeze", "unfreeze", "export_fleet", "delete_backup") and sess["role"] != "admin":   # 高衝擊 / 產生或刪除含全部密鑰的包 —— 僅管理員
+            if do in ("freeze", "unfreeze", "export_fleet", "delete_backup", "remediate") and sess["role"] != "admin":   # 高衝擊 / 產生或刪除含全部密鑰的包 / 改裝置設定 —— 僅管理員
                 return self._send(403, json.dumps({"ok": False, "msg": "此操作需要管理員權限", "msg_en": "This action requires admin permission"}), "application/json; charset=utf-8")
             if do in ("freeze", "unfreeze"):   # 緊急凍結全隊 —— 高衝擊,僅管理員
                 try:
                     return self._send(200, json.dumps(do_freeze(do == "freeze", sess["email"]), ensure_ascii=False), "application/json; charset=utf-8")
                 except Exception as e:
                     return self._send(500, json.dumps({"ok": False, "msg": str(e)}), "application/json")
-            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval", "export_fleet", "delete_backup"):
+            if do not in ("cve", "source", "refresh", "patrol", "nuclei", "snooze30", "snooze120", "snooze_off", "backup", "run_eval", "guardrail_eval", "export_fleet", "delete_backup", "remediate"):
                 return self._send(400, json.dumps({"ok": False, "msg": "不允許的動作", "msg_en": "Action not allowed"}), "application/json; charset=utf-8")
             try:
                 _bname = parse_qs(urlparse(self.path).query).get("name", [""])[0]

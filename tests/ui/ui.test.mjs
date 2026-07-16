@@ -131,6 +131,22 @@ test('decision boundary view shows the catalog grouped by tier', async () => {
   assert.ok(/wps_enable=0/.test(t), 'nvram effect not rendered');
 });
 
+// ── Security view: Attack-surface & governed-remediation panel (catalog controls + governed Fix) ──
+test('security view shows the attack-surface panel with governed remediation', async () => {
+  const { window, cleanup } = await mount({ route: 'security', lang: 'en', close: false });
+  try {
+    const txt = window.document.querySelector('.viewfade').textContent;
+    assert.ok(/Attack surface & governed remediation/.test(txt), 'attack-surface panel missing');
+    assert.ok(/Disable WPS/.test(txt), 'a decision-boundary hardening control (ebg-wps) is not listed');
+    assert.ok(/guardrail . boundary gate . nvram apply . read-back/.test(txt), 'the governed-loop explainer is missing');
+    // device is offline in the mock → state is honestly "device offline", not a fabricated "hardened"
+    assert.ok(/device offline/.test(txt), 'offline device should render an unknown/offline state, not hardened');
+    // admin sees a governed Fix control that posts the remediate action
+    const fix = [...window.document.querySelectorAll('button')].filter(b => /Fix/.test(b.textContent));
+    assert.ok(fix.length >= 1, 'no governed Fix button rendered for admin');
+  } finally { cleanup(); }
+});
+
 // ── Security view exposes the nuclei active-scan scope controls (tags + targets), next to the scan ──
 test('security view exposes nuclei scan scope (tags + targets, scheme/port guidance)', async () => {
   const { text } = await mount({ route: 'security', lang: 'en' });
