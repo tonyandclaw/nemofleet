@@ -315,6 +315,9 @@ const I18N = {
   'quiet_end': { en: 'Quiet end', zh: '靜音結束' },
   'quiet_enabled': { en: 'Quiet hours', zh: '靜音時段' },
   'nuclei_tags': { en: 'Nuclei tags', zh: 'Nuclei 標籤' },
+  'nuclei_targets': { en: 'Nuclei targets', zh: 'Nuclei 掃描目標' },
+  'broaden beyond asus — router,network,ssl,default-login,exposure,cve': { en: 'broaden beyond asus — router,network,ssl,default-login,exposure,cve', zh: '擴大範圍(別只 asus)— router,network,ssl,default-login,exposure,cve' },
+  'blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses': { en: 'blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses', zh: '空白 = 受管裝置;逗號分隔,加 scheme + port 可掃到 http:80 漏掉的 HTTPS 管理介面' },
   'proactive_enabled': { en: 'Proactive patrol', zh: '主動巡邏' },
   'proactive_safety_net': { en: 'Safety net', zh: '安全網' },
   'auto_escalate': { en: 'Auto-open Jira', zh: '自動開 Jira' },
@@ -1476,7 +1479,8 @@ const SettingsView = memo(function SettingsView({ d }) {
       ${html`<${Panel} title="Quiet hours & scan tags" label="quiet hours (critical still pushed) + nuclei scope"><div class="formgrid">
         <${Field} label="quiet_enabled" hint="enable quiet hours"><${Toggle} on=${s.quiet_enabled === true} onChange=${v => set('quiet_enabled', v)}/></${Field}>
         ${seg('quiet_start', t('quiet start'))}${seg('quiet_end', t('quiet end'))}
-        <${Field} label="nuclei_tags" hint="comma-separated (asus,cve,exposure…)"><input class="inp" defaultValue=${s.nuclei_tags || 'asus,cve'} onBlur=${e => set('nuclei_tags', e.target.value)}/></${Field}>
+        <${Field} label="nuclei_tags" hint="broaden beyond asus — router,network,ssl,default-login,exposure,cve"><input class="inp" defaultValue=${s.nuclei_tags || 'asus,cve'} onBlur=${e => set('nuclei_tags', e.target.value)}/></${Field}>
+        <${Field} label="nuclei_targets" hint="blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses"><input class="inp" defaultValue=${s.nuclei_targets || ''} placeholder="https://192.168.50.1:8443, http://192.168.50.1" onBlur=${e => set('nuclei_targets', e.target.value)}/></${Field}>
       </div></${Panel}>`}
     </div></div>`;
 });

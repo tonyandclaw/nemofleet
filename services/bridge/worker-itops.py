@@ -246,6 +246,7 @@ SETTINGS_DEFAULTS = {
   "cert_interval_sec": int(os.environ.get("BRIDGE_CERT_INTERVAL", "86400")),
   "nuclei_interval_sec": int(os.environ.get("BRIDGE_NUCLEI_INTERVAL", "86400")),  # worker-b nuclei 主動掃描週期(0=關)
   "nuclei_tags": os.environ.get("BRIDGE_NUCLEI_TAGS", "asus"),  # nuclei-templates tag 過濾(掃 ASUS 產品)
+  "nuclei_targets": os.environ.get("BRIDGE_NUCLEI_TARGETS", ""),  # 掃描目標清單(逗號分隔,可含 scheme/port;空=用注入的裝置 IP)
   "cert_expire_warn_days": 30,   # 憑證提前幾天提醒
   "cert_rsa_min": 2048,          # RSA 金鑰最低位元
   "cert_sig_min": "sha256",      # 可接受最低簽章演算法(低於 → 弱):sha1|sha256|sha384
@@ -318,6 +319,17 @@ def _save_setting(k, v):
         v = ",".join(toks)
     elif k == "quiet_days":
         v = sorted({int(x) for x in str(v).split(",") if x.strip().isdigit() and 0 <= int(x) <= 6})
+    elif k == "nuclei_targets":
+        # comma/newline-separated targets, each optional scheme + host/ip + optional port + optional path.
+        # argv (no shell) so there's no injection, but validate the shape + cap the count as defense-in-depth.
+        toks = [x.strip() for x in str(v).replace("\n", ",").split(",") if x.strip()]
+        rx = re.compile(r"^(https?://)?[A-Za-z0-9._-]+(:\d{1,5})?(/[A-Za-z0-9._~%&=?/-]*)?$")
+        bad = [x for x in toks if not rx.match(x)]
+        if bad:
+            return {"ok": False, "msg": f"掃描目標格式不合法:{bad[0]}", "msg_en": f"Invalid scan target: {bad[0]}"}
+        if len(toks) > 16:
+            return {"ok": False, "msg": "掃描目標過多(上限 16)", "msg_en": "Too many scan targets (max 16)"}
+        v = ",".join(toks)
     elif k in _SET_RANGE and v not in _SET_RANGE[k]:
         return {"ok": False, "msg": f"{k} 不允許的值 {v}", "msg_en": f"{k} does not allow value {v}"}
     s = load_settings(); s[k] = v

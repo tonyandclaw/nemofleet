@@ -58,6 +58,22 @@ def _parse_nuclei(jsonl):
     return out
 
 
+def nuclei_target_list(settings, env_target):
+    """Build the list of scan URLs (pure → unit-tested). Prefers the GUI-configurable `nuclei_targets`
+    setting (comma/newline-separated; each token may carry its own scheme + port, e.g.
+    https://192.168.50.1:8443 to reach the TLS admin panel that plain http://ip:80 misses); falls back
+    to the single injected device target. A bare host gets http:// prepended. Capped so a governed
+    worker scans a handful of device endpoints, not a whole subnet."""
+    raw = str((settings or {}).get("nuclei_targets") or "").replace("\n", ",")
+    toks = [t.strip() for t in raw.split(",") if t.strip()]
+    if not toks and env_target:
+        toks = [str(env_target).strip()]
+    out = []
+    for t in toks:
+        out.append(t if t.startswith(("http://", "https://")) else "http://" + t)
+    return out[:16]
+
+
 def run_nuclei_scan(trigger="api"):
     """worker-b 用 nuclei-templates 主動掃 EBG19P。高/嚴重命中 → 開真實 Jira(依 auto_escalate)。"""
     global LAST_NUCLEI
@@ -69,16 +85,20 @@ def run_nuclei_scan(trigger="api"):
         LAST_NUCLEI = {"available": False, "note": "nuclei 未安裝於 worker-b 沙箱(OpenShell binaries policy 需允許 nuclei)",
                        "note_en": "nuclei not installed in the worker-b sandbox (OpenShell binaries policy must allow nuclei)", "ts": now}
         return LAST_NUCLEI
-    if not NUCLEI_TARGET:
-        LAST_NUCLEI = {"available": False, "note": "無掃描目標(boot 需 -e EBG19P_TARGET=<ip> 給 worker-b + 開 worker-b→裝置 egress)",
-                       "note_en": "No scan target (boot needs -e EBG19P_TARGET=<ip> for worker-b + worker-b→device egress open)", "ts": now}
-        return LAST_NUCLEI
-    url = NUCLEI_TARGET if NUCLEI_TARGET.startswith("http") else "http://" + NUCLEI_TARGET
     settings = _deps["load_settings"]()
+    targets = nuclei_target_list(settings, NUCLEI_TARGET)
+    if not targets:
+        LAST_NUCLEI = {"available": False, "note": "無掃描目標(GUI 設 nuclei_targets,或 boot 給 -e EBG19P_TARGET=<ip> + 開 worker-b→裝置 egress)",
+                       "note_en": "No scan target (set nuclei_targets in the GUI, or boot with -e EBG19P_TARGET=<ip> + worker-b→device egress open)", "ts": now}
+        return LAST_NUCLEI
+    target_str = ", ".join(targets)
     tags = (settings.get("nuclei_tags") or NUCLEI_TAGS or "asus").strip()
-    cmd = ["nuclei", "-u", url, "-tags", tags, "-severity", "low,medium,high,critical",
-           "-jsonl", "-silent", "-nc", "-timeout", "10", "-retries", "1", "-rate-limit", "50",
-           "-duc"]  # disable the auto template-update check (no phone-home in the governed sandbox)
+    cmd = ["nuclei"]
+    for _t in targets:
+        cmd += ["-u", _t]                      # one or more targets, each scheme/port explicit (GUI-configurable)
+    cmd += ["-tags", tags, "-severity", "low,medium,high,critical",
+            "-jsonl", "-silent", "-nc", "-timeout", "10", "-retries", "1", "-rate-limit", "50",
+            "-duc"]  # disable the auto template-update check (no phone-home in the governed sandbox)
     if os.path.isdir(NUCLEI_TEMPLATES):
         cmd += ["-t", NUCLEI_TEMPLATES]        # pinned, pre-seeded template set
     # nuclei writes its config/cache under $HOME; the sandbox service user's HOME may be unwritable,
@@ -104,15 +124,15 @@ def run_nuclei_scan(trigger="api"):
                 tid = _deps["open_jira"](
                     "[nuclei] %s (%s)" % (fnd["name"], ", ".join(fnd["cve"]) or fnd["template"]),
                     "nuclei 主動掃描命中:%s\ntemplate=%s severity=%s\nmatched=%s\ntarget=%s" % (
-                        fnd["name"], fnd["template"], fnd["severity"], fnd["matched_at"], url),
+                        fnd["name"], fnd["template"], fnd["severity"], fnd["matched_at"], target_str),
                     "nuclei", "lab-asus-ebg19p-01", "High")
                 if tid:
                     opened.append({"template": fnd["template"], "ticket": tid})
-    LAST_NUCLEI = {"available": True, "target": url, "tags": tags, "count": len(findings),
+    LAST_NUCLEI = {"available": True, "target": target_str, "targets": targets, "tags": tags, "count": len(findings),
                    "counts": counts, "findings": findings[:50], "escalated": opened,
                    "schedule_interval_sec": settings.get("nuclei_interval_sec", NUCLEI_INTERVAL),
                    "trigger": trigger, "ts": now}
-    print("[NUCLEI] %s findings on %s (%s)" % (len(findings), url, counts), flush=True)
+    print("[NUCLEI] %s findings on %s (%s)" % (len(findings), target_str, counts), flush=True)
     return LAST_NUCLEI
 
 

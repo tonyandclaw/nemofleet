@@ -334,5 +334,29 @@ class TestPruneBackups(unittest.TestCase):
         self.assertEqual(remaining, ids)
 
 
+class TestNucleiTargetsSetting(unittest.TestCase):
+    """_save_setting validates + normalizes the GUI-configurable nuclei_targets before it reaches nuclei."""
+    def setUp(self):
+        self._wd, self._sf = w.WD, w.SETTINGS_FILE
+        self.tmp = tempfile.mkdtemp()
+        w.WD, w.SETTINGS_FILE = self.tmp, os.path.join(self.tmp, "settings.json")
+
+    def tearDown(self):
+        w.WD, w.SETTINGS_FILE = self._wd, self._sf
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_valid_targets_saved_normalized(self):
+        r = w._save_setting("nuclei_targets", "https://192.168.50.1:8443 , 192.168.50.1")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["settings"]["nuclei_targets"], "https://192.168.50.1:8443,192.168.50.1")
+
+    def test_rejects_shell_metacharacters(self):
+        self.assertFalse(w._save_setting("nuclei_targets", "192.168.50.1; rm -rf /")["ok"])
+
+    def test_caps_target_count(self):
+        many = ",".join("10.0.0.%d" % i for i in range(1, 40))
+        self.assertFalse(w._save_setting("nuclei_targets", many)["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

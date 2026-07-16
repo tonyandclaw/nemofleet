@@ -30,6 +30,27 @@ class TestNucleiParse(unittest.TestCase):
         self.assertEqual(wi_nuclei._parse_nuclei(None), [])
 
 
+class TestNucleiTargetList(unittest.TestCase):
+    def test_setting_overrides_env_and_keeps_scheme_and_port(self):
+        got = wi_nuclei.nuclei_target_list({"nuclei_targets": "https://192.168.50.1:8443, http://192.168.50.1"}, "10.0.0.9")
+        self.assertEqual(got, ["https://192.168.50.1:8443", "http://192.168.50.1"])
+
+    def test_bare_host_gets_http_prefix(self):
+        self.assertEqual(wi_nuclei.nuclei_target_list({"nuclei_targets": "192.168.50.1:8080"}, ""), ["http://192.168.50.1:8080"])
+
+    def test_falls_back_to_injected_device_target(self):
+        self.assertEqual(wi_nuclei.nuclei_target_list({}, "192.168.50.1"), ["http://192.168.50.1"])
+        self.assertEqual(wi_nuclei.nuclei_target_list({"nuclei_targets": ""}, "192.168.50.1"), ["http://192.168.50.1"])
+
+    def test_no_target_anywhere_is_empty(self):
+        self.assertEqual(wi_nuclei.nuclei_target_list({}, ""), [])
+
+    def test_newlines_and_cap(self):
+        many = ",".join("10.0.0.%d" % i for i in range(1, 40))
+        self.assertEqual(len(wi_nuclei.nuclei_target_list({"nuclei_targets": many}, "")), 16)   # capped
+        self.assertEqual(wi_nuclei.nuclei_target_list({"nuclei_targets": "a.b\nc.d"}, ""), ["http://a.b", "http://c.d"])
+
+
 class TestNucleiRun(unittest.TestCase):
     def test_non_security_zone_rejected(self):
         # inject a zone lacking the nuclei cap → returns unavailable without touching the binary
