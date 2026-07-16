@@ -316,6 +316,10 @@ const I18N = {
   'quiet_enabled': { en: 'Quiet hours', zh: '靜音時段' },
   'nuclei_tags': { en: 'Nuclei tags', zh: 'Nuclei 標籤' },
   'nuclei_targets': { en: 'Nuclei targets', zh: 'Nuclei 掃描目標' },
+  'Quiet hours': { en: 'Quiet hours', zh: '靜音時段' },
+  'critical alerts are still pushed during quiet hours': { en: 'critical alerts are still pushed during quiet hours', zh: 'critical 告警在靜音時段仍會推送' },
+  'Nuclei scan scope': { en: 'Nuclei scan scope', zh: 'Nuclei 掃描範圍' },
+  'moved to the Security tab (configure targets + tags next to the scan)': { en: 'moved to the Security tab (configure targets + tags next to the scan)', zh: '已移到資安分頁(在掃描旁邊設定目標與標籤)' },
   'broaden beyond asus — router,network,ssl,default-login,exposure,cve': { en: 'broaden beyond asus — router,network,ssl,default-login,exposure,cve', zh: '擴大範圍(別只 asus)— router,network,ssl,default-login,exposure,cve' },
   'blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses': { en: 'blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses', zh: '空白 = 受管裝置;逗號分隔,加 scheme + port 可掃到 http:80 漏掉的 HTTPS 管理介面' },
   'proactive_enabled': { en: 'Proactive patrol', zh: '主動巡邏' },
@@ -1217,6 +1221,12 @@ const SecurityView = memo(function SecurityView({ d }) {
               <span class="muted">hits <b style=${{ color: (d.nuclei.count || 0) ? 'var(--crit)' : 'var(--ink2)' }}>${d.nuclei.count || 0}</b></span>
               ${(d.nuclei.escalated || []).length ? html`<span class="muted">→ Jira <b class="ink2">${d.nuclei.escalated.length}</b></span>` : null}
             </div>`}
+        ${html`<div class="formgrid" style=${{ margin: '2px 0 14px' }}>
+          <${Field} label="nuclei_targets" hint="blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses">
+            <input class="inp" defaultValue=${(d.settings || {}).nuclei_targets || ''} placeholder="https://192.168.50.1:8443, http://192.168.50.1" onBlur=${e => run(NF.config('nuclei_targets', e.target.value), 'nuclei_targets updated')}/></${Field}>
+          <${Field} label="nuclei_tags" hint="broaden beyond asus — router,network,ssl,default-login,exposure,cve">
+            <input class="inp" defaultValue=${(d.settings || {}).nuclei_tags || 'asus,cve'} onBlur=${e => run(NF.config('nuclei_tags', e.target.value), 'nuclei_tags updated')}/></${Field}>
+        </div>`}
         <${DataTable} rows=${d.nuclei.findings || []} pageSize=${8} empty="No nuclei hits — or scan pending."
           cols=${[
             { k: 'severity', label: 'Sev', render: r => sevPill(r.severity) },
@@ -1476,11 +1486,10 @@ const SettingsView = memo(function SettingsView({ d }) {
         <${Field} label="proactive_safety_net" hint="deterministic critical alerts (independent of team-lead)"><${Toggle} on=${s.proactive_safety_net !== false} onChange=${v => set('proactive_safety_net', v)}/></${Field}>
         <${Field} label="patrol_auto" hint="auto cadence: 5m base, ages ×2 up to 12h when the same alert repeats / nobody responds; resets to 5m on a new alert. Overrides the fixed interval below."><${Toggle} on=${s.patrol_auto === true} onChange=${v => set('patrol_auto', v)}/></${Field}>
         ${seg('patrol_interval_sec', t('proactive patrol cadence') + (s.patrol_auto === true ? t(' (auto — ignored)') : ''))}${seg('digest_interval_sec', t('proactive digest cadence'))}</div></${Panel}>`}
-      ${html`<${Panel} title="Quiet hours & scan tags" label="quiet hours (critical still pushed) + nuclei scope"><div class="formgrid">
+      ${html`<${Panel} title="Quiet hours" label="critical alerts are still pushed during quiet hours"><div class="formgrid">
         <${Field} label="quiet_enabled" hint="enable quiet hours"><${Toggle} on=${s.quiet_enabled === true} onChange=${v => set('quiet_enabled', v)}/></${Field}>
         ${seg('quiet_start', t('quiet start'))}${seg('quiet_end', t('quiet end'))}
-        <${Field} label="nuclei_tags" hint="broaden beyond asus — router,network,ssl,default-login,exposure,cve"><input class="inp" defaultValue=${s.nuclei_tags || 'asus,cve'} onBlur=${e => set('nuclei_tags', e.target.value)}/></${Field}>
-        <${Field} label="nuclei_targets" hint="blank = the managed device. comma-separated; add scheme + port to reach the HTTPS admin panel that http:80 misses"><input class="inp" defaultValue=${s.nuclei_targets || ''} placeholder="https://192.168.50.1:8443, http://192.168.50.1" onBlur=${e => set('nuclei_targets', e.target.value)}/></${Field}>
+        <${Field} label="Nuclei scan scope" hint="moved to the Security tab (configure targets + tags next to the scan)"><span class="muted" style=${{ fontSize: '12px' }}>→ ${t('Security')}</span></${Field}>
       </div></${Panel}>`}
     </div></div>`;
 });

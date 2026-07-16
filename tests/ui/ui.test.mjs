@@ -131,12 +131,13 @@ test('decision boundary view shows the catalog grouped by tier', async () => {
   assert.ok(/wps_enable=0/.test(t), 'nvram effect not rendered');
 });
 
-// ── Settings exposes the nuclei active-scan scope controls (tags + targets) ──
-test('settings view exposes nuclei scan scope (tags + targets, scheme/port guidance)', async () => {
-  const { text } = await mount({ route: 'settings', lang: 'en' });
+// ── Security view exposes the nuclei active-scan scope controls (tags + targets), next to the scan ──
+test('security view exposes nuclei scan scope (tags + targets, scheme/port guidance)', async () => {
+  const { text } = await mount({ route: 'security', lang: 'en' });
   const t = text();
-  assert.ok(/Nuclei tags/.test(t), 'nuclei_tags control missing');
-  assert.ok(/Nuclei targets/.test(t), 'nuclei_targets control missing');
+  assert.ok(/Active scan \(nuclei\)/.test(t), 'nuclei panel missing');
+  assert.ok(/Nuclei tags/.test(t), 'nuclei_tags control missing from Security');
+  assert.ok(/Nuclei targets/.test(t), 'nuclei_targets control missing from Security');
   assert.ok(/HTTPS admin panel/.test(t), 'nuclei_targets hint (scheme+port guidance) missing');
 });
 

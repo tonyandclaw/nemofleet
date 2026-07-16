@@ -61,7 +61,9 @@ export const MOCK = {
         { mac: 'AA:BB:CC:33:44:55', ip: '192.168.50.24', name: 'tony-mbp', type: '4', conn: 'wifi', sdn: 'DEFAULT', known: true },
         { mac: 'DE:AD:BE:EF:00:01', ip: '192.168.50.88', name: '', type: '0', conn: 'wifi', sdn: 'IOT', known: false },
       ] } },
-    { name: 'worker-b', role: '資安 / 原始碼分析', role_en: 'security / source analysis', tag: 'sec', port: 18792, up: true, zone: 'zone B', caps: ['cve', 'nuclei'] },
+    { name: 'worker-b', role: '資安 / 原始碼分析', role_en: 'security / source analysis', tag: 'sec', port: 18792, up: true, zone: 'zone B', caps: ['cve', 'nuclei'],
+      nuclei: { available: true, target: 'http://192.168.50.1', tags: 'asus,cve', count: 1, ts: '2026-07-16T09:00:00', escalated: [],
+        findings: [{ template: 'asus-default-login', name: 'ASUS default credentials exposed', severity: 'high', matched_at: 'http://192.168.50.1', cve: [] }] } },
     { name: 'worker-c', role: '變更治理 / QA 監督', role_en: 'change governance / QA oversight', tag: 'gov', port: 18793, up: true, zone: 'zone C', caps: ['review', 'backup', 'curate'] },
   ],
   // history = the rolling device-health series (agent-dashboard DEV_HIST) the Fleet sparklines read.
