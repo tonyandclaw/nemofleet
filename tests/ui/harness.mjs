@@ -13,6 +13,32 @@ export const MOCK = {
   me: { email: 'tony@asus.com', role: 'admin' },
   _me: { email: 'tony@asus.com', role: 'admin' },   // normalize() reads d._me → d.me (collect() emits _me)
   frozen: { frozen: false, by: '', ts: '' },
+  // decision_boundary mirrors policy/action-catalog.json (agent-dashboard _decision_boundary()) — the
+  // read-only Decision Boundary view. A few actions across every tier so the view renders all groups.
+  decision_boundary: {
+    version: 1, title: 'nemofleet action catalog — the decision boundary',
+    description: 'The single, versioned statement of every action the fleet may perform and every action it refuses.',
+    degradation_classes: [
+      { id: 'security-misconfig-drift', def: 'a setting drifted off the known-good baseline toward a weaker posture' },
+      { id: 'missing-protection', def: 'a protection is off (firewall, DoS guard, AiProtection)' },
+    ],
+    actions: [
+      { id: 'ebg-wps', title: 'Disable WPS', degradation_class: 'security-misconfig-drift', approval_tier: 'auto',
+        effect: { type: 'nvram-apply', key: 'wps_enable', value: '0', restart: 'restart_wireless' },
+        blast_radius: { scope: 'single-device', service_impact: 'wireless-brief-reconnect' },
+        reversibility: { reversible: true, verified_by: 'read-back' }, restores_invariant: 'WPS PIN brute-force surface closed' },
+      { id: 'ebg-aiprotect', title: 'Enable AiProtection malicious-site blocking', degradation_class: 'missing-protection', approval_tier: 'auto',
+        effect: { type: 'nvram-multi', sets: [['TM_EULA', '1'], ['wrs_mals_enable', '1']], verify_key: 'wrs_mals_enable', want: '1', restart: 'restart_wrs' },
+        blast_radius: { scope: 'single-device', service_impact: 'dpi-engine-reload' },
+        reversibility: { reversible: true }, restores_invariant: 'TrendMicro WRS malicious-site blocking on' },
+      { id: 'rollback-config', title: 'Roll back to a known-good config backup', degradation_class: 'availability-degradation', approval_tier: 'human', requires: 'approval_token',
+        effect: { type: 'rollback' }, blast_radius: { scope: 'single-device', service_impact: 'full-config-reapply' },
+        reversibility: { reversible: true, verified_by: 'read-back' }, restores_invariant: 'device configuration matches the chosen known-good backup' },
+      { id: 'factory-reset', title: 'Factory reset / wipe config', degradation_class: null, approval_tier: 'forbidden',
+        effect: { type: 'forbidden' }, rationale: 'irreversible, blast radius = the entire device, and not a safe-degradation repair',
+        blocked_example: 'Factory reset the EBG19P and wipe all config.' },
+    ],
+  },
   // fleet_backup mirrors the Admin Backup/Restore panel data (agent-dashboard collect()): last GUI
   // export result (stays on host, never streamed) + a cheap Layer-1 secret inventory.
   fleet_backup: { last_export: { path: '/home/op/nemofleet-export-20260714-034308Z.tar.gz', size: '148K', ts: '2026-07-14 11:43:02', by: 'gui' }, secrets_present: 6, secrets_total: 6,

@@ -115,6 +115,22 @@ test('overview attention strip surfaces abnormal states as navigation links', as
   } finally { cleanup(); }
 });
 
+// ── Decision Boundary view renders the action catalog grouped by approval tier ──
+test('decision boundary view shows the catalog grouped by tier', async () => {
+  const { text } = await mount({ route: 'boundary', lang: 'en' });
+  const t = text();
+  assert.ok(/Decision boundary/.test(t), 'view title missing');
+  // an auto action, a human action, and a forbidden action must all surface
+  assert.ok(t.includes('ebg-wps'), 'auto action row missing');
+  assert.ok(t.includes('rollback-config'), 'human-tier action row missing');
+  assert.ok(t.includes('factory-reset'), 'forbidden action row missing');
+  // the forbidden action must show WHY + its blocked example (the boundary is explained, not just listed)
+  assert.ok(/irreversible/.test(t), 'forbidden rationale not shown');
+  assert.ok(/Factory reset the EBG19P/.test(t), 'blocked example not shown');
+  // the effect of a real nvram action is spelled out
+  assert.ok(/wps_enable=0/.test(t), 'nvram effect not rendered');
+});
+
 // ── Admin has a Backup/Restore panel (export button + last export + CLI restore) ──
 test('admin backup/restore panel: export control, last export, CLI restore', async () => {
   const { text } = await mount({ route: 'admin', lang: 'en' });

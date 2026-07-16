@@ -255,6 +255,33 @@ const I18N = {
   'guardrail fail-open': { en: 'guardrail fail-open', zh: 'guardrail fail-open' },
   'unauthorized client(s)': { en: 'unauthorized client(s)', zh: '未授權連線裝置' },
   'All clear — no active issues': { en: 'All clear — no active issues', zh: '一切正常 — 目前無異常' },
+  'Decision boundary': { en: 'Decision boundary', zh: '決策邊界' },
+  'exactly what the fleet may and may not do · policy/action-catalog.json': { en: 'exactly what the fleet may and may not do · policy/action-catalog.json', zh: '機隊可以/不可以做哪些動作 · policy/action-catalog.json' },
+  'Action catalog not deployed.': { en: 'Action catalog not deployed.', zh: '動作目錄尚未部署。' },
+  'Actions': { en: 'Actions', zh: '動作數' },
+  'published boundary': { en: 'published boundary', zh: '已公布的邊界' },
+  'Auto · no human': { en: 'Auto · no human', zh: '自動 · 無需人工' },
+  'reversible · single-device · read-back': { en: 'reversible · single-device · read-back', zh: '可逆 · 單裝置 · 讀回驗證' },
+  'Human approval': { en: 'Human approval', zh: '需人工核准' },
+  'bound single-use token': { en: 'bound single-use token', zh: '綁定 · 單次 token' },
+  'Forbidden': { en: 'Forbidden', zh: '禁止' },
+  'refused at the guardrail': { en: 'refused at the guardrail', zh: '在 guardrail 被拒' },
+  'What this is': { en: 'What this is', zh: '這是什麼' },
+  'Auto — runs without a human': { en: 'Auto — runs without a human', zh: '自動 — 無需人工介入' },
+  'restores a security invariant · reversible · read-back verified': { en: 'restores a security invariant · reversible · read-back verified', zh: '還原安全不變式 · 可逆 · 讀回驗證' },
+  'Human approval required': { en: 'Human approval required', zh: '需人工核准' },
+  'rollback · firmware · any security-relaxing change': { en: 'rollback · firmware · any security-relaxing change', zh: 'rollback · firmware · 任何放鬆安全的變更' },
+  'Forbidden — refused at the gate': { en: 'Forbidden — refused at the gate', zh: '禁止 — 在閘門被拒' },
+  'irreversible · not a degradation repair · blocked by the guardrail': { en: 'irreversible · not a degradation repair · blocked by the guardrail', zh: '不可逆 · 非退化修復 · 被 guardrail 擋下' },
+  'Action': { en: 'Action', zh: '動作' },
+  'What it does': { en: 'What it does', zh: '作用' },
+  'Class': { en: 'Class', zh: '分類' },
+  'Effect': { en: 'Effect', zh: '效果' },
+  'Blast radius': { en: 'Blast radius', zh: '影響範圍' },
+  'Reversible': { en: 'Reversible', zh: '可逆' },
+  'Restores invariant': { en: 'Restores invariant', zh: '還原的不變式' },
+  'Why forbidden': { en: 'Why forbidden', zh: '為何禁止' },
+  'Blocked example': { en: 'Blocked example', zh: '被擋範例' },
   'unauthorized': { en: 'unauthorized', zh: '未授權' },
   'known': { en: 'known', zh: '已知' },
   'No client data (needs device link + asset sync)': { en: 'No client data (needs device link + asset sync)', zh: '無用戶端資料(需裝置連線 + 資產同步)' },
@@ -1958,6 +1985,61 @@ const GuardrailView = memo(function GuardrailView({ d }) {
     </div></div>`;
 });
 
+// DecisionBoundaryView — read-only render of policy/action-catalog.json (d.decision_boundary): exactly
+// what the fleet may and may not do, grouped by approval tier. The "contract page" — what an enterprise
+// reviewer reads instead of grepping Python. Catalog text (titles/invariants/rationale) is the formal
+// English spec; only the chrome is bilingual.
+const _DB_EFF = eff => {
+  eff = eff || {};
+  if (eff.type === 'nvram-apply') return eff.key + '=' + eff.value + ' · ' + eff.restart;
+  if (eff.type === 'nvram-multi') return (eff.sets || []).length + ' keys · ' + eff.restart;
+  return eff.type || '—';
+};
+const _DB_ROWCOLS = [
+  { k: 'id', label: 'Action', render: r => html`<span class="mono">${r.id}</span>` },
+  { k: 'title', label: 'What it does', render: r => html`<span>${r.title}</span>` },
+  { k: 'degradation_class', label: 'Class', render: r => html`<span class="muted">${r.degradation_class || '—'}</span>` },
+  { k: 'effect', label: 'Effect', render: r => html`<span class="mono muted">${_DB_EFF(r.effect)}</span>` },
+  { k: 'blast', label: 'Blast radius', render: r => html`<span class="muted">${(r.blast_radius || {}).scope || '—'}${(r.blast_radius || {}).service_impact ? ' · ' + r.blast_radius.service_impact : ''}</span>` },
+  { k: 'rev', label: 'Reversible', align: 'right', render: r => (r.reversibility || {}).reversible ? html`<span class="pill2 g">✓</span>` : html`<span class="pill2 c">✗</span>` },
+];
+const DecisionBoundaryView = memo(function DecisionBoundaryView({ d }) {
+  const b = d.decision_boundary || {};
+  const acts = b.actions || [];
+  const byTier = k => acts.filter(a => a.approval_tier === k);
+  const auto = byTier('auto'), human = byTier('human'), forbidden = byTier('forbidden');
+  if (!acts.length) return html`<div class="viewfade"><div class="viewhd"><h2>${t('Decision boundary')}</h2></div>
+    <${Panel} title="Decision boundary"><div class="empty">${t('Action catalog not deployed.')}</div></${Panel}></div>`;
+  return html`<div class="viewfade">
+    <div class="viewhd"><h2>${t('Decision boundary')}</h2>
+      <span class="lbl">${t('exactly what the fleet may and may not do · policy/action-catalog.json')}${b.version ? ' · v' + b.version : ''}</span></div>
+    <section class="kpis">
+      ${html`<${Kpi} stripe="var(--accent)" label="Actions" big=${acts.length} sub="published boundary"/>`}
+      ${html`<${Kpi} stripe="var(--good)" label="Auto · no human" big=${auto.length} sub="reversible · single-device · read-back"/>`}
+      ${html`<${Kpi} stripe="var(--warn)" label="Human approval" big=${human.length} sub="bound single-use token"/>`}
+      ${html`<${Kpi} stripe="var(--crit)" label="Forbidden" big=${forbidden.length} sub="refused at the guardrail"/>`}
+    </section>
+    ${b.description ? html`<${Panel} title="What this is">
+      <div class="muted" style=${{ padding: '2px', fontSize: '12.5px', lineHeight: 1.7 }}>${b.description}</div>
+      ${(b.degradation_classes || []).length ? html`<div style=${{ marginTop: '10px', display: 'grid', gap: '6px' }}>
+        ${(b.degradation_classes || []).map(dc => html`<div key=${dc.id} style=${{ fontSize: '12px' }}><span class="pill2">${dc.id}</span> <span class="muted">${dc.def}</span></div>`)}</div>` : null}
+    </${Panel}>` : null}
+    ${html`<${Panel} title="Auto — runs without a human" label="restores a security invariant · reversible · read-back verified">
+      <${DataTable} rows=${auto} pageSize=${20} empty="—" drawerTitle="Action"
+        cols=${[..._DB_ROWCOLS, { k: 'inv', label: 'Restores invariant', render: r => html`<span class="muted">${r.restores_invariant || '—'}</span>` }]}/></${Panel}>`}
+    ${html`<${Panel} title="Human approval required" label="rollback · firmware · any security-relaxing change">
+      <${DataTable} rows=${human} pageSize=${20} empty="—" drawerTitle="Action"
+        cols=${[..._DB_ROWCOLS, { k: 'tier', label: 'Tier', align: 'right', render: r => html`<span class="pill2 w">${r.approval_tier}</span>` }]}/></${Panel}>`}
+    ${html`<${Panel} title="Forbidden — refused at the gate" label="irreversible · not a degradation repair · blocked by the guardrail">
+      <${DataTable} rows=${forbidden} pageSize=${20} empty="—" drawerTitle="Action" cols=${[
+        { k: 'id', label: 'Action', render: r => html`<span class="mono">${r.id}</span>` },
+        { k: 'title', label: 'What it does', render: r => html`<span>${r.title}</span>` },
+        { k: 'rationale', label: 'Why forbidden', render: r => html`<span class="muted">${r.rationale || ''}</span>` },
+        { k: 'blocked_example', label: 'Blocked example', render: r => html`<span class="muted mono" style=${{ fontSize: '11.5px' }}>${r.blocked_example || ''}</span>` },
+      ]}/></${Panel}>`}
+  </div>`;
+});
+
 const VIEWS = {
   overview: { label: 'Overview', comp: OverviewView },
   architecture: { label: 'Architecture', comp: ArchitectureView },
@@ -1965,6 +2047,7 @@ const VIEWS = {
   fleet: { label: 'Fleet', comp: FleetView },
   security: { label: 'Security', comp: SecurityView },
   guardrail: { label: 'Guardrail', comp: GuardrailView },
+  boundary: { label: 'Decision boundary', comp: DecisionBoundaryView },
   governance: { label: 'Governance', comp: GovernanceView },
   proactive: { label: 'Proactive', comp: ProactiveView },
   changectrl: { label: 'Change ctrl', comp: ChangeCtrlView },
@@ -1976,7 +2059,7 @@ const VIEWS = {
 
 const NAV_GROUPS = [
   { key: 'monitor', items: ['overview', 'architecture', 'flow', 'fleet'] },
-  { key: 'govern', items: ['security', 'guardrail', 'governance', 'changectrl', 'audit', 'scorecard'] },
+  { key: 'govern', items: ['security', 'guardrail', 'boundary', 'governance', 'changectrl', 'audit', 'scorecard'] },
   { key: 'system', items: ['proactive', 'admin', 'settings'] },
 ];
 const NAV_ICON = {
@@ -1986,6 +2069,7 @@ const NAV_ICON = {
   fleet: '<rect x="3" y="4" width="18" height="5.5" rx="1.5"/><rect x="3" y="14.5" width="18" height="5.5" rx="1.5"/><path d="M6.5 6.75h.01M6.5 17.25h.01"/>',
   security: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/>',
   guardrail: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/><path d="M9 11.8l2 2 4-4.2"/>',
+  boundary: '<path d="M12 3 20 6v5.5c0 5-3.4 7.6-8 9-4.6-1.4-8-4-8-9V6z"/><path d="M4.5 11.2h15"/>',
   governance: '<path d="M12 3.5v17M6 7.5h12M8 7.5 5 14h6zM16 7.5 13 14h6zM8.5 20.5h7"/>',
   changectrl: '<circle cx="6.5" cy="6" r="2.3"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="17.5" cy="12" r="2.3"/><path d="M6.5 8.3v7.4M8.7 6H13a2.2 2.2 0 0 1 2.2 2.2v2"/>',
   proactive: '<circle cx="12" cy="12" r="1.8"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a10.5 10.5 0 0 0 0 13.2M18.6 5.4a10.5 10.5 0 0 1 0 13.2"/>',

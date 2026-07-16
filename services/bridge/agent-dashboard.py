@@ -339,6 +339,20 @@ def _governance_ledger_entries(d, seen_list):
     return out, order
 
 _CLOCK = threading.Lock()
+_BOUNDARY_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy", "action-catalog.json"))
+_BOUNDARY_CACHE = {"data": None}
+def _decision_boundary():
+    """The published action catalog (policy/action-catalog.json) for the read-only Decision Boundary
+    view — the exact set of actions the fleet may / may not perform. Read straight from disk (data only,
+    no policy_catalog import needed) and cached: it's static config that only changes on deploy, which
+    restarts the dashboard. Honors ACTION_CATALOG_PATH like the worker gate does."""
+    if _BOUNDARY_CACHE["data"] is None:
+        try:
+            with open(os.environ.get("ACTION_CATALOG_PATH") or _BOUNDARY_PATH, encoding="utf-8") as f:
+                _BOUNDARY_CACHE["data"] = json.load(f)
+        except Exception:
+            _BOUNDARY_CACHE["data"] = {}
+    return _BOUNDARY_CACHE["data"] or {}
 def collect():
     # stale-while-revalidate:有資料就立刻回(過期則背景刷新),請求永不被冷收集阻塞
     if _CACHE["data"] is not None:
@@ -507,6 +521,8 @@ def _collect_impl():
     # guardrail 決策紀錄:守門在 worker-a 跑(team-lead 收件呼叫 %%WA_IP%%/guardrail + worker-a /fix 動作閘),
     # 紀錄也落在 worker-a → 讀這台。含 allow/block/fail-open 統計 + 紅隊評測分數,供 Guardrail 分頁。
     d["guardrail"] = (ep(cto, "/guardrail-log") if cto else {}) or {}
+    d["decision_boundary"] = _decision_boundary()   # 決策邊界(action-catalog):Agent 被允許/禁止做哪些動作,唯讀展示
+
     d["mttr_n"] = 0   # 動態 MTTR:讀 node A 的 fix-history 近 N 次成功修復取平均(無紀錄→保留 44 秒基準)
     try:
         oks = []
