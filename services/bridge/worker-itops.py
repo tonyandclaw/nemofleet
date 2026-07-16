@@ -27,6 +27,12 @@ import wi_flow  # cross-node work-flow event ring (GUI Flow view)
 import wi_approval  # real per-action human-approval tokens (issue/verify; pure) — see wi_approval.py
 from urllib.parse import parse_qs as _pq2
 import hashlib
+try:
+    import policy_catalog  # decision-boundary catalog for the runtime device gate; fail-open if absent
+    _HAVE_CATALOG = True
+except Exception:
+    policy_catalog = None
+    _HAVE_CATALOG = False
 
 # 容器 egress 走不了 IPv6(NVD 等 Cloudflare 主機會解析到 IPv6 → 連線逾時);所有外部主機都有可用 IPv4。
 # 全域強制 IPv4 解析:NVD 變可達,github/osv 不受影響(本來就走 IPv4)。
@@ -2530,10 +2536,37 @@ EBG_MULTI = {
     "script": "restart_wrs", "verify_key": "wrs_mals_enable", "want": "0",
     "desc": "停用 AiProtection 惡意網站封鎖", "desc_en": "Disable AiProtection malicious-site blocking"},
 }
+_CATALOG = None; _CATALOG_TRIED = False
+def _policy_gate(action_id, allow_effects=None):
+    """Consult the action catalog (the decision boundary) before touching the device — a defense-in-depth
+    floor beside the request guardrail and the approval token. FAILS OPEN: if the catalog can't be loaded
+    (not deployed in this sandbox) it ALLOWS + logs, never blocking real remediation because a policy file
+    is missing. Denies only actions outside the published, non-forbidden boundary (or of the wrong kind).
+    Env ACTION_CATALOG_PATH points at the deployed catalog; boot-stack cp's it next to this module."""
+    global _CATALOG, _CATALOG_TRIED
+    if not _HAVE_CATALOG:
+        return {"allow": True, "tier": None, "reason": "catalog module absent (fail-open)"}
+    if not _CATALOG_TRIED:
+        _CATALOG_TRIED = True
+        try:
+            _CATALOG = policy_catalog.load(os.environ.get("ACTION_CATALOG_PATH") or None)
+        except Exception as e:
+            _CATALOG = None
+            print("[policy] action-catalog unavailable, device gate fails OPEN:", e, flush=True)
+    if _CATALOG is None:
+        return {"allow": True, "tier": None, "reason": "catalog unavailable (fail-open)"}
+    return policy_catalog.gate(_CATALOG, action_id, allow_effects=allow_effects)
 def run_ebg_remediate(bug):
     """真實對 EBG19P 套用安全 remediation:login → applyapp.cgi(apply)→ 重讀驗證(restart 期間 token 失效會重登)。
     回報 asset=lab-asus-ebg19p-01(正確設備),before/after 為真實 nvram 值。修不好 → 開 Jira。"""
     t0 = time.time(); asset = "lab-asus-ebg19p-01"
+    # 決策邊界閘(defense-in-depth,在 guardrail + approval 之外):只放行 action-catalog 列出、非 forbidden
+    # 的 nvram 動作 —— 目錄外/被禁/非 nvram 的一律不碰裝置。fail-open(目錄載不到就放行並記錄,見 _policy_gate)。
+    _pg = _policy_gate(bug, allow_effects=(policy_catalog.NVRAM_EFFECTS if _HAVE_CATALOG else None))
+    if not _pg["allow"]:
+        return {"ok": False, "bug": bug, "asset": asset,
+                "error": "決策邊界拒絕:" + _pg["reason"], "error_en": "refused by decision boundary: " + _pg["reason"],
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
     # 正規化單鍵 / 多鍵 → sets(要寫的 nvram 對)+ 主驗證鍵 key/want
     if bug in EBG_MULTI:
         sp = EBG_MULTI[bug]; sets = sp["sets"]; script = sp["script"]; desc = sp["desc"]; desc_en = sp["desc_en"]

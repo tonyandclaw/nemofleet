@@ -62,9 +62,11 @@ deploy_oc_endpoint() {
   h=$(docker exec "$ct" sh -c 'curl -s -m3 http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null)
   # 「當前版」= 端點健康(對的 zone + a2a marker)且部署的每個模組都與本地逐位元一致。
   # 逐檔 cmp 取代舊的 marker 偵測 → 任何程式碼變更(含新模組缺檔)都會觸發重部署,不再靜默跑舊碼。
-  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills wi_flow wi_approval; do
+  for m in worker-itops ebg19p knowledge wi_a2a wi_util wi_nuclei wi_review wi_skills wi_flow wi_approval policy_catalog; do
     docker exec "$ct" sh -c "cat /usr/local/bin/$m.py 2>/dev/null" | cmp -s - "$BRIDGE/$m.py" || same=0
   done
+  # the decision-boundary catalog is data, not a .py — cmp it too so a boundary edit triggers redeploy
+  docker exec "$ct" sh -c "cat /usr/local/bin/action-catalog.json 2>/dev/null" | cmp -s - "$NEMOFLEET_ROOT/policy/action-catalog.json" || same=0
   if [ "$same" = 1 ] && echo "$h" | grep -q "\"zone\": \"$zone\"" && echo "$h" | grep -q '"a2a": true'; then
     ok "worker 端點 :9099 已當前版(zone $zone @ ${ct##*openshell-})"
   else
@@ -77,6 +79,8 @@ deploy_oc_endpoint() {
     docker cp "$BRIDGE/wi_review.py" "$ct:/usr/local/bin/wi_review.py" >>"$LOG" 2>&1   # worker-c QA-review gates (import wi_review)
     docker cp "$BRIDGE/wi_skills.py" "$ct:/usr/local/bin/wi_skills.py" >>"$LOG" 2>&1   # SkillOS skill curation (import wi_skills)
     docker cp "$BRIDGE/wi_flow.py" "$ct:/usr/local/bin/wi_flow.py" >>"$LOG" 2>&1   # flow event ring (import wi_flow)
+    docker cp "$BRIDGE/policy_catalog.py" "$ct:/usr/local/bin/policy_catalog.py" >>"$LOG" 2>&1   # decision-boundary loader (import policy_catalog)
+    docker cp "$NEMOFLEET_ROOT/policy/action-catalog.json" "$ct:/usr/local/bin/action-catalog.json" >>"$LOG" 2>&1   # the decision boundary (ACTION_CATALOG_PATH)
     docker exec -u 0 "$ct" sh -c 'rm -rf /usr/local/share/nemofleet-knowledge' >>"$LOG" 2>&1
     docker cp "$NEMOFLEET_ROOT/knowledge" "$ct:/usr/local/share/nemofleet-knowledge" >>"$LOG" 2>&1   # canonical shared knowledge → KNOWLEDGE_DIR
     docker exec -u 0 "$ct" sh -c 'pkill -f worker-itops; true' >>"$LOG" 2>&1; sleep 1
@@ -93,7 +97,7 @@ deploy_oc_endpoint() {
     # 只是讓 worker-c 能驗證 team-lead 簽發的 token 真的沒被竄改;team-lead 是否真的先問過人,
     # 是 firmware-approval SKILL 這層的責任,不是這把鑰匙能保證的(見 worker-c-spec §7 誠實記載)。
     local APPT=""; [ "$zone" = "C" ] && { [ -s "$APPROVAL_KEY_FILE" ] || { (openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n') > "$APPROVAL_KEY_FILE"; chmod 600 "$APPROVAL_KEY_FILE"; }; APPT=$(cat "$APPROVAL_KEY_FILE"); }
-    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e APPROVAL_KEY="$APPT" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
+    docker exec -d -u 0 -e BRIDGE_TOKEN="$TOKEN" -e BRIDGE_ZONE="$zone" -e APPROVAL_KEY="$APPT" -e NVD_API_KEY="$NVDK" -e EBG19P_CRED="$EBGC" -e EBG19P_TARGET="$EBGT" -e KNOWLEDGE_DIR=/usr/local/share/nemofleet-knowledge -e ACTION_CATALOG_PATH=/usr/local/bin/action-catalog.json -e SKILLS_REPO="$SKR" -e SRC_REPO="${SAST_SRC:-https://github.com/RMerl/asuswrt-merlin.ng.git}" -e SRC_REF="${SAST_REF:-main}" "$ct" sh -c 'cd /tmp && python3 /usr/local/bin/worker-itops.py >>/tmp/worker-itops.log 2>&1'
     sleep 2
     docker exec "$ct" sh -c 'curl -s -m3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health 2>/dev/null' 2>/dev/null | grep -q 200 \
       && ok "worker 端點 :9099 已部署(zone $zone @ ${ct##*openshell-})" || bad "端點未起($ct;cat /tmp/worker-itops.log)"

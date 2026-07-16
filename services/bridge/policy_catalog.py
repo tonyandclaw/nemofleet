@@ -41,6 +41,25 @@ def nvram_action_ids(cat):
     return {a["id"] for a in actions(cat) if (a.get("effect") or {}).get("type") in NVRAM_EFFECTS}
 
 
+def gate(cat, action_id, allow_effects=None):
+    """Runtime decision-boundary check for ONE action id. Returns {allow, tier, reason}. Denies an
+    action the boundary does not sanction: an unknown id, a `forbidden` tier, or — when allow_effects
+    is given — an effect type outside that set (e.g. a rollback/firmware id sent down the nvram path).
+    A defense-in-depth FLOOR in front of the device: it does not replace the guardrail or the approval
+    token, it guarantees nothing reaches the device that isn't a published, non-forbidden action of the
+    expected kind. Pure — the caller decides fail-open vs fail-closed."""
+    a = by_id(cat, action_id)
+    if a is None:
+        return {"allow": False, "tier": None, "reason": f"'{action_id}' is not in the decision boundary (action-catalog)"}
+    tier = a.get("approval_tier")
+    if tier == "forbidden":
+        return {"allow": False, "tier": tier, "reason": f"'{action_id}' is forbidden by the decision boundary"}
+    if allow_effects is not None and (a.get("effect") or {}).get("type") not in allow_effects:
+        return {"allow": False, "tier": tier,
+                "reason": f"'{action_id}' is not a device nvram action (effect={(a.get('effect') or {}).get('type')})"}
+    return {"allow": True, "tier": tier, "reason": "within decision boundary"}
+
+
 def validate(cat):
     """Return a list of human-readable problems (empty == valid). Encodes the schema + the invariants
     that make the boundary trustworthy, so this can also gate a future runtime action-gate, not just CI."""

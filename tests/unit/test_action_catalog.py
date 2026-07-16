@@ -96,5 +96,40 @@ class TestForbiddenIsActuallyBlocked(unittest.TestCase):
             self.assertEqual(verdict["verdict"], "block", f"{a['id']}: guardrail verdict was not 'block' for {phrase!r}")
 
 
+class TestRuntimeGate(unittest.TestCase):
+    """The P1 runtime device gate. pc.gate() is the pure decision; wi._policy_gate() is worker-itops'
+    fail-open wrapper actually wired in front of run_ebg_remediate."""
+
+    def test_gate_allows_every_real_nvram_action(self):
+        # the gate must never deny a legitimate in-catalog nvram action — i.e. zero behaviour change
+        # for everything the fleet already does today.
+        for aid in set(wi.EBG_ACTIONS) | set(wi.EBG_MULTI):
+            g = pc.gate(CAT, aid, allow_effects=pc.NVRAM_EFFECTS)
+            self.assertTrue(g["allow"], f"{aid} wrongly denied by the gate: {g['reason']}")
+
+    def test_gate_denies_unknown_action(self):
+        self.assertFalse(pc.gate(CAT, "ebg-please-just-brick-it", allow_effects=pc.NVRAM_EFFECTS)["allow"])
+
+    def test_gate_denies_forbidden_action(self):
+        self.assertFalse(pc.gate(CAT, "factory-reset")["allow"])
+
+    def test_gate_denies_non_nvram_id_on_the_device_path(self):
+        # rollback/firmware are real catalog actions but must not flow through the nvram device path
+        self.assertFalse(pc.gate(CAT, "rollback-config", allow_effects=pc.NVRAM_EFFECTS)["allow"])
+        self.assertFalse(pc.gate(CAT, "firmware-apply", allow_effects=pc.NVRAM_EFFECTS)["allow"])
+
+    def test_worker_wrapper_allows_real_action_from_default_catalog(self):
+        wi._CATALOG = None; wi._CATALOG_TRIED = False   # force a real load from the default catalog path
+        g = wi._policy_gate("ebg-wps", allow_effects=wi.policy_catalog.NVRAM_EFFECTS)
+        self.assertTrue(g["allow"], f"wrapper wrongly denied a real action: {g['reason']}")
+
+    def test_worker_wrapper_fails_open_when_catalog_unavailable(self):
+        # a missing/unloadable catalog must ALLOW (never block remediation because a policy file is gone)
+        wi._CATALOG = None; wi._CATALOG_TRIED = True    # simulate: load already attempted and failed
+        g = wi._policy_gate("ebg-wps", allow_effects=None)
+        self.assertTrue(g["allow"], "gate must fail OPEN when the catalog is unavailable")
+        wi._CATALOG_TRIED = False                       # reset so a later call re-loads cleanly
+
+
 if __name__ == "__main__":
     unittest.main()
