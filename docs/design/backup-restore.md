@@ -64,3 +64,34 @@ never should be.
   result, cleaner.
 - The physical EBG19P isn't portable; its credential + baselines + known-good config backups are, so a
   target host that can reach the same (or a replacement) device is fully functional.
+
+## After a restore: the audit chain may show "broken" (expected — here's why)
+
+The tamper-evident admin-audit chain (`~/.config/nemoclaw/admin-audit.jsonl`) hashes each entry with
+`HMAC(key, prev_hash + entry)`, where `key` lives in a **separate** file (`admin-audit.hmac-key`) that
+is *not* in the log — so an attacker who can rewrite the whole log but doesn't have the key can't forge
+a chain that passes `verify_audit()`. That separation is the whole security property (see
+`docs/design/worker-c-spec.md` and the `test_full_chain_recompute_without_key_is_detected` unit test).
+
+A **restore/import replaces that key file along with everything else.** If the bundle's key differs from
+whatever key the target host's *pre-existing* log was written under (e.g. you restore onto a host that
+already had its own audit history, or the bundle predates later live entries), those older entries stop
+verifying under the now-current key. The dashboard footer / Overview attention strip will show **"audit
+chain broken."** This is the mechanism working correctly, not tampering: the log is still one continuous
+chain (prev-hash pointers intact, no gaps) — only the key behind the hashes changed at one clean point.
+
+Diagnose it (read-only): `make audit-rebaseline ARGS=--dry-run` — reports the break seq, how many entries
+are orphaned under the old key vs. valid under the current key, and the single key-transition seq (a
+*single* transition point is the signature of one clean rotation = benign; multiple/scattered mismatches
+would warrant a tampering investigation of the archived log first).
+
+Fix it, **only once you've confirmed the cause is a benign rotation** — `make audit-rebaseline`:
+- **archives the entire old chain verbatim** to `admin-audit.jsonl.pre-rebaseline-<ts>` (nothing rewritten
+  — it stays independently inspectable for forensics),
+- writes a fresh `audit-rebaseline` genesis entry under the current key whose detail **hash-references the
+  archived chain's last hash** (so the rotation itself is auditable and the continuity is provable),
+- and pauses/restarts the dashboard around it so no live write races the swap.
+
+It deliberately does **not** re-hash the old entries under the new key — that would be forging the ledger,
+exactly the attack `verify_audit()` exists to catch. If you can't rule out tampering, don't run it;
+investigate the archived log first. The implementation is `scripts/audit-rebaseline.sh`.

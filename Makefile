@@ -2,7 +2,7 @@
 # works from anywhere in the tree.
 SHELL := /bin/bash
 
-.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan export import
+.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan export import audit-rebaseline
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -28,6 +28,9 @@ export: ## bundle the whole fleet's portable state (Layer 1) → one archive to 
 
 import: ## restore a fleet bundle onto this host (Layer 3 preflight → Layer 1 restore → Layer 2 make boot). ARGS='<bundle.tar.gz> [--dry-run] [--yes]'
 	@bash scripts/import-fleet.sh $(ARGS)
+
+audit-rebaseline: ## re-baseline the admin-audit chain after a benign key rotation (e.g. post-restore): archive old chain verbatim + fresh genesis. ARGS='--dry-run' to just diagnose
+	@bash scripts/audit-rebaseline.sh $(ARGS)
 
 lint: ## syntax-check every shell script + py-compile services
 	@set -e; for f in $$(find lib scripts tests eval services provisioning -name '*.sh'); do bash -n "$$f"; done; echo "shell OK"
