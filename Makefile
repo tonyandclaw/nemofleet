@@ -2,7 +2,7 @@
 # works from anywhere in the tree.
 SHELL := /bin/bash
 
-.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan export import audit-rebaseline siem-export
+.PHONY: help bootstrap boot health mail-up gen-certs lint test itest clean security-scan export import audit-rebaseline siem-export metrics-export
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -34,6 +34,9 @@ audit-rebaseline: ## re-baseline the admin-audit chain after a benign key rotati
 
 siem-export: ## emit the fleet's security/governance events as OCSF NDJSON for a SIEM (Splunk/Elastic/Sentinel), tagged MITRE ATLAS/ATT&CK/D3FEND. Pipe to a forwarder.
 	@bash scripts/siem-export.sh
+
+metrics-export: ## render the fleet's state as Prometheus exposition text (node_exporter textfile collector / any scraper) for Grafana + Alertmanager
+	@bash scripts/metrics-export.sh
 
 lint: ## syntax-check every shell script + py-compile services
 	@set -e; for f in $$(find lib scripts tests eval services provisioning -name '*.sh'); do bash -n "$$f"; done; echo "shell OK"
