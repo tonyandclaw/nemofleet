@@ -374,8 +374,9 @@ def set_demo(on):
     return demo_state()
 def _demo_payload():
     nowt = time.time()
-    def ts(m):   return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(nowt - m * 60))
-    def tiso(m): return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(nowt - m * 60))
+    def ts(m):     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(nowt - m * 60))
+    def tiso(m):   return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(nowt - m * 60))
+    def tclock(m): return time.strftime("%H:%M:%S", time.localtime(nowt - m * 60))   # matches _flow_append's ts
     dev_hist = [{"ts": time.strftime("%H:%M", time.localtime(nowt - (15 - i) * 60)), "cpu": 24 + (i * 3) % 11, "mem": 40 + (i * 2) % 13, "temp": 49 + i % 6} for i in range(16)]
     nodes = [
         {"label": "lead", "name": "team-lead", "zone": "", "role": "Front desk · Telegram / Email intake", "role_en": "Front desk · intake", "caps": ["intake"], "alive": True, "up": True, "tag": "lead", "port": 8642, "alerts": 0, "monitor": []},
@@ -438,10 +439,11 @@ def _demo_payload():
         "_acl": {"users": [{"email": "tony@asus.com", "role": "admin"}, {"email": "ops@asus.com", "role": "operator"}]},
         "proactive": {"enabled": True, "auto": True, "interval_sec": 1200, "auto_max_sec": 43200, "base_sec": 300, "aged": False,
                       "last_run": ts(20), "recent": [{"ts": ts(20), "kind": "patrol", "summary": "巡邏完成:2 攻擊面暴露 · 已建議治理修復"}]},
-        "flow": [
-            {"ts": ts(2), "from": "worker-a", "kind": "human", "text": "remediate ebg-wps (GUI · governed)", "state": "accepted"},
-            {"ts": ts(45), "from": "worker-b", "kind": "auto", "text": "nuclei scan · 2 hits · 1 critical → Jira", "state": "done"},
-            {"ts": ts(60), "from": "worker-c", "kind": "auto", "text": "config rollback → bk-20260717-1430 · read-back ✓", "state": "done"}],
+        "flow": [   # FlowView reads node/peer/task/status/detail; handoff renders as peer → node
+            {"ts": tclock(2), "node": "worker-a", "peer": "team-lead", "task": "remediate ebg-wps", "status": "working", "detail": "governed · guardrail→boundary→apply→read-back"},
+            {"ts": tclock(60), "node": "worker-c", "peer": "worker-a", "task": "review remediation", "status": "done", "detail": "approve · score 86"},
+            {"ts": tclock(45), "node": "worker-b", "peer": "team-lead", "task": "nuclei scan", "status": "done", "detail": "2 hits · 1 critical → Jira NETOPS-142"},
+            {"ts": tclock(60), "node": "worker-c", "peer": "team-lead", "task": "config rollback", "status": "done", "detail": "bk-20260717-1430 · read-back ✓"}],
         "governance_c": {"up": True, "backup_count": 8, "skills_count": 12, "firmware": {"current": "3.0.0.6.102_45537", "latest": "3.0.0.6.102_46200", "urgency": "recommended"},
                          "reviews": [
                              {"ts_iso": tiso(120), "kind": "remediation", "target": "worker-a", "ref": "ebg-wps", "verdict": "approve", "score": 86},

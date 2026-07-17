@@ -231,5 +231,26 @@ class TestFirmwareUrgency(unittest.TestCase):
         self.assertEqual(r["driven_count"], 2)
 
 
+class TestDemoPayload(unittest.TestCase):
+    """The demo fixture must match the real collect() field shapes the GUI reads, or panels break
+    silently (regression: Flow handoffs rendered '? -> ?' because rows used from/text not node/peer/task)."""
+    def tearDown(self):
+        d.set_demo(False)   # never leave the module in demo mode for other tests
+
+    def test_flow_rows_have_peer_and_node(self):
+        d.set_demo(True)
+        flow = d.collect().get("flow", [])
+        self.assertTrue(flow, "demo flow is empty")
+        for e in flow:
+            self.assertTrue(e.get("peer") and e.get("node"), f"flow row missing peer/node (would render '? -> ?'): {e}")
+            self.assertIn("task", e); self.assertIn("status", e)
+
+    def test_demo_off_restores_real_collection(self):
+        d.set_demo(True)
+        self.assertTrue(d.collect().get("demo", {}).get("on"))
+        d.set_demo(False)
+        self.assertIsNone(d._CACHE["data"], "demo_off must wipe the collect cache so the next poll is real")
+
+
 if __name__ == "__main__":
     unittest.main()
