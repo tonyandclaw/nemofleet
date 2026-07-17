@@ -361,6 +361,7 @@ def _decision_boundary():
 # flag AND the collect cache, so the very next poll is REAL data — no fake data can linger. Auto-off 6h.
 _DEMO = {"on": False, "since": 0.0}
 _DEMO_TTL = 6 * 3600
+_DEMO_FROZEN = {"frozen": False, "by": "", "ts": ""}   # demo-local kill-switch state (never touches real sandboxes)
 def demo_state():
     if _DEMO["on"] and _DEMO["since"] and (time.time() - _DEMO["since"] > _DEMO_TTL):
         _DEMO["on"] = False; _DEMO["since"] = 0.0   # safety net: never leave demo data on indefinitely
@@ -369,6 +370,7 @@ def set_demo(on):
     _DEMO["on"] = bool(on); _DEMO["since"] = time.time() if on else 0.0
     if not on:
         _CACHE["ts"] = 0; _CACHE["data"] = None      # force the next collect() to be REAL data immediately
+        _DEMO_FROZEN.update(frozen=False, by="", ts="")   # reset demo-local kill-switch state for next time
     return demo_state()
 def _demo_payload():
     nowt = time.time()
@@ -457,7 +459,7 @@ def _demo_payload():
                           {"ts": tiso(30), "gate": "intake", "verdict": "allow", "category": "ok", "by": "-", "reason": "guardrail unreachable (fail-open)", "excerpt": "summarize the overnight alerts", "fail_open": True}],
                       "eval_deterministic": {"catch_rate": 100, "caught": 5, "attacks": 5, "cases": [{"note": "prompt-injection · token exfil", "expected": "block", "verdict": "block", "ok": True}, {"note": "destructive · factory reset", "expected": "block", "verdict": "block", "ok": True}]},
                       "eval_full": {"catch_rate": 100, "caught": 7, "attacks": 7, "false_block": 0, "ts": tiso(200), "cases": [{"note": "role-override jailbreak", "expected": "block", "verdict": "block", "ok": True}]}},
-        "frozen": {"frozen": False, "by": "", "ts": ""},
+        "frozen": dict(_DEMO_FROZEN),
         "fleet_backup": {"last_export": {"path": "/home/op/nemofleet-export-20260717-034308Z.tar.gz", "size": "148K", "ts": ts(300), "by": "gui"}, "secrets_present": 6, "secrets_total": 6,
                          "bundles": [{"name": "nemofleet-export-20260717-034308Z.tar.gz", "mtime": ts(300), "size": "148K"}]},
         "eval": {"history": [{"ts": ts(2880), "score": 74}, {"ts": ts(1440), "score": 82}, {"ts": ts(720), "score": 88}, {"ts": ts(60), "score": 91}],
@@ -1200,8 +1202,34 @@ def do_action(do, arg=""):
         set_demo(False)
         return {"ok": True, "demo": False, "msg": "展示模式已關閉 —— 已立即還原真實資料", "msg_en": "Demo mode OFF — real data restored immediately"}
     if demo_state()["on"]:
-        # in demo mode every action is SIMULATED — no docker/device/Jira/audit side effects
-        return {"ok": True, "demo": True, "msg": f"【展示模式】已模擬動作:{do}(未實際執行)", "msg_en": f"[demo] simulated action: {do} (no real effect)"}
+        # In demo mode every action is SIMULATED — no docker/device/Jira/audit side effects. The
+        # `demo: True` flag marks the response internally (tests, logs), but the message text mirrors
+        # the REAL success message for that action, so a walkthrough on any non-Admin page reads like a
+        # live system — the deliberate DEMO indicator lives only on the Admin panel that controls it.
+        if do == "remediate":
+            bug = os.path.basename((arg or "").strip())
+            valid = {a.get("id") for a in _decision_boundary().get("actions", []) if (a.get("effect") or {}).get("type") in ("nvram-apply", "nvram-multi")}
+            if bug not in valid:
+                return {"ok": False, "demo": True, "msg": f"'{bug}' 不在決策邊界(拒絕)", "msg_en": f"'{bug}' is not a nvram action in the decision boundary (refused)"}
+            return {"ok": True, "demo": True, "msg": f"已委派 {bug} 給 worker-a(受治理:guardrail + 決策邊界 + 讀回驗證;背景執行)",
+                    "msg_en": f"Delegated '{bug}' to worker-a (governed: guardrail + decision boundary + read-back; runs in the background)"}
+        _DEMO_MSG = {
+            "cve": ("節點 B 已重掃設備 CVE", "worker-b rescanned device CVEs"),
+            "source": ("節點 B 已重跑原始碼分析(SBOM/SAST)", "worker-b re-ran source analysis (SBOM/SAST)"),
+            "nuclei": ("worker-b 已觸發 nuclei 主動掃描(背景執行,稍後刷新)", "worker-b triggered an active nuclei scan (runs in the background, refresh shortly)"),
+            "patrol": ("已請求立即巡邏(≤20s 生效)", "Patrol requested (takes effect within 20s)"),
+            "backup": ("worker-c 已觸發設定備份", "worker-c triggered a config backup"),
+            "run_eval": ("已請求立即跑 eval(≤20s 生效,跑完見 Scorecard)", "Eval requested (takes effect within 20s; see Scorecard when it finishes)"),
+            "guardrail_eval": ("已觸發 guardrail 紅隊評測(完整,背景執行,稍後刷新)", "Guardrail red-team eval triggered (full; runs in background, refresh shortly)"),
+            "refresh": ("已重新整理", "Refreshed"),
+            "snooze30": ("已靜音 critical 主動告警", "Critical alerts snoozed"),
+            "snooze120": ("已靜音 critical 主動告警", "Critical alerts snoozed"),
+            "snooze_off": ("已取消靜音", "Snooze cancelled"),
+            "export_fleet": ("已產生完整備份包(展示情境,未寫入主機)", "Full backup bundle written (sample scenario, no host write)"),
+            "delete_backup": (f"已刪除備份 {arg}", f"Deleted backup {arg}"),
+        }
+        msg, msg_en = _DEMO_MSG.get(do, ("已完成", "Done"))
+        return {"ok": True, "demo": True, "msg": msg, "msg_en": msg_en}
     ct2 = ct("worker-b"); cto = ct("worker-a")
     if do == "delete_backup":
         # delete an export bundle from the host. The client sends only a basename; we basename() it
@@ -1340,7 +1368,13 @@ def frozen_state():
 
 def do_freeze(on, actor=""):
     if demo_state()["on"]:
-        return {"ok": True, "demo": True, "frozen": bool(on), "agents": 0, "msg": f"【展示模式】已模擬{'凍結' if on else '解凍'}(未實際暫停沙箱)", "msg_en": f"[demo] simulated {'freeze' if on else 'resume'} (sandboxes untouched)"}
+        # Demo-local kill-switch state (never touches real sandboxes) so the real FROZEN banner/behavior
+        # can be walked through consistently; reset automatically when demo mode turns off (set_demo()).
+        _DEMO_FROZEN.update(frozen=bool(on), by=actor or "demo", ts=time.strftime("%Y-%m-%d %H:%M:%S"))
+        n = len(FLEET_SANDBOXES)
+        return {"ok": True, "demo": True, "frozen": bool(on), "agents": n,
+                "msg": (f"🛑 全隊已凍結({n} agents 已 pause)—— 一切動作立即停止,dashboard/推理仍可用" if on else f"▶ 全隊已解凍({n} agents 已恢復)"),
+                "msg_en": (f"🛑 Fleet frozen ({n} agents paused) — everything stops immediately, dashboard/inference still up" if on else f"▶ Fleet resumed ({n} agents restored)")}
     op = "pause" if on else "unpause"
     changed, missing = [], []
     for frag in FLEET_SANDBOXES:
@@ -1794,7 +1828,19 @@ def do_policy(op, body):
 
 def do_device_action(do):
     if demo_state()["on"]:
-        return {"ok": True, "demo": True, "msg": f"【展示模式】已模擬設備動作:{do}(未觸及裝置)", "msg_en": f"[demo] simulated device action: {do} (device untouched)"}
+        if do not in ("sync", "harden", "restart", "block"):
+            return {"ok": False, "msg": "不允許的設備動作", "msg_en": "Device action not allowed"}
+        arg = ""
+        if do == "block":   # mirror the real path: look up the fixture's one unauthorized MAC
+            try:
+                wa = next((n for n in collect().get("nodes", []) if n.get("name") == "worker-a"), {})
+                arg = next((x["mac"] for x in (wa.get("assets") or {}).get("list", []) if not x.get("known")), "")
+            except Exception:
+                arg = ""
+            if not arg:
+                return {"ok": True, "demo": True, "msg": "目前無未授權設備,無需封鎖", "msg_en": "No unauthorized device right now, nothing to block"}
+        return {"ok": True, "demo": True, "msg": DEV_MSG.get(do, "完成") + (f"({arg})" if arg else ""),
+                "msg_en": DEV_MSG_EN.get(do, "Done") + (f" ({arg})" if arg else "")}
     # EBG19P 運維快速處置(寫入經 host executor;localhost only;二次確認在前端;每筆稽核)
     if do not in ("sync", "harden", "restart", "block"):
         return {"ok": False, "msg": "不允許的設備動作", "msg_en": "Device action not allowed"}

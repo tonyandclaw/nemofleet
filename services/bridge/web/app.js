@@ -2258,7 +2258,7 @@ function App() {
           </div>
         </div>
       </header>
-      ${d.demo && d.demo.on ? html`<div class="demobar" role="status">
+      ${d.demo && d.demo.on && route === 'admin' ? html`<div class="demobar" role="status">
         <span class="fb-ico">🟠</span>
         <div class="fb-txt"><b>${t('DEMO MODE')}</b> — ${t('every panel shows SAMPLE data · actions are simulated · nothing touches the real device')}</div>
         <${ConfirmBtn} run=${() => NF.action('demo_off')} label=${t('Exit demo')} busyLabel="…" confirm=${t('Turn demo mode off? Real data is restored immediately.')}/>
