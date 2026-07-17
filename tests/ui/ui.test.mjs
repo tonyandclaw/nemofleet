@@ -157,6 +157,18 @@ test('security view exposes nuclei scan scope (tags + targets, scheme/port guida
   assert.ok(/HTTPS admin panel/.test(t), 'nuclei_targets hint (scheme+port guidance) missing');
 });
 
+// ── Admin has a Demo-mode toggle; off by default → no demo banner, real-data state ──
+test('admin demo-mode toggle: off by default, no banner, shows "Turn demo ON"', async () => {
+  const { window, cleanup } = await mount({ route: 'admin', lang: 'en', close: false });
+  try {
+    const t = window.document.querySelector('.viewfade').textContent;
+    assert.ok(/Demo mode/.test(t), 'demo-mode panel missing from Admin');
+    assert.ok(/Turn demo ON/.test(t), 'the "Turn demo ON" control is missing');
+    assert.ok(/real data/.test(t), 'demo-off state should read as real data');
+    assert.ok(!window.document.querySelector('.demobar'), 'the demo banner must NOT render when demo is off');
+  } finally { cleanup(); }
+});
+
 // ── Admin has a Backup/Restore panel (export button + last export + CLI restore) ──
 test('admin backup/restore panel: export control, last export, CLI restore', async () => {
   const { text } = await mount({ route: 'admin', lang: 'en' });
@@ -214,7 +226,7 @@ test('GovernanceView wires PolicyEditor + GovActionsPanel', () => {
   assert.ok(/const POLSB =/.test(appSrc), 'POLSB not defined (would crash the view)');
 });
 test('AdminView wires users + recipients + ChannelPanel', () => {
-  const i = appSrc.indexOf('const AdminView'); const v = appSrc.slice(i, i + 6500);   // window sized to cover AdminView incl. the Backup/Restore panel before Users
+  const i = appSrc.indexOf('const AdminView'); const v = appSrc.slice(i, i + 8200);   // window sized to cover AdminView incl. the Demo + Backup/Restore panels before Users
   assert.ok(v.includes('Users'), 'admin users panel missing');
   assert.ok(/recipient/i.test(v), 'admin recipients panel missing');
   assert.ok(appSrc.includes('ChannelPanel'), 'ChannelPanel not defined/wired');

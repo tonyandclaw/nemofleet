@@ -159,6 +159,9 @@ function normalize(d) {
     // the Guardrail tab. Defaults are all-zero/empty (honest "nothing screened yet", not fabricated).
     guardrail: d.guardrail || { count: 0, blocked: 0, allowed: 0, fail_open: 0, by_category: {}, recent: [], eval_deterministic: null, eval_full: null },
     frozen: d.frozen || { frozen: false },
+    // demo mode marker (agent-dashboard demo_state). When on, the whole payload is sample data and a
+    // persistent banner + Admin toggle surface it. Defaults to off so real mode never implies demo.
+    demo: d.demo || { on: false },
     // the published action catalog (policy/action-catalog.json) — the read-only Decision Boundary view.
     // Static config; defaults to an empty catalog so the view renders an honest "not deployed" state.
     decision_boundary: d.decision_boundary || { version: null, title: '', description: '', degradation_classes: [], actions: [] },

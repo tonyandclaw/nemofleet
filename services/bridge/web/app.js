@@ -589,6 +589,22 @@ const I18N = {
   'allowed only': { en: 'allowed only', zh: '僅放行通過者' },
   'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.': { en: 'Guardrail: every inbound request is screened (local NIM) for prompt-injection / out-of-scope / destructive intent before the fleet acts — re-checked at the /fix action gate.', zh: '守門:每筆進站請求在艦隊動作前先由本地 NIM 篩 prompt-injection / 越權 / 破壞性 —— 並在 /fix 動作閘再檢一次。' },
   'FLEET FROZEN': { en: 'FLEET FROZEN', zh: '全隊已凍結' },
+  'DEMO MODE': { en: 'DEMO MODE', zh: '展示模式' },
+  'every panel shows SAMPLE data · actions are simulated · nothing touches the real device': { en: 'every panel shows SAMPLE data · actions are simulated · nothing touches the real device', zh: '所有面板為示範資料 · 動作皆為模擬 · 完全不觸及真實裝置' },
+  'Exit demo': { en: 'Exit demo', zh: '結束展示' },
+  'Turn demo mode off? Real data is restored immediately.': { en: 'Turn demo mode off? Real data is restored immediately.', zh: '關閉展示模式?會立即還原真實資料。' },
+  'Demo mode': { en: 'Demo mode', zh: '展示模式' },
+  'populate every panel with sample data for a walkthrough': { en: 'populate every panel with sample data for a walkthrough', zh: '用示範資料填滿每個面板,方便逐一講解' },
+  'DEMO ON': { en: 'DEMO ON', zh: '展示中' },
+  'the console is showing sample data': { en: 'the console is showing sample data', zh: '主控台目前顯示示範資料' },
+  'real data': { en: 'real data', zh: '真實資料' },
+  'showing the live system': { en: 'showing the live system', zh: '顯示真實系統' },
+  'Turn ON to fill every panel (device online, traffic, scans, guardrail, rollbacks…) so you can explain each function during a demo. All actions become simulated — nothing touches the real device. Turn OFF and real data returns immediately; nothing is persisted.': { en: 'Turn ON to fill every panel (device online, traffic, scans, guardrail, rollbacks…) so you can explain each function during a demo. All actions become simulated — nothing touches the real device. Turn OFF and real data returns immediately; nothing is persisted.', zh: '開啟後會填滿每個面板(裝置上線、流量、掃描、guardrail、回滾…),方便你 demo 時逐一講解。所有動作變成模擬 —— 完全不觸及真實裝置。關閉後立即還原真實資料,不留任何殘留。' },
+  'Turn demo OFF': { en: 'Turn demo OFF', zh: '關閉展示' },
+  'Restoring': { en: 'Restoring', zh: '還原中' },
+  'Turn demo ON': { en: 'Turn demo ON', zh: '開啟展示' },
+  'Enabling': { en: 'Enabling', zh: '開啟中' },
+  'Turn ON demo mode? Every panel will show SAMPLE data and all actions are simulated — for a walkthrough only.': { en: 'Turn ON demo mode? Every panel will show SAMPLE data and all actions are simulated — for a walkthrough only.', zh: '開啟展示模式?每個面板都會顯示示範資料、所有動作皆為模擬 —— 僅供講解用。' },
   'all agents paused (docker SIGSTOP); no action or delegation runs': { en: 'all agents paused (docker SIGSTOP); no action or delegation runs', zh: '所有 agent 已暫停(docker SIGSTOP);任何動作/委派都不會執行' },
   '▶ Resume fleet': { en: '▶ Resume fleet', zh: '▶ 恢復全隊' },
   'Resuming': { en: 'Resuming', zh: '恢復中' },
@@ -1565,8 +1581,22 @@ const AdminView = memo(function AdminView({ d }) {
   if (d.me.role !== 'admin') return html`<div class="viewfade"><div class="viewhd"><h2>${t('Admin')}</h2></div><div class="empty">Admin only.</div></div>`;
   const frozen = d.frozen && d.frozen.frozen;
   const fb = d.fleet_backup || {};
+  const demoOn = d.demo && d.demo.on;
   return html`<div class="viewfade"><div class="viewhd"><h2>Admin</h2><span class="lbl">${t('users · notifications')}</span></div>
     <div class="grid1">
+      ${html`<${Panel} title=${t('Demo mode')} label=${t('populate every panel with sample data for a walkthrough')}>
+        <div class="killrow">
+          <div class="killtxt">
+            ${demoOn
+              ? html`<span class="pill2 w">🟠 ${t('DEMO ON')}</span> <span class="muted">${t('the console is showing sample data')}</span>`
+              : html`<span class="pill2 g">✓ ${t('real data')}</span> <span class="muted">${t('showing the live system')}</span>`}
+            <div class="muted killnote">${t('Turn ON to fill every panel (device online, traffic, scans, guardrail, rollbacks…) so you can explain each function during a demo. All actions become simulated — nothing touches the real device. Turn OFF and real data returns immediately; nothing is persisted.')}</div>
+          </div>
+          ${demoOn
+            ? html`<${ConfirmBtn} run=${() => NF.action('demo_off')} label=${t('Turn demo OFF')} busyLabel=${t('Restoring')} confirm=${t('Turn demo mode off? Real data is restored immediately.')}/>`
+            : html`<${ConfirmBtn} run=${() => NF.action('demo_on')} label=${t('Turn demo ON')} busyLabel=${t('Enabling')} confirm=${t('Turn ON demo mode? Every panel will show SAMPLE data and all actions are simulated — for a walkthrough only.')}/>`}
+        </div>
+      </${Panel}>`}
       ${html`<${Panel} title=${t('Emergency kill-switch')} label=${t('freeze / resume the whole fleet')}>
         <div class="killrow">
           <div class="killtxt">
@@ -2228,6 +2258,11 @@ function App() {
           </div>
         </div>
       </header>
+      ${d.demo && d.demo.on ? html`<div class="demobar" role="status">
+        <span class="fb-ico">🟠</span>
+        <div class="fb-txt"><b>${t('DEMO MODE')}</b> — ${t('every panel shows SAMPLE data · actions are simulated · nothing touches the real device')}</div>
+        <${ConfirmBtn} run=${() => NF.action('demo_off')} label=${t('Exit demo')} busyLabel="…" confirm=${t('Turn demo mode off? Real data is restored immediately.')}/>
+      </div>` : null}
       ${d.frozen && d.frozen.frozen ? html`<div class="frozenbar" role="alert">
         <span class="fb-ico">🛑</span>
         <div class="fb-txt"><b>${t('FLEET FROZEN')}</b> — ${t('all agents paused (docker SIGSTOP); no action or delegation runs')}${d.frozen.by ? html` <span class="fb-meta">· ${d.frozen.by} · ${d.frozen.ts}</span>` : null}</div>

@@ -532,6 +532,10 @@ html[data-density="spacious"] .kpis{gap:20px}
 .frozenbar .fb-ico { font-size: 20px; line-height: 1; }
 .frozenbar .fb-txt { flex: 1; font-size: 13px; color: var(--ink); } .frozenbar .fb-txt b { color: var(--crit); letter-spacing: .04em; }
 .frozenbar .fb-meta { color: var(--ink3); font-family: var(--mono); font-size: 11.5px; }
+/* demo-mode banner — amber, distinct from the red kill-switch bar; reuses .fb-* children */
+.demobar { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 11px 16px; border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 15%, var(--panel)); border: 1px solid var(--warn); }
+.demobar .fb-txt b { color: var(--warn); letter-spacing: .04em; }
 .killrow { display: flex; align-items: center; gap: 16px; } .killtxt { flex: 1; } .killrow .btn { flex: none; }
 .killnote { font-size: 12px; margin-top: 6px; line-height: 1.5; max-width: 62ch; }
 .btn.danger { border-color: var(--crit); color: var(--crit); } .btn.danger:hover { background: color-mix(in srgb, var(--crit) 12%, transparent); }
