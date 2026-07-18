@@ -1,6 +1,6 @@
 {
   "_comment": "Config keys whose deviation from the approved baseline counts as a SECURITY regression (vs. a benign pending-review drift). Shared by worker-a (drift detection) and team-lead (reporting).",
-  "_updated": "2026-06-16 — UPnP/WPS/DoS hard-compliance; remote syslog accepted as-is per user approval (moved out, no alert)",
+  "_updated": "2026-07-18 — added telnet/samba/ftp/ddns/aiprotection so the Attack-surface panel shows a real hardened/exposed verdict instead of 'nvram-only' (these map 1:1 to auto remediations in the action catalog; drift check is present-guarded in run_monitor so a key the device doesn't report can't false-positive)",
   "ebg19p": [
     "ssh.password_login",
     "ssh.wan_access",
@@ -9,6 +9,11 @@
     "firewall.wan_to_lan.default",
     "firewall.dos_protection",
     "upnp.enabled",
-    "wps.enabled"
+    "wps.enabled",
+    "telnet.enabled",
+    "samba.enabled",
+    "ftp.enabled",
+    "ddns.enabled",
+    "aiprotection.enabled"
   ]
 }

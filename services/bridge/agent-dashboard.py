@@ -381,7 +381,11 @@ def _demo_payload():
     nodes = [
         {"label": "lead", "name": "team-lead", "zone": "", "role": "Front desk · Telegram / Email intake", "role_en": "Front desk · intake", "caps": ["intake"], "alive": True, "up": True, "tag": "lead", "port": 8642, "alerts": 0, "monitor": []},
         {"label": "A", "name": "worker-a", "zone": "zone A", "role": "IT 運維 / 網路管理", "role_en": "IT ops / network", "caps": ["monitor", "fix", "cert"], "alive": True, "up": True, "tag": "ops", "port": 18791, "alerts": 2,
-         "monitor": [{"asset": "asus-ebg19p-01", "status": "ok", "offline": False, "regressions": ["wps.enabled", "webui.wan_access"], "pending": ["ntp.server"], "health": {"cpu": 31, "mem": 46, "temp": 52}}],
+         "monitor": [{"asset": "asus-ebg19p-01", "status": "ALERT(4 安全偏離)", "offline": False,
+                      # a device that has drifted: WPS on, WAN web admin on, Telnet on, AiProtection off →
+                      # 4 exposed controls in the Attack-surface panel; the rest verify as hardened.
+                      "regressions": ["wps.enabled", "webui.wan_access", "telnet.enabled", "aiprotection.enabled"],
+                      "pending": ["ntp.server"], "health": {"cpu": 31, "mem": 46, "temp": 52}}],
          "assets": {"count": 3, "unknown": 1, "list": [
              {"mac": "AA:BB:CC:00:11:22", "ip": "192.168.50.10", "name": "nas-01", "type": "9", "conn": "wired", "sdn": "DEFAULT", "known": True},
              {"mac": "AA:BB:CC:33:44:55", "ip": "192.168.50.24", "name": "tony-mbp", "type": "4", "conn": "wifi", "sdn": "DEFAULT", "known": True},
@@ -400,11 +404,15 @@ def _demo_payload():
          "cve": {"findings": [
              {"cve": "CVE-2024-3596", "component": "freeradius-server", "our_version": "3.2.3", "fixed_in": "3.2.5", "asset": "lab-asus-ebg19p-01", "severity": "High"},
              {"cve": "CVE-2023-48795", "component": "dropbear", "our_version": "2023.80", "fixed_in": "2024.84", "asset": "lab-asus-ebg19p-01", "severity": "Medium"}]},
-         "source": {"sast_engine": "semgrep", "sast_source": "asuswrt-merlin.ng@main", "sbom": 312, "sbom_source": "multi-ecosystem parse", "sast_triaged": 2, "nemotron_reviewed_files": 4, "design": [],
-                    "sbom_list": [{"name": "openssl", "version": "3.0.12"}, {"name": "dropbear", "version": "2023.80"}, {"name": "freeradius-server", "version": "3.2.3"}, {"name": "libexpat", "version": "2.4.1"}],
+         "source": {"sast_engine": "semgrep", "sast_source": "RMerl/asuswrt-merlin.ng @ main", "sbom": 312, "sbom_source": "RMerl/asuswrt-merlin.ng @ main · multi-ecosystem parse", "sast_triaged": 3, "nemotron_reviewed_files": 4, "design": [],
+                    "sbom_list": [{"name": "openssl", "version": "3.0.12"}, {"name": "dropbear", "version": "2023.80"}, {"name": "freeradius-server", "version": "3.2.3"}, {"name": "libexpat", "version": "2.4.1"}, {"name": "curl", "version": "8.4.0"}, {"name": "dnsmasq", "version": "2.90"}],
+                    # real files on RMerl/asuswrt-merlin.ng@main — the permalinks resolve so a live demo can click through
                     "sast_list": [
-                        {"cwe": "CWE-798 hardcoded-credentials", "file": "router/httpd/web.c", "line": 142, "engine": "semgrep", "violates_design": "", "patch_verified": True, "triage": {"verdict": "confirmed"}, "url": "https://github.com/RMerl/asuswrt-merlin.ng/blob/main/router/httpd/web.c#L142"},
-                        {"cwe": "CWE-78 os-command-injection", "file": "nvram/nvram.c", "line": 88, "engine": "semgrep", "triage": {"verdict": "needs-review"}}]}},
+                        {"cwe": "CWE-798 hardcoded-credentials", "file": "web.c", "upstream_path": "release/src/router/httpd/web.c", "line": 1487, "engine": "semgrep", "violates_design": "", "patch_verified": True, "triage": {"verdict": "confirmed"}, "url": "https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/httpd/web.c#L1487"},
+                        {"cwe": "CWE-78 os-command-injection", "file": "firewall.c", "upstream_path": "release/src/router/rc/firewall.c", "line": 910, "engine": "semgrep", "triage": {"verdict": "confirmed"}, "url": "https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/rc/firewall.c#L910"},
+                        {"cwe": "CWE-120 unbounded-copy", "file": "cgi.c", "upstream_path": "release/src/router/httpd/cgi.c", "line": 212, "engine": "semgrep", "triage": {"verdict": "needs-review"}, "url": "https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/httpd/cgi.c#L212"},
+                        {"cwe": "CWE-134 format-string", "file": "httpd.c", "upstream_path": "release/src/router/httpd/httpd.c", "line": 560, "engine": "nemotron", "triage": {"verdict": "needs-review"}, "url": "https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/httpd/httpd.c#L560"},
+                        {"cwe": "CWE-676 dangerous-function", "file": "init.c", "upstream_path": "release/src/router/rc/init.c", "line": 305, "engine": "semgrep", "violates_design": "no-raw-system", "triage": {"verdict": "confirmed"}, "url": "https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/rc/init.c#L305"}]}},
         {"label": "C", "name": "worker-c", "zone": "zone C", "role": "變更治理 / QA 監督", "role_en": "change governance / QA", "caps": ["review", "backup", "curate"], "alive": True, "up": True, "tag": "gov", "port": 18793, "alerts": 0, "monitor": []},
     ]
     d = {

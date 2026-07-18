@@ -131,5 +131,34 @@ class TestRuntimeGate(unittest.TestCase):
         wi._CATALOG_TRIED = False                       # reset so a later call re-loads cleanly
 
 
+class TestAttackSurfaceDriftMap(unittest.TestCase):
+    """The Security page's Attack-surface panel maps each auto nvram remediation to a baseline-drift
+    key so it can show hardened/exposed. A control with no mapping renders the opaque 'nvram-only'
+    state — so every auto nvram catalog action MUST have an ATTACK_SURFACE_DRIFT entry, and each mapped
+    drift key must be a real baseline security key. This guard stops 'nvram-only' from silently
+    reappearing when a new auto action is added to the catalog."""
+    import re as _re
+
+    def _drift_map(self):
+        js = open(os.path.join(ROOT, "services/bridge/web/app.js"), encoding="utf-8").read()
+        block = self._re.search(r"const ATTACK_SURFACE_DRIFT = \{(.*?)\};", js, self._re.S).group(1)
+        return dict(self._re.findall(r"'([\w-]+)':\s*'([\w.]+)'", block))
+
+    def test_every_auto_nvram_action_has_a_drift_mapping(self):
+        drift = self._drift_map()
+        auto_nvram = {a["id"] for a in CAT["actions"]
+                      if a.get("approval_tier") == "auto" and str((a.get("effect") or {}).get("type", "")).startswith("nvram")}
+        unmapped = auto_nvram - set(drift)
+        self.assertEqual(unmapped, set(), f"auto nvram actions with no drift mapping (would show 'nvram-only'): {unmapped}")
+
+    def test_mapped_drift_keys_are_real_baseline_security_keys(self):
+        import json
+        drift = self._drift_map()
+        with open(os.path.join(ROOT, "knowledge/security-keys.json"), encoding="utf-8") as f:
+            sec = set(json.load(f).get("ebg19p", []))
+        missing = {k for k in drift.values() if k not in sec}
+        self.assertEqual(missing, set(), f"drift keys not tracked in security-keys.json (won't ever flag exposed): {missing}")
+
+
 if __name__ == "__main__":
     unittest.main()

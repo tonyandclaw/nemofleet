@@ -41,6 +41,7 @@ SSHE="$(gv sshd_enable)"; SSHP="$(gv sshd_pass)"; TEL="$(gv telnetd_enable)"; FW
 DOS="$(gv fw_dos_x)"; UP="$(gv upnp_enable)"; WPS="$(gv wps_enable)"; DMZ="$(gv dmz_ip)"
 VTS="$(gv vts_enable_x)"; WGS="$(gv wgs_enable)"; LOGIP="$(gv log_ipaddr)"; SMB="$(gv st_samba_mode)"
 DPI="$(gv bwdpi_db_enable)"; WPROTO="$(gv wan0_proto)"; SSID="$(gv wl0_ssid)"; UPT="$(gh 'uptime()' | grep -oE '[0-9]+ secs' | grep -oE '[0-9]+')"
+FTP="$(gv enable_ftp)"; DDNS="$(gv ddns_enable_x)"   # nvram keys are the same ones worker-a's remediation writes (EBG_ACTIONS)
 CLIENTS="$(gh 'get_clientlist()' | grep -oc '"mac":' || true)"
 
 CONF="$(cat <<CONF
@@ -67,6 +68,8 @@ dmz.enabled = $([ -n "$DMZ" ] && echo true || echo false)
 portforward.enabled = $(b "$VTS")
 vpn.server.enabled = $(b "$WGS")
 samba.enabled = $([ -n "$SMB" ] && [ "$SMB" != "0" ] && echo true || echo false)
+ftp.enabled = $(b "$FTP")
+ddns.enabled = $(b "$DDNS")
 aiprotection.enabled = $(b "$DPI")
 wan.proto = ${WPROTO:-unknown}
 wifi.ssid = ${SSID:-unknown}

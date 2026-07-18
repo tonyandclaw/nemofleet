@@ -16,8 +16,10 @@ class TestKnowledge(unittest.TestCase):
 
     def test_security_keys_shared_definition(self):
         keys = knowledge.security_keys("ebg19p")
-        self.assertEqual(len(keys), 8)
-        for k in ("wps.enabled", "upnp.enabled", "ssh.password_login", "firewall.dos_protection"):
+        self.assertGreaterEqual(len(keys), 8)   # the tracked set grows as more auto remediations get a drift key
+        # the original core set + the controls added so the Attack-surface panel shows a real verdict
+        for k in ("wps.enabled", "upnp.enabled", "ssh.password_login", "firewall.dos_protection",
+                  "telnet.enabled", "samba.enabled", "ftp.enabled", "ddns.enabled", "aiprotection.enabled"):
             self.assertIn(k, keys)
 
     def test_version_stable_and_hashlike(self):

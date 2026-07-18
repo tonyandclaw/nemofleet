@@ -851,7 +851,11 @@ def run_monitor():
         if offline:
             devices.append({"asset": m["asset"], "status": "offline", "offline": True, "regressions": [], "pending_review": []})
             continue
-        reg = [k for k in m["security"] if base and cur.get(k) != base.get(k)]
+        # present-guard: only flag a security key the device ACTUALLY reported (cur has it) and that
+        # differs from baseline. A key the current sync doesn't emit (cur.get→None) is "can't tell",
+        # NOT a regression — so newly-tracked keys can't false-positive on a device/firmware that
+        # doesn't report them. For keys the sync does emit (the working set) behavior is unchanged.
+        reg = [k for k in m["security"] if base and cur.get(k) is not None and cur.get(k) != base.get(k)]
         drift = [k for k in sorted(set(base) | set(cur))
                  if k not in m["security"] and cur.get(k) != base.get(k)] if base else []
         if reg:

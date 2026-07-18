@@ -1229,6 +1229,8 @@ const SastSource = memo(function SastSource({ d }) {
 const ATTACK_SURFACE_DRIFT = {
   'ebg-wps': 'wps.enabled', 'ebg-upnp': 'upnp.enabled', 'ebg-dos': 'firewall.dos_protection',
   'ebg-wanweb': 'webui.wan_access', 'ebg-fw-on': 'firewall.wan_to_lan.default', 'ebg-ssh': 'ssh.wan_access',
+  'ebg-telnet': 'telnet.enabled', 'ebg-samba': 'samba.enabled', 'ebg-ftp': 'ftp.enabled',
+  'ebg-ddns': 'ddns.enabled', 'ebg-aiprotect': 'aiprotection.enabled',
 };
 function attackSurfaceRows(d) {
   const acts = ((d.decision_boundary || {}).actions || []).filter(a => a.approval_tier === 'auto' && String((a.effect || {}).type || '').startsWith('nvram'));
